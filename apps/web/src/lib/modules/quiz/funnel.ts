@@ -91,7 +91,9 @@ export async function claimQuizResult(
 			quizTitle: quiz.title,
 			score: result.profile.score,
 			maxScore: result.profile.maxScore,
-			bandLabel: result.profile.band.label,
+			// Archetype-mode results name the winning archetype; the catch-all
+			// band's advice then points back at the full result page.
+			bandLabel: result.profile.winner?.label ?? result.profile.band.label,
 			advice: result.profile.band.advice,
 			resultUrl: `${deps.baseUrl}/quiz/${quiz.slug}/rezultat/${result.id}`
 		},

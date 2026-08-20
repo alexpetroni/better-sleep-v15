@@ -29,23 +29,56 @@
 	<p class="text-sm text-(--color-ink)/70">{data.quizTitle}</p>
 	<h1 class="mb-6 text-3xl font-bold">{m.quiz_result_heading()}</h1>
 
-	<section
-		class="mb-8 rounded-xl border border-(--color-brand-soft) bg-(--color-brand-soft)/30 p-6"
-	>
-		<p class="mb-1 text-sm text-(--color-ink)/70" data-testid="result-score">
-			{#if data.profile.maxScore !== null}
-				{m.quiz_result_score({ score: data.profile.score, max: data.profile.maxScore })}
-			{:else}
-				{m.quiz_result_score_simple({ score: data.profile.score })}
-			{/if}
-		</p>
-		<h2 class="mb-2 text-2xl font-bold text-(--color-brand)" data-testid="result-band">
-			{data.profile.band.label}
-		</h2>
-		<p data-testid="result-advice">{data.profile.band.advice}</p>
-	</section>
+	{#if data.profile.winner}
+		<!-- Archetype result: named lived experience, no clinical score display. -->
+		<section
+			class="mb-8 rounded-xl border border-(--color-brand-soft) bg-(--color-brand-soft)/30 p-6"
+		>
+			<p class="mb-1 text-sm text-(--color-ink)/70">{m.quiz_result_archetype_kicker()}</p>
+			<h2 class="mb-2 text-3xl font-bold text-(--color-brand)" data-testid="result-archetype">
+				{data.profile.winner.label}
+			</h2>
+			<p class="text-lg" data-testid="result-archetype-essence">{data.profile.winner.essence}</p>
+		</section>
 
-	{#if data.profile.dimensions.length > 0}
+		<section class="mb-8" data-testid="result-archetype-meaning">
+			<h2 class="mb-4 text-lg font-semibold">{m.quiz_result_archetype_meaning()}</h2>
+			{#each data.profile.winner.advice.split('\n\n') as paragraph, i (i)}
+				<p class="mb-4">{paragraph}</p>
+			{/each}
+		</section>
+
+		{#if data.profile.runnerUp}
+			<section
+				class="mb-10 rounded-xl border border-(--color-brand-soft) p-6"
+				data-testid="result-runner-up"
+			>
+				<h2 class="mb-1 text-lg font-semibold">
+					{m.quiz_result_runner_up_heading({ name: data.profile.runnerUp.label })}
+				</h2>
+				<p class="mb-2 text-sm text-(--color-ink)/70">{m.quiz_result_runner_up_note()}</p>
+				<p>{data.profile.runnerUp.essence}</p>
+			</section>
+		{/if}
+	{:else}
+		<section
+			class="mb-8 rounded-xl border border-(--color-brand-soft) bg-(--color-brand-soft)/30 p-6"
+		>
+			<p class="mb-1 text-sm text-(--color-ink)/70" data-testid="result-score">
+				{#if data.profile.maxScore !== null}
+					{m.quiz_result_score({ score: data.profile.score, max: data.profile.maxScore })}
+				{:else}
+					{m.quiz_result_score_simple({ score: data.profile.score })}
+				{/if}
+			</p>
+			<h2 class="mb-2 text-2xl font-bold text-(--color-brand)" data-testid="result-band">
+				{data.profile.band.label}
+			</h2>
+			<p data-testid="result-advice">{data.profile.band.advice}</p>
+		</section>
+	{/if}
+
+	{#if data.profile.dimensions.length > 0 && !data.profile.winner}
 		<section class="mb-10">
 			<h2 class="mb-4 text-lg font-semibold">{m.quiz_result_dimensions()}</h2>
 			<ul class="space-y-3">

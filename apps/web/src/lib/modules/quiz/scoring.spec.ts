@@ -425,7 +425,7 @@ describe('validateScoringConfig — archetype mode', () => {
 	});
 
 	it('rejects archetype mode without archetypes or with malformed entries', () => {
-		const { archetypes: _dropped, ...withoutArchetypes } = ARCH_SCORING;
+		const withoutArchetypes = { ...ARCH_SCORING, archetypes: undefined };
 		expect(validateScoringConfig(ARCH_FORM, withoutArchetypes).join(' ')).toContain('archetypes');
 		const malformed = {
 			...ARCH_SCORING,

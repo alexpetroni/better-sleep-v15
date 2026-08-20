@@ -134,6 +134,51 @@ test('visitor completes the seeded quiz, opts into the funnel, confirms and unsu
 	}
 });
 
+test('visitor walks all 12 archetype questions to a rendered archetype result — no email required', async ({
+	page
+}) => {
+	await page.goto('/quiz/arhetip-somn');
+	await expect(page.getByRole('heading', { name: 'Testul de somn' })).toBeVisible();
+	await expect(page.getByTestId('quiz-intro')).toContainText('3 minute');
+
+	// Step 1 — seara: a Ruminator's evening.
+	await pick(page, 'seara_in_pat', 'reluari');
+	await pick(page, 'seara_corp', 'incordare');
+	await pick(page, 'seara_ganduri', 'discutii');
+	await pick(page, 'seara_amanare', 'devreme');
+	await page.getByRole('button', { name: 'Înainte' }).click();
+
+	// Step 2 — noaptea.
+	await pick(page, 'noapte_treziri', 'trei');
+	await pick(page, 'noapte_cauza', 'greseli');
+	await pick(page, 'noapte_reactie', 'reiau');
+	await pick(page, 'dimineata', 'nota');
+	await page.getByRole('button', { name: 'Înainte' }).click();
+
+	// Step 3 — ziua și tu.
+	await pick(page, 'zi_tipar', 'inghit');
+	await pick(page, 'zi_odihna', 'vinovatie');
+	await pick(page, 'semne_corp', 'replici');
+	await pick(page, 'fraza', 'ru');
+	await page.getByRole('button', { name: 'Trimite răspunsurile' }).click();
+
+	// RU scores 14 (runner-up PE on 5) → the Ruminator result page renders.
+	await expect(page).toHaveURL(/\/quiz\/arhetip-somn\/rezultat\/[a-f0-9-]+$/);
+	await expect(page.getByTestId('result-archetype')).toHaveText('Ruminatorul');
+	await expect(page.getByTestId('result-archetype-essence')).toContainText('Reia scene');
+	await expect(page.getByTestId('result-archetype-meaning')).toContainText('replica perfectă');
+	await expect(page.getByTestId('result-runner-up')).toContainText('Perfecționistul');
+	// Archetype mode shows no clinical score/band UI.
+	await expect(page.getByTestId('result-band')).toHaveCount(0);
+	await expect(page.getByTestId('result-score')).toHaveCount(0);
+	// The deck's promise: the result is fully visible WITHOUT leaving an email —
+	// the email form exists below, strictly optional and unticked.
+	await expect(page.getByTestId('result-email')).toBeVisible();
+	await expect(page.getByTestId('result-consent-newsletter')).not.toBeChecked();
+	// PII: archetype results are personal — never indexed.
+	await expect(page.locator('head meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+});
+
 test('footer newsletter signup starts double opt-in from the blog', async ({ page }, testInfo) => {
 	const siteId = testInfo.project.name as keyof typeof SITE_DB_NAMES;
 	const email = `e2e-footer@example.com`;

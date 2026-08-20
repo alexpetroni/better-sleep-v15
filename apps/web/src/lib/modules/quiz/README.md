@@ -4,9 +4,20 @@ formcomp-powered quizzes with jsonb form schemas + scoring configs, scored
 results, and the email funnel that links results to `modules/crm` subscribers.
 
 - `scoring.ts` — pure engine: per-answer point maps, numeric answers
-  (clamped × multiplier, capped), dimension sums with ro labels, threshold
-  bands (`min`, inclusive, ascending). `validateScoringConfig` returns ro
-  errors for the admin JSON editor.
+  (clamped × multiplier, capped), `weights` (the picked option decides which
+  dimension(s) score), dimension sums with ro labels, threshold bands
+  (`min`, inclusive, ascending). `resultMode: 'archetype'` treats every
+  dimension as an archetype (an `archetypes` record mirrors `dimensions`
+  1:1, validated both ways) and adds `winner`/`runnerUp` to the profile —
+  tie-break: higher score, then declaration order in `dimensions`. Archetype
+  configs still carry one catch-all band for band consumers (result email,
+  admin listings). `validateScoringConfig` returns ro errors for the admin
+  JSON editor.
+- `patterns.ts` — the copy deck's four public sleep patterns mapped to
+  archetype ids (consumed by the landing page and archetype pages).
+- `seed-archetype-quiz.ts` — `/quiz/arhetip-somn`: 12 ro questions, 3 steps,
+  9 archetypes, result copy adapted from `.initialData/archetype-copy/`.
+  The result renders WITHOUT requiring an email (deliberate, per the deck).
 - `validate.ts` — structural form-schema validation WITHOUT runtime-importing
   the formcomp package (its barrel pulls .svelte files, which plain-node
   contexts like the seed script cannot load). Only `import type` from

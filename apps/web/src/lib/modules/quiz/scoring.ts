@@ -269,7 +269,12 @@ export function scoreQuiz(
 		})
 	);
 
-	const profile: QuizProfile = { score, maxScore, band: pickBand(scoring.bands, score), dimensions };
+	const profile: QuizProfile = {
+		score,
+		maxScore,
+		band: pickBand(scoring.bands, score),
+		dimensions
+	};
 
 	if (scoring.resultMode === 'archetype') {
 		// Tie-break is deterministic: the higher score wins; on EQUAL scores the
@@ -368,9 +373,7 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 					typeof value.essence !== 'string' ||
 					typeof value.advice !== 'string'
 				) {
-					errors.push(
-						`Arhetipul "${key}" are nevoie de "label", "essence" și "advice" (texte).`
-					);
+					errors.push(`Arhetipul "${key}" are nevoie de "label", "essence" și "advice" (texte).`);
 				}
 				archetypeKeys.add(key);
 			}
@@ -423,7 +426,9 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 		}
 		if (spec.kind === 'weights') {
 			if (!isRecord(spec.weights)) {
-				errors.push(`${where}: "weights" trebuie să fie un obiect { valoare: { dimensiune: puncte } }.`);
+				errors.push(
+					`${where}: "weights" trebuie să fie un obiect { valoare: { dimensiune: puncte } }.`
+				);
 				continue;
 			}
 			const optionValues = OPTION_TYPES.has(question.type)
@@ -434,15 +439,21 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 					errors.push(`${where}: valoarea "${value}" nu este printre opțiunile întrebării.`);
 				}
 				if (!isRecord(entry)) {
-					errors.push(`${where}: punctajele pentru "${value}" trebuie să fie un obiect { dimensiune: puncte }.`);
+					errors.push(
+						`${where}: punctajele pentru "${value}" trebuie să fie un obiect { dimensiune: puncte }.`
+					);
 					continue;
 				}
 				for (const [dim, points] of Object.entries(entry)) {
 					if (!dimensionKeys.has(dim)) {
-						errors.push(`${where}: dimensiunea "${dim}" (la valoarea "${value}") nu este declarată.`);
+						errors.push(
+							`${where}: dimensiunea "${dim}" (la valoarea "${value}") nu este declarată.`
+						);
 					}
 					if (typeof points !== 'number') {
-						errors.push(`${where}: punctajul pentru "${value}" → "${dim}" trebuie să fie un număr.`);
+						errors.push(
+							`${where}: punctajul pentru "${value}" → "${dim}" trebuie să fie un număr.`
+						);
 					}
 				}
 			}

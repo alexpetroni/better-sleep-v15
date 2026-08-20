@@ -107,7 +107,8 @@ export const ARCHETYPE_QUIZ_FORM: FormConfig = {
 								},
 								{
 									value: 'ritual',
-									label: 'Am nevoie ca totul să fie pregătit perfect: liniște, întuneric, fără surprize'
+									label:
+										'Am nevoie ca totul să fie pregătit perfect: liniște, întuneric, fără surprize'
 								}
 							]
 						}
@@ -155,7 +156,8 @@ export const ARCHETYPE_QUIZ_FORM: FormConfig = {
 								},
 								{
 									value: 'grija',
-									label: 'Un radar pentru ceilalți: copiii, cineva care ar putea avea nevoie de mine'
+									label:
+										'Un radar pentru ceilalți: copiii, cineva care ar putea avea nevoie de mine'
 								},
 								{
 									value: 'alarma',
