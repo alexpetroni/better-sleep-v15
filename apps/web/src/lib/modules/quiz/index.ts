@@ -19,3 +19,5 @@ export {
 } from './scoring.ts';
 export { countQuestions, validateForPublish, validateFormSchema } from './validate.ts';
 export { ARCHETYPE_IDS, SLEEP_PATTERNS, type ArchetypeId, type SleepPattern } from './patterns.ts';
+export { ARCHETYPE_ARTICLES } from './archetype-articles.ts';
+export { ARCHETYPE_PAGES, ARCHETYPE_PAGES_BY_SLUG, type ArchetypePage } from './archetype-pages.ts';
