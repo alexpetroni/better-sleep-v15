@@ -62,12 +62,12 @@ export function defineFunnelSpec(siteId: keyof typeof SITE_DB_NAMES) {
 					checks: { db: 'ok', storage: 'ok' }
 				});
 
-				// --- Home: brand, pillars from config, cookie-consent banner.
+				// --- Home: brand, the BS-5 landing hero, cookie-consent banner.
 				await page.context().clearCookies(); // drop the pre-dismissed consent state
 				await page.goto('/');
 				await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
 				await expect(page.locator('header')).toContainText(site.name);
-				await expect(page.getByTestId('pillar-item')).toHaveCount(site.pillars.length);
+				await expect(page.getByTestId('landing-hero')).toBeVisible();
 
 				await expect(page.getByTestId('cookie-consent')).toBeVisible();
 				await page.getByTestId('consent-accept').click();

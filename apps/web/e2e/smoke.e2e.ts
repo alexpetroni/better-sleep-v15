@@ -5,10 +5,10 @@ import { sleepSite } from '../src/lib/config/sites/sleep.ts';
 // preview server (SITE_ID=sleep) — see playwright.config.ts.
 const site = sleepSite;
 
-test('homepage shows the site name and exactly the active pillars', async ({ page }) => {
+test('homepage shows the site name and the landing hero', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.locator('header')).toContainText(site.name);
-	await expect(page.getByTestId('pillar-item')).toHaveCount(site.pillars.length);
+	await expect(page.getByTestId('landing-hero')).toBeVisible();
 });
 
 test('an active pillar has a landing page', async ({ page }) => {

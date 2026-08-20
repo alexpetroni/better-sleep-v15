@@ -24,6 +24,11 @@ async function expectNoSeriousViolations(page: Page, context: string) {
 }
 
 async function gotoHydrated(page: Page, path: string) {
+	// Audit the reduced-motion rendering: the landing's scroll reveals honor
+	// prefers-reduced-motion and are static there — without this, axe's own
+	// scrolling triggers the reveals and samples text mid-fade, reporting
+	// transient opacity as a contrast violation.
+	await page.emulateMedia({ reducedMotion: 'reduce' });
 	await page.goto(path);
 	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
 }
