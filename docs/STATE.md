@@ -1,4 +1,52 @@
-# STATE — betterSleep after BS-4 articles + archetype pages (2026-08-20)
+# STATE — betterSleep after BS-5 landing page (2026-08-20)
+
+## BS-5 — the landing page: ten deck blocks (2026-08-20)
+
+`/` now implements the copy deck (`.initialData/somnium-landing-copy-deck.md`)
+— ten of its twelve blocks, deck order, Romanian copy verbatim via `home_*`
+Paraglide keys. Blocks 8 (Authority) and 10 (Testimonials) are ABSENT by
+design (deck forbids placeholders); the block-9 "calculator de mai jos"
+sentence was cut (references UI that doesn't exist). Brand renders from site
+config, never hardcoded.
+
+- **Components** — one per block in `lib/components/landing/`: `LandingHero`
+  (min-h-[100dvh] night section; primary CTA → `/quiz/arhetip-somn` via
+  `ARCHETYPE_QUIZ_SLUG`, secondary → `#cum-functioneaza` on the steps block),
+  `LandingCost`, `LandingPatterns`, `LandingReframe`, `LandingSteps`,
+  `LandingNightMap`, `LandingProof`, `LandingObjections` (native `<details>`),
+  `LandingRisk`, `LandingFinalCta`; shared `Eyebrow`/`CtaButton` +
+  `reveal.ts` (IntersectionObserver entry reveals; classes only added by JS,
+  motion rules behind prefers-reduced-motion in `routes/layout.css`).
+- **Patterns → /tipuri.** `+page.server.ts` maps `SLEEP_PATTERNS` ×
+  `ARCHETYPE_PAGES` to 4 cards whose chips link all NINE archetype pages —
+  this is the intended public entry to /tipuri (still not in the nav).
+- **BS-6 seam.** `LandingNightMap` accepts an optional `segmentExtra`
+  snippet (`Snippet<[NightSegment]>`, keys `adormirea`/`somn-profund`/
+  `fereastra-fragila`/`rem`) for per-phase product naming; nothing renders
+  until a caller passes it.
+- **Theme/design.** `sleep.ts` theme gained night tokens (`color-night`,
+  `-raised`, `-ink`, `-muted`, `color-moon`) — dark sections use them via
+  `bg-(--color-…)`. Font is self-hosted Plus Jakarta Sans Variable
+  (`@fontsource-variable/plus-jakarta-sans`, latin-ext) set as `--font-sans`
+  in `routes/layout.css` — same-origin, so the perf no-third-party gate
+  holds. High-end-visual-design skill applied (double-bezel cards, island
+  CTAs, py-24+ rhythm, cubic-bezier(0.32,0.72,0,1) everywhere,
+  transform/opacity-only animation); §2 self-audit recorded in the
+  feat(landing) commit body.
+- **Layout changes.** The (public) layout renders `/` full-bleed (all other
+  pages keep the `max-w-4xl` main, switched on `page.route.id`); the header
+  nav now wraps (360px had 147px of horizontal overflow before).
+- **Tests.** `landing.e2e.ts`: exactly ten `section[data-testid^=landing-]`
+  in deck order (order equality = absence proof for blocks 8/10), hero CTA →
+  quiz, per-card /tipuri click-throughs, accordion opens, no horizontal
+  scroll at 360×740. `landing.spec.ts` (unit, no DB): load shape + all-nine
+  coverage + deck-verbatim ro.json pins. smoke/funnel now assert the hero
+  (pillar grid is gone from `/`). NOTE: `a11y.e2e.ts` audits under
+  `reducedMotion: 'reduce'` — axe's scrolling triggers the reveals and
+  otherwise samples text mid-fade as false contrast violations.
+- Messages: `home_*` rewritten for the deck (old `home_tagline`/
+  `home_pillars_heading` removed); `home_seo_title`/`home_seo_description`
+  carry the deck positioning line.
 
 ## BS-4 — 40 articles seeded + /tipuri archetype pages (2026-08-20)
 
