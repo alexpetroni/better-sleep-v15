@@ -17,6 +17,7 @@ export {
 	getBySlug,
 	listArticles,
 	listPublished,
+	listPublishedBySlugs,
 	listPublishedForSitemap,
 	publishArticle,
 	unpublishArticle,

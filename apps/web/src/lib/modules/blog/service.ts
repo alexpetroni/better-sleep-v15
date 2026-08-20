@@ -239,6 +239,24 @@ export async function listPublished(
 	};
 }
 
+/**
+ * Published articles from an explicit slug list (e.g. an archetype page's
+ * curated reading list), newest first. Unknown or unpublished slugs are
+ * silently absent — the caller renders whatever is actually live.
+ */
+export async function listPublishedBySlugs(
+	deps: BlogDeps,
+	slugs: readonly string[]
+): Promise<Array<{ article: ArticleRow; cover: MediaRow | null }>> {
+	if (slugs.length === 0) return [];
+	return deps.db
+		.select({ article: articles, cover: media })
+		.from(articles)
+		.leftJoin(media, eq(articles.coverMediaId, media.id))
+		.where(and(eq(articles.status, 'published'), inArray(articles.slug, [...slugs])))
+		.orderBy(desc(articles.publishedAt), desc(articles.id));
+}
+
 /** Admin listing: optional status filter and case-insensitive title/slug search. */
 export async function listArticles(
 	deps: BlogDeps,

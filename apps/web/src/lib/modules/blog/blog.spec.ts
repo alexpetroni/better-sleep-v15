@@ -18,6 +18,7 @@ import {
 	getBySlug,
 	listArticles,
 	listPublished,
+	listPublishedBySlugs,
 	listPublishedForSitemap,
 	publishArticle,
 	unpublishArticle,
@@ -181,6 +182,36 @@ describe('pillar visibility follows the site config', () => {
 		expect(page2.items.length).toBeGreaterThanOrEqual(1);
 		const ids = new Set([...page1.items, ...page2.items].map((i) => i.article.id));
 		expect(ids.size).toBe(page1.items.length + page2.items.length);
+	});
+});
+
+describe('listPublishedBySlugs', () => {
+	it('returns only the published subset of the requested slugs, newest first', async () => {
+		const pub1 = await makeArticle('Lista curatoriată unu', ['somn']);
+		const pub2 = await makeArticle('Lista curatoriată doi', ['somn']);
+		const draft = await makeArticle('Lista curatoriată draft', ['somn']);
+		for (const a of [pub1, pub2]) {
+			const r = await publishArticle(deps, a.id);
+			if (!r.ok) throw new Error(r.error);
+		}
+
+		const rows = await listPublishedBySlugs(deps, [
+			pub2.slug,
+			draft.slug,
+			pub1.slug,
+			'slug-inexistent'
+		]);
+		const slugs = rows.map((r) => r.article.slug);
+		expect(slugs).toHaveLength(2);
+		expect(slugs).toContain(pub1.slug);
+		expect(slugs).toContain(pub2.slug);
+		// Newest publishedAt first (both stamped now → tie-broken by id desc).
+		const dates = rows.map((r) => r.article.publishedAt?.getTime() ?? 0);
+		expect(dates).toEqual([...dates].toSorted((a, b) => b - a));
+	});
+
+	it('returns nothing for an empty slug list', async () => {
+		expect(await listPublishedBySlugs(deps, [])).toEqual([]);
 	});
 });
 
