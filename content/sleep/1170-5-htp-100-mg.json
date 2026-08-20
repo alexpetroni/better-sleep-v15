@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "5-htp-100-mg",
+		"name": "5-HTP 100 mg, 30 capsule",
+		"descriptionMd": "Precursor direct al serotoninei, extras din semințele de Griffonia simplicifolia. Serotonina e materia primă din care corpul produce melatonină seara, deci 5-HTP lucrează în amonte de hormonul somnului. Studiat și pentru echilibrul stării de spirit. Nu se combină cu antidepresive fără avizul medicului.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/5-htp-100-mg/), 2026-08-20\n",
+		"priceCents": 6300,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

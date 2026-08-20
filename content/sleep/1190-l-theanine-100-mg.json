@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "l-theanine-100-mg",
+		"name": "L-Teanină 100 mg, 30 capsule",
+		"descriptionMd": "Aminoacidul din ceaiul verde, standardizat la 98% L-teanină. Induce starea de calm alert — relaxează fără să sedeze, motiv pentru care e studiat și pentru calitatea somnului REM și a procesării de peste noapte. Își face efectul în 30–60 de minute și se poate lua și ziua.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/l-theanine-100-mg/), 2026-08-20\n",
+		"priceCents": 5900,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "magnesium-citrate",
+		"name": "Magneziu Citrat 1200 mg, 30 capsule",
+		"descriptionMd": "Citratul e forma de magneziu cu raportul clasic absorbție–preț: susține relaxarea nervoasă și musculară și reduce oboseala, grijile și tensiunea acumulate peste zi. De știut: la doze mari are efect laxativ ușor — dacă ai stomacul sensibil, alege bisglicinatul.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/magnesium-citrate/), 2026-08-20\n",
+		"priceCents": 4900,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

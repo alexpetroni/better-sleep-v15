@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "rhodiola-salidrosides",
+		"name": "Rhodiola Salidrosides 500 mg, 30 capsule",
+		"descriptionMd": "Extract de Rhodiola standardizat în salidrozide, fracțiunea studiată pentru efectul antioxidant și antiinflamator. Reduce stresul și susține echilibrul emoțional, util în anxietate și dispoziție scăzută. Ca orice adaptogen, se ia dimineața și își arată efectul în timp.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/rhodiola-salidrosides/), 2026-08-20\n",
+		"priceCents": 5400,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "nou-shilajit-fulvic-complex",
+		"name": "Shilajit Fulvic Complex 250 mg, 30 capsule",
+		"descriptionMd": "Extract purificat de shilajit, rășina minerală din Himalaya, standardizat în acid fulvic. Acțiune tonică și adaptogenă: susține energia, rezistența la stres și procesele de regenerare. Se ia dimineața — locul lui e în protocolul de zi, nu în cel de seară.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/nou-shilajit-fulvic-complex/), 2026-08-20\n",
+		"priceCents": 7400,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

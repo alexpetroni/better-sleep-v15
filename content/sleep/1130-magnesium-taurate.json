@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "magnesium-taurate",
+		"name": "Magneziu Taurat 1000 mg, 30 capsule",
+		"descriptionMd": "Magneziu combinat cu taurină, aminoacidul cu efect stabilizator asupra sistemului nervos și cardiovascular. Combinația e studiată pentru tensiune arterială și pentru anxietate — utilă când trezirile din a doua parte a nopții vin cu puls ridicat. O capsulă seara.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/magnesium-taurate/), 2026-08-20\n",
+		"priceCents": 4900,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "energyhelp-14-plicuri-5-g",
+		"name": "EnergyHelp, 14 plicuri x 6 g",
+		"descriptionMd": "Formulă complexă sub formă de plicuri, gândită pentru susținerea minții și a corpului în perioadele solicitante. Se dizolvă în apă și se ia dimineața sau la prânz. Util când oboseala de peste zi îți dă peste cap ritmul, nu ca supliment de seară.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/energyhelp-14-plicuri-5-g/), 2026-08-20\n",
+		"priceCents": 5400,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"version": 2,
+	"type": "product",
+	"pillars": [
+		"somn"
+	],
+	"media": [],
+	"product": {
+		"slug": "glicina-1000-mg-60-capsule",
+		"name": "Glicină 1000 mg, 60 capsule",
+		"descriptionMd": "Aminoacid cu rol de neurotransmițător inhibitor, folosit seara pentru relaxare și un somn mai odihnitor. Studiile leagă glicina de scăderea temperaturii corpului înainte de adormire — exact semnalul de care corpul are nevoie ca să inițieze somnul. 100% L-glicină, fără adaosuri.\n\nSursă preț: [zenyth.ro](https://zenyth.ro/produse/glicina-1000-mg-60-capsule/), 2026-08-20\n",
+		"priceCents": 7900,
+		"currency": "ron",
+		"status": "active",
+		"coverMediaId": null,
+		"gallery": [],
+		"stock": 25
+	}
+}
