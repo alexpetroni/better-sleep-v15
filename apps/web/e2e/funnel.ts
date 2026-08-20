@@ -15,8 +15,8 @@ import { E2E_STRIPE_WEBHOOK_SECRET, SITE_DB_NAMES, siteDatabaseUrl } from './env
  * THE launch-readiness walk: one visitor goes home → pillar page → article →
  * quiz → subscribe (dry-run emails) → shop → cart → mocked checkout (signed
  * webhook creates the order) → chat, plus consent banner, legal pages and the
- * health endpoint. One spec file per site config (funnel-sleep / funnel-life)
- * instantiates this against its own preview server + database.
+ * health endpoint. The site's spec file (funnel-sleep) instantiates this
+ * against the preview server + database.
  *
  * Everything external is mocked/dry-run by the preview servers' env: email
  * EMAIL_DRYRUN, Stripe mock gateway, mock chat provider.

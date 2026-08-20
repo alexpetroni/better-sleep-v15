@@ -1,16 +1,14 @@
 import { defineConfig } from '@playwright/test';
 import { E2E_STRIPE_WEBHOOK_SECRET, siteDatabaseUrl } from './e2e/env.ts';
 
-// One build serves both sites: SITE_ID is read at runtime, so we start two
-// preview servers from the same output. `pnpm test:e2e` builds first.
-// Each server gets its own site database (auth sessions live in the DB).
-// EMAIL_DRYRUN, an EMPTY STRIPE_SECRET_KEY and the MOCK chat and courier
-// providers are forced: an e2e run must never deliver real email, call
-// Stripe, an LLM or a courier API.
+// One preview server for the single betterSleep site; `pnpm test:e2e` builds
+// first. EMAIL_DRYRUN, an EMPTY STRIPE_SECRET_KEY and the MOCK chat and
+// courier providers are forced: an e2e run must never deliver real email,
+// call Stripe, an LLM or a courier API.
 // Analytics points at the app's OWN origin so nothing ever leaves localhost:
 // the script URL 404s harmlessly except in analytics-consent.e2e.ts, which
 // intercepts it to prove the consent gating end-to-end.
-function siteEnv(siteId: 'sleep' | 'life', port: number) {
+function siteEnv(siteId: 'sleep', port: number) {
 	return {
 		SITE_ID: siteId,
 		DATABASE_URL: siteDatabaseUrl(siteId),
@@ -25,7 +23,7 @@ function siteEnv(siteId: 'sleep' | 'life', port: number) {
 		SAMEDAY_PICKUP_POINT: '',
 		PUBLIC_ANALYTICS_PROVIDER: 'plausible',
 		PUBLIC_ANALYTICS_HOST: `http://localhost:${port}`,
-		PUBLIC_ANALYTICS_SITE_ID: siteId === 'sleep' ? 'bettersleep.ro' : 'betterlife.ro'
+		PUBLIC_ANALYTICS_SITE_ID: 'bettersleep.ro'
 	};
 }
 
@@ -52,20 +50,13 @@ export default defineConfig({
 	testMatch: '**/*.e2e.{ts,js}',
 	globalSetup: './e2e/global-setup.ts',
 	projects: [
-		{ name: 'sleep', use: { baseURL: 'http://localhost:4173', storageState: consentDismissed } },
-		{ name: 'life', use: { baseURL: 'http://localhost:4174', storageState: consentDismissed } }
+		{ name: 'sleep', use: { baseURL: 'http://localhost:4173', storageState: consentDismissed } }
 	],
 	webServer: [
 		{
 			command: 'npm run preview -- --port 4173 --strictPort',
 			port: 4173,
 			env: siteEnv('sleep', 4173),
-			reuseExistingServer: false
-		},
-		{
-			command: 'npm run preview -- --port 4174 --strictPort',
-			port: 4174,
-			env: siteEnv('life', 4174),
 			reuseExistingServer: false
 		}
 	]

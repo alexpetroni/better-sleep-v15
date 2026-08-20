@@ -6,9 +6,8 @@ import { subscribers } from '../src/lib/modules/crm/schema.ts';
 import { E2E_ADMIN, SITE_DB_NAMES, siteDatabaseUrl } from './env.ts';
 import { login } from './helpers.ts';
 
-// The full lead funnel, on BOTH sites, against the seeded sleep quiz
-// (`somn` is active on sleep AND life): a visitor completes the quiz, sees
-// the result on-page, leaves an email WITH newsletter consent → both emails
+// The full lead funnel against the seeded sleep quiz: a visitor completes
+// the quiz, sees the result on-page, leaves an email WITH newsletter consent → both emails
 // land in email_log as dry-runs → the confirm link confirms, the unsubscribe
 // link revokes → the admin sees the subscriber and the quiz result.
 

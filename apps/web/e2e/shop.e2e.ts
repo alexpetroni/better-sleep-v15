@@ -8,8 +8,8 @@ import { DEMO_PRODUCTS } from '../src/lib/modules/shop/seed-products.ts';
 import { E2E_ADMIN, E2E_STRIPE_WEBHOOK_SECRET, SITE_DB_NAMES, siteDatabaseUrl } from './env.ts';
 import { login } from './helpers.ts';
 
-// The shop happy path on BOTH sites, against the seeded demo catalog (all
-// products are somn-tagged, active on sleep AND life): browse → add 2
+// The shop happy path against the seeded demo catalog (all products are
+// somn-tagged): browse → add 2
 // products → edit a quantity → checkout-session creation (MOCK gateway;
 // the redirect URL is asserted, Stripe is never called) → a SIGNED
 // simulated webhook creates the order → success page + admin see it.

@@ -4,7 +4,7 @@ import { loadRootEnv } from '../scripts/env.ts';
 
 loadRootEnv();
 
-export const SITE_DB_NAMES = { sleep: 'better_sleep', life: 'better_life' } as const;
+export const SITE_DB_NAMES = { sleep: 'better_sleep' } as const;
 
 export function siteDatabaseUrl(siteId: keyof typeof SITE_DB_NAMES): string {
 	const base = process.env.DATABASE_URL;

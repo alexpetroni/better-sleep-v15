@@ -3,11 +3,9 @@ import path from 'node:path';
 import { E2E_EDITOR } from './env.ts';
 import { login } from './helpers.ts';
 
-// Full blog flow, on BOTH sites: an editor uploads a cover to the media
-// library, writes + publishes an article tagged `somn`, and the public site
-// shows it with provider-served images, correct SEO tags and a sitemap entry.
-// (`somn` is active on sleep AND life, so publishing on the life site also
-// proves the DoD case "an article tagged only sleep appears on life".)
+// Full blog flow: an editor uploads a cover to the media library, writes +
+// publishes an article tagged `somn`, and the public site shows it with
+// provider-served images, correct SEO tags and a sitemap entry.
 
 // Own fixture file: media.e2e.ts runs in parallel against the same library,
 // so filename-based filters must not collide across suites.

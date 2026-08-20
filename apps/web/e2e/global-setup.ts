@@ -1,4 +1,4 @@
-// Runs once before the e2e suite: migrate both site databases, seed the staff
+// Runs once before the e2e suite: migrate the site database, seed the staff
 // users the admin tests log in with, and clear rate-limit counters left by a
 // previous run (their 15-minute window outlives a test cycle).
 import path from 'node:path';
