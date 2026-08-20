@@ -16,6 +16,7 @@ export const sleepSite: SiteConfig = {
 	nav: [
 		{ label: 'Acasă', href: '/' },
 		{ label: 'Somn', href: '/sanatate/somn' },
+		{ label: 'Testul de somn', href: '/quiz/arhetip-somn' },
 		{ label: 'Blog', href: '/blog' },
 		{ label: 'Magazin', href: '/magazin' },
 		{ label: 'Asistent', href: '/asistent' }
