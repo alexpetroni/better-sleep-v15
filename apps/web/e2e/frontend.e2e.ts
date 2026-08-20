@@ -13,13 +13,10 @@ test('home page ships full SEO metadata and hreflang alternates', async ({ page 
 	await expect(head.locator('meta[property="og:title"]')).toHaveAttribute('content', /.+/);
 	await expect(head.locator('meta[property="og:type"]')).toHaveAttribute('content', 'website');
 
-	// hreflang: one alternate per locale + x-default, as real <link> tags
-	// (the old display:none anchor hack advertised nothing to crawlers).
+	// hreflang: single-locale site — exactly ro + x-default as real <link>
+	// tags, and NO leftover en alternate from the removed second locale.
 	await expect(head.locator('link[rel="alternate"][hreflang="ro"]')).toHaveCount(1);
-	await expect(head.locator('link[rel="alternate"][hreflang="en"]')).toHaveAttribute(
-		'href',
-		/\/en\/?$/
-	);
+	await expect(head.locator('link[rel="alternate"][hreflang="en"]')).toHaveCount(0);
 	await expect(head.locator('link[rel="alternate"][hreflang="x-default"]')).toHaveCount(1);
 });
 

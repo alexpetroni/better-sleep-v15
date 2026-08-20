@@ -4,7 +4,7 @@ export const sleepSite: SiteConfig = {
 	id: 'sleep',
 	name: 'Better Sleep',
 	domain: 'bettersleep.ro',
-	locales: ['ro', 'en'],
+	locales: ['ro'],
 	pillars: ['somn'],
 	theme: {
 		'color-brand': 'oklch(0.45 0.14 275)',

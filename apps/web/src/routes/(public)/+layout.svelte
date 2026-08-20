@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
-	import { baseLocale, deLocalizeUrl, locales, localizeHref } from '$lib/paraglide/runtime';
+	import { baseLocale, deLocalizeUrl, localizeHref } from '$lib/paraglide/runtime';
 	import { canonicalUrl } from '$lib/seo';
 	import { AnalyticsLoader } from '$lib/modules/analytics';
 	import { ChatWidget } from '$lib/modules/chat';
@@ -22,16 +22,13 @@
 	let localDecision = $state<CookieConsentValue | null>(null);
 	const consentDecision = $derived(localDecision ?? data.cookieConsent);
 
-	// hreflang alternates for every public page: the locale-less (ro, base)
-	// pathname localized per locale, absolute via PUBLIC_SITE_URL. x-default
-	// points at the base locale.
+	// Single-locale site (ro only): one self-referential hreflang for the base
+	// locale plus x-default, absolute via PUBLIC_SITE_URL.
 	const basePath = $derived(deLocalizeUrl(page.url).pathname);
+	const baseHref = $derived(canonicalUrl(localizeHref(basePath, { locale: baseLocale })));
 	const alternates = $derived([
-		...locales.map((locale) => ({
-			hreflang: locale as string,
-			href: canonicalUrl(localizeHref(basePath, { locale }))
-		})),
-		{ hreflang: 'x-default', href: canonicalUrl(localizeHref(basePath, { locale: baseLocale })) }
+		{ hreflang: baseLocale as string, href: baseHref },
+		{ hreflang: 'x-default', href: baseHref }
 	]);
 </script>
 
