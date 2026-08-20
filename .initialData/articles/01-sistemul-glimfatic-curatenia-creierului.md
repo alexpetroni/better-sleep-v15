@@ -1,0 +1,41 @@
+# Sistemul glimfatic: echipa de curățenie care lucrează doar când dormi
+
+Creierul produce deșeuri metabolice toată ziua, dar nu are un sistem limfatic clasic prin care să le elimine. Folosește altceva, un mecanism propriu, descoperit abia în 2012, care funcționează aproape exclusiv în timpul somnului profund. Când acel mecanism nu primește suficiente ore de funcționare, resturile se acumulează. Iar ceața cognitivă de a doua zi nu e doar oboseală.
+
+- Sistemul glimfatic funcționează ca o rețea de spălare care curăță deșeurile metabolice ale creierului
+- Se activează în somnul profund cu unde lente; în starea de veghe merge la o fracțiune din capacitate
+- Celulele gliale se contractă cu până la 60% în somn, deschizând canale prin care lichidul cefalorahidian spală țesutul cerebral
+- Beta-amiloidul, proteina asociată cu Alzheimer, e printre substanțele eliminate
+- O singură noapte de somn scurt crește deja nivelul de beta-amiloid măsurabil în creier
+
+## Cum funcționează spălarea creierului
+
+Imaginează-ți un oraș care își poate curăța străzile doar noaptea, când traficul se oprește. Ziua, mașinile circulă continuu și nu există loc pentru autospecialele de curățenie. Noaptea, străzile se golesc, iar echipele de salubrizare lucrează nestingherite. Cam așa funcționează sistemul glimfatic.
+
+Maiken Nedergaard și echipa ei de la Universitatea din Rochester au descoperit în 2012 că în timpul somnului profund, celulele gliale (celulele de suport ale creierului) se contractă, reducându-și volumul cu până la 60%. Contracția asta deschide canale între celule prin care lichidul cefalorahidian curge liber prin țesutul cerebral, spală resturile metabolice acumulate peste zi și le transportă spre sistemul circulator. De acolo, ficatul și rinichii le elimină.
+
+Printre substanțele curățate se află beta-amiloidul, o proteină care, acumulată în exces, formează plăcile asociate cu boala Alzheimer. Un studiu din Science (2013) a arătat că rata de eliminare a beta-amiloidului e de circa două ori mai mare în timpul somnului decât în starea de veghe. Nu e un proces care funcționează parțial pe fundal în timpul zilei. E un sistem care are nevoie de condiții specifice ca să pornească la capacitate reală.
+
+Condiția esențială: somnul cu unde lente, faza cea mai adâncă a somnului non-REM. Laura Lewis de la Universitatea Boston a filmat acest proces în 2019 și a publicat rezultatele tot în Science. Se văd valuri mari de lichid cefalorahidian care pulsează prin creier, sincronizate cu undele lente ale somnului. Când undele lente lipsesc sau sunt fragmentate, pulsurile se reduc.
+
+## De ce contează asta practic
+
+Nu doar durata somnului contează, ci calitatea primei jumătăți a nopții. Somnul profund cu unde lente se concentrează în primele 3-4 ore după adormire. Dacă fereastra asta e perturbată (alcool, cameră prea caldă, apnee), sistemul glimfatic funcționează sub capacitate chiar dacă petreci 8 ore în pat.
+
+Cât de mult contează? Ehsan Shokri-Kojori și colegii de la NIH au privat de somn participanți o singură noapte și apoi le-au făcut scanări PET. Rezultat: creștere semnificativă a acumulării de beta-amiloid în hipocamp și talamus, zone esențiale pentru memorie. O singură noapte. Nu luni de privare cronică.
+
+Ceața cognitivă pe care o simți după o noapte proastă nu e doar "oboseală." E, în parte, rezultatul faptului că resturile metabolice din ziua anterioară sunt încă acolo, interferând cu funcționarea normală a neuronilor.
+
+## Ce ajută sistemul glimfatic să funcționeze
+
+Primul lucru: protejarea somnului profund din prima parte a nopții. Asta înseamnă o oră de culcare consistentă, fiindcă ritmul circadian determină când anume corpul intră în faza de unde lente. O cameră răcoroasă (18-20 de grade) susține tranziția spre somn profund. O cameră prea caldă reduce durata acestei faze.
+
+Alcoolul merită menționat separat. Deși ajută la adormire, fragmentează somnul profund din prima jumătate a nopții, exact fereastra în care sistemul glimfatic lucrează cel mai intens. Chiar și cantități moderate, consumate cu 3-4 ore înainte de culcare, au acest efect.
+
+Poziția corpului pare să conteze și ea. Un studiu din 2015 (Hedok Lee, Stony Brook, publicat în Journal of Neuroscience) a arătat pe modele animale că drenajul glimfatic e mai eficient în poziția laterală decât pe spate sau pe burtă. Datele la oameni sunt încă limitate, dar direcția e aceeași.
+
+Exercițiul fizic regulat amplifică funcția glimfatică, nu doar prin îmbunătățirea somnului, ci și prin mecanisme independente legate de fluxul sanguin cerebral. Nu trebuie să fie intens: 30 de minute de mers pe jos zilnic au efect măsurabil.
+
+Hidratarea adecvată pe parcursul zilei susține volumul de lichid cefalorahidian disponibil pentru spălare. Deshidratarea cronică, frecventă la oamenii care beau puțină apă sau prea multă cafea, poate reduce eficiența procesului.
+
+Sistemul glimfatic nu recuperează într-o singură noapte ce s-a pierdut în săptămâni de somn fragmentat. Dar nici nu are nevoie de perfecțiune. Un tipar regulat de somn profund, neîntrerupt, în prima parte a nopții, suficient de des ca echipa de curățenie să nu rămână în urmă.

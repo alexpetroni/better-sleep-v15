@@ -1,0 +1,123 @@
+# Local development services: Postgres and MinIO (S3-compatible storage).
+# Postgres/MinIO dev credentials have local-only defaults overridable from the
+# environment / root .env.
+#
+# imgproxy is NOT started by default. Local dev and the test suite run on
+# IMAGE_PROVIDER=direct — the browser fetches originals straight from MinIO, no
+# transformer needed — and production uses Cloudflare Image Transformations,
+# which have no local equivalent to run (DEPLOYMENT.md §6). The container is
+# kept behind a profile for the self-hosted (IMAGE_PROVIDER=imgproxy) target:
+#
+#   docker compose --profile imgproxy up -d
+#
+# Its signing key/salt deliberately have NO defaults — set IMGPROXY_KEY and
+# IMGPROXY_SALT in .env first (see .env.example).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: better
+      POSTGRES_PASSWORD: better
+      POSTGRES_DB: better_sleep
+    ports:
+      # Host port is configurable because 5432 is often taken on dev machines.
+      - '${DB_PORT:-5433}:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U better -d better_sleep']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-better-media}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-better-media-secret}
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  imgproxy:
+    image: ghcr.io/imgproxy/imgproxy:v3
+    profiles: ['imgproxy']
+    restart: unless-stopped
+    environment:
+      # Signature is mandatory: without valid key/salt-signed URLs imgproxy
+      # 403s. NO fallback values on purpose (audit H3): a committed default
+      # pair would make signing forgeable on any deploy that inherits it, and
+      # an EMPTY pair would disable signing entirely. Compose refuses to start
+      # until .env provides both — generate with `openssl rand -hex 32`.
+      IMGPROXY_KEY: ${IMGPROXY_KEY:?generate with `openssl rand -hex 32` and put in .env}
+      IMGPROXY_SALT: ${IMGPROXY_SALT:?generate with `openssl rand -hex 32` and put in .env}
+      # SVG sources pass through unrasterized, so strip scripts/event handlers
+      # before serving (audit M1 — stored XSS via a crafted SVG upload). The
+      # app additionally serves SVGs with Content-Disposition: attachment.
+      IMGPROXY_SANITIZE_SVG: 'true'
+      # Source caps (audit L7): refuse sources bigger than the app's upload
+      # limit (15 MiB, MAX_UPLOAD_BYTES) or denser than 50 megapixels, so a
+      # decompression-bomb object can't pin the transformer.
+      IMGPROXY_MAX_SRC_FILE_SIZE: '15728640'
+      IMGPROXY_MAX_SRC_RESOLUTION: '50'
+      # Source images come from the s3:// bucket; inside the compose network
+      # MinIO is reached by service name, not the host-published port.
+      IMGPROXY_USE_S3: 'true'
+      IMGPROXY_S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-better-media}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-better-media-secret}
+      AWS_REGION: ${S3_REGION:-us-east-1}
+    ports:
+      - '${IMGPROXY_PORT:-8888}:8080'
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'imgproxy', 'health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Local Neon-protocol stack (OPT-IN: `docker compose --profile neon up -d`).
+  # The exact WebSocket<->TCP proxy the @neondatabase/serverless driver speaks
+  # to real Neon, built from a pinned commit (see docker/wsproxy/Dockerfile for
+  # why source, not the non-pullable prebuilt image), pointing at the `db`
+  # service. Lets `pnpm test:neon` run the whole suite with DB_DRIVER=neon over
+  # a real WebSocket connection without a Neon account. Not part of the default
+  # profile on purpose: production Neon provides this proxy itself.
+  neon-proxy:
+    profiles: ['neon']
+    build: ./docker/wsproxy
+    restart: unless-stopped
+    environment:
+      LISTEN_PORT: ':80'
+      # The driver appends `?address=host:port`; only the compose Postgres is
+      # an allowed target (the client passes `db:5432` — see NEON_WS_PROXY in
+      # .env.example and `localWsProxyConfig` in src/lib/db/client.ts).
+      ALLOW_ADDR_REGEX: '^db:5432$'
+    ports:
+      - '${NEON_WS_PROXY_PORT:-5488}:80'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # wsproxy serves Prometheus metrics on :2112 — cheap liveness signal.
+      test: ['CMD', 'wget', '-qO/dev/null', 'http://localhost:2112/metrics']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db-data:
+  minio-data:

@@ -1,0 +1,41 @@
+# Copiii care nu dorm: problema e de obicei ce se întâmplă după trezire
+
+Majoritatea problemelor de somn la copii sunt comportamentale, nu medicale. Cercetarea pediatrică e destul de clară în privința asta. Dar intervențiile care funcționează sunt adesea contraintuitive, iar cultura parentală promovează frecvent exact opusul.
+
+- Între 20 și 30% dintre copiii preșcolari au dificultăți persistente de adormire sau treziri nocturne frecvente
+- Cauza e aproape întotdeauna comportamentală (asocieri de adormire), nu medicală
+- Copiii care adorm doar în brațe, cu biberonul sau cu părintele lângă ei nu știu să re-adoarmă singuri când se trezesc între cicluri de somn
+- Trezirile nocturne la copii sunt normale fiziologic; problema e ce se întâmplă după trezire
+- Metodele de sleep training cu suport parental gradat au dovezi solide de eficacitate și nu produc efecte negative pe termen lung
+- Ecranele înainte de culcare afectează somnul copiilor mai puternic decât al adulților, din cauza pupilelor mai mari și a sensibilității circadiene mai pronunțate
+- Ora de culcare consistentă e probabil cea mai subestimată intervenție
+
+## Ce se întâmplă de fapt
+
+Un copil se trezește de 3-5 ori pe noapte, la fiecare tranziție între cicluri de somn. E normal. Se întâmplă și la adulți. Diferența e că un adult a învățat să re-adoarmă fără ajutor: schimbă poziția, trage plapuma și adoarme din nou, de obicei fără să-și amintească dimineața. Un copil care a adormit legănat, alăptat sau cu părintele lângă el se trezește și constată că circumstanțele s-au schimbat. E ca și cum ai adormi în patul tău și te-ai trezi pe canapea. Reacția naturală e alertă, iar copilul cere să se revină la condițiile inițiale.
+
+Aceasta e ceea ce în cercetare se numește "asociere de adormire." Copilul nu are o problemă de somn, ci o problemă de re-adormire. Iar părintele care intervine de fiecare dată (legănând, alăptând, culcându-se lângă copil) rezolvă problema pe moment dar o întărește pe termen lung. Copilul nu dezvoltă niciodată capacitatea de a re-adormi independent.
+
+La sugari sub 6 luni, răspunsul prompt e adecvat și necesar. Dar după 6 luni, când maturarea neurologică permite auto-reglarea somnului, menținerea acelorași patternuri începe să lucreze împotriva obiectivului.
+
+## De ce e contraintuitiv
+
+Capacitatea de a adormi singur e o abilitate care se dezvoltă prin practică. Gândește-te la mersul pe bicicletă: dacă ții mereu de șa, copilul nu învață echilibrul. Trebuie să dai drumul ca să poată prelua controlul.
+
+Un studiu publicat în Pediatrics în 2012 de Anna Price și echipa de la Universitatea din Melbourne a urmărit copiii care au trecut prin programe de somn comportamental și i-a comparat cu un grup de control pe o perioadă de 5 ani. Nicio diferență în atașament, stres emoțional, relația părinte-copil sau probleme comportamentale. Copiii care au învățat să adoarmă singuri dormeau mai bine, iar părinții lor raportau nivele mai scăzute de depresie maternă.
+
+## Ce funcționează concret
+
+Începe cu o oră de culcare consistentă. Variația de mai mult de 30 de minute de la o seară la alta perturbă ritmul circadian al copilului și face adormitul mai dificil. Corpul începe să secrete melatonină cam în același interval în fiecare seară, dar numai dacă programul e regulat.
+
+Rutina de pre-culcare contează mult. 20-30 de minute de activități calme, în aceeași ordine, în fiecare seară (baie, pijamalele, o carte, lumina stinsă) funcționează ca un semnal predictibil pentru creierul copilului. Copiii se calmează când știu ce urmează.
+
+Ecranele trebuie oprite cu cel puțin o oră înainte de culcare. Pupilele copiilor sunt mai mari decât ale adulților, ceea ce înseamnă că retina primește mai multă lumină albastră de la aceeași distanță. Un studiu din 2018 publicat în Physiological Reports a arătat că lumina de intensitate moderată seara suprimă melatonina la copii de aproape două ori mai mult decât la adulți.
+
+Pentru asocierile de adormire, metoda cu suport gradat ("checking method") are cele mai bune dovezi. Concret: copilul e pus în pat treaz, părintele iese din cameră, și dacă copilul plânge, se întoarce la intervale crescătoare (2 minute, apoi 5, apoi 10) pentru o scurtă atingere și câteva cuvinte de liniștire, fără a ridica copilul sau a rămâne până adoarme. Majoritatea copiilor învață să adoarmă singuri în 3-7 zile. Primele două nopți sunt cele mai dificile.
+
+Mișcarea în aer liber, cu expunere la lumina naturală, întărește ritmul circadian al copilului și face adormitul seara mai ușor. Lumina puternică din timpul zilei calibrează ceasul biologic, iar la copii efectul e mai pronunțat decât la adulți.
+
+Dacă după 2-3 săptămâni de implementare consistentă problemele persistă, o evaluare medicală e indicată. Adenoidele mărite, refluxul, deficitul de fier sau tulburările de respirație în somn pot produce simptome identice cu problemele comportamentale. Sunt mai rare, dar nu trebuie ignorate.
+
+Primele nopți sunt grele, pentru părinte mai mult decât pentru copil. Dar e una din acele situații în care câteva zile de disconfort produc luni de somn mai bun pentru toată familia.

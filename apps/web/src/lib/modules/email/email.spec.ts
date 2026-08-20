@@ -1,0 +1,254 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
+import { eq, sql } from 'drizzle-orm';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { createDb, type Db } from '../../db/client.ts';
+import { createResendTransport } from './resend.ts';
+import { emailLog } from './schema.ts';
+import { createEmailSender, shouldSkipResend, type EmailMessage } from './service.ts';
+import { renderEmailTemplate } from './templates.ts';
+
+/** A fetch whose request never completes, but that honors its abort signal. */
+const hangingFetch: typeof fetch = (_url, init) =>
+	new Promise((_resolve, reject) => {
+		init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+	});
+
+describe('email templates', () => {
+	it('renders the quiz-result template with ro copy and the result link', () => {
+		const rendered = renderEmailTemplate('quiz-result', {
+			siteName: 'Better Sleep',
+			quizTitle: 'Evaluarea somnului',
+			score: 12,
+			maxScore: 24,
+			bandLabel: 'Semne de atenție',
+			advice: 'Câteva obiceiuri de corectat.',
+			resultUrl: 'https://example.ro/quiz/x/rezultat/1'
+		});
+		expect(rendered.subject).toContain('Evaluarea somnului');
+		expect(rendered.html).toContain('12 din 24');
+		expect(rendered.html).toContain('https://example.ro/quiz/x/rezultat/1');
+		expect(rendered.text).toContain('Semne de atenție');
+		expect(rendered.text).toContain('https://example.ro/quiz/x/rezultat/1');
+	});
+
+	it('omits the max score when it is unknown', () => {
+		const rendered = renderEmailTemplate('quiz-result', {
+			siteName: 'S',
+			quizTitle: 'Q',
+			score: 7,
+			maxScore: null,
+			bandLabel: 'B',
+			advice: 'A',
+			resultUrl: 'https://x'
+		});
+		expect(rendered.html).toContain('<strong>7</strong>');
+		expect(rendered.text).toContain('Scor: 7\n');
+	});
+
+	it('renders the nurture template with the mandatory unsubscribe link in html AND text', () => {
+		const rendered = renderEmailTemplate('nurture', {
+			siteName: 'Better Sleep',
+			subject: 'Bine ai venit & spor',
+			paragraphs: ['Primul <paragraf>.', 'Al doilea.'],
+			cta: { label: 'Fă testul', url: 'https://example.ro/quiz/evaluare-somn' },
+			unsubscribeUrl: 'https://example.ro/unsubscribe/tok-123'
+		});
+		expect(rendered.subject).toBe('Bine ai venit & spor');
+		expect(rendered.html).toContain('Primul &lt;paragraf&gt;.');
+		expect(rendered.html).toContain('https://example.ro/quiz/evaluare-somn');
+		// Marketing mail: the unsubscribe link is not optional.
+		expect(rendered.html).toContain('https://example.ro/unsubscribe/tok-123');
+		expect(rendered.text).toContain(
+			'Dezabonează-te oricând: https://example.ro/unsubscribe/tok-123'
+		);
+		expect(rendered.text).toContain('Fă testul: https://example.ro/quiz/evaluare-somn');
+	});
+
+	it('escapes HTML in interpolated data', () => {
+		const rendered = renderEmailTemplate('newsletter-confirm', {
+			siteName: '<script>alert(1)</script>',
+			confirmUrl: 'https://example.ro/confirm?a=1&b="2"'
+		});
+		expect(rendered.html).not.toContain('<script>');
+		expect(rendered.html).toContain('&lt;script&gt;');
+		expect(rendered.html).toContain('&amp;b=&quot;2&quot;');
+	});
+
+	it('renders the order confirmation with integer-cent formatting and escaping', () => {
+		const rendered = renderEmailTemplate('order-confirmation', {
+			siteName: 'Better Sleep',
+			orderId: 'order-1',
+			items: [
+				{ name: 'Mască <b>de somn</b>', qty: 2, priceCents: 4990 },
+				{ name: 'Ceai de seară', qty: 1, priceCents: 3450 }
+			],
+			totalCents: 13430,
+			currency: 'ron'
+		});
+		expect(rendered.subject).toContain('Better Sleep');
+		// Line totals (qty × unit) and the grand total, formatted from bani.
+		expect(rendered.html).toContain('99,80 lei');
+		expect(rendered.html).toContain('134,30 lei');
+		expect(rendered.text).toContain('34,50 lei');
+		expect(rendered.html).not.toContain('<b>de somn</b>');
+		expect(rendered.html).toContain('Mască &lt;b&gt;de somn&lt;/b&gt;');
+	});
+});
+
+describe('shouldSkipResend', () => {
+	it('treats delivered, dry-run and in-flight rows as final', () => {
+		expect(shouldSkipResend('sent')).toBe(true);
+		expect(shouldSkipResend('dryrun')).toBe(true);
+		expect(shouldSkipResend('sending')).toBe(true);
+	});
+
+	it('allows retrying failed rows', () => {
+		expect(shouldSkipResend('error')).toBe(false);
+	});
+});
+
+// Audit Theme C (resilience #3): the Resend call must be bounded — a hung
+// socket used to pin the awaiting request forever (the shop webhook awaits
+// the send inline).
+describe('resend transport timeout', () => {
+	it('rejects when the API call exceeds the timeout instead of hanging (hung before the fix)', async () => {
+		const transport = createResendTransport('re_key_not_real', hangingFetch, 50);
+		await expect(
+			transport.send({
+				from: 'a@b.ro',
+				to: 'x@y.ro',
+				subject: 's',
+				html: '<p>h</p>',
+				text: 't'
+			})
+		).rejects.toThrow(/timeout/i);
+	}, 3_000);
+});
+
+// Integration: the sender against the compose Postgres (TEST_DATABASE_URL,
+// reset + re-migrated fresh). The transport is ALWAYS a fake here — this spec
+// also proves the wrapper never touches it in dry-run mode.
+describe('sendEmail idempotency (integration)', () => {
+	let db: Db;
+
+	beforeAll(async () => {
+		const url = process.env.TEST_DATABASE_URL;
+		if (!url) throw new Error('TEST_DATABASE_URL is not set — see .env.example');
+		db = createDb(url);
+		await db.execute(sql`drop schema if exists public cascade`);
+		await db.execute(sql`drop schema if exists drizzle cascade`);
+		await db.execute(sql`create schema public`);
+		await migrate(db, {
+			migrationsFolder: path.resolve(import.meta.dirname, '../../../../drizzle')
+		});
+	});
+
+	afterAll(async () => {
+		await db?.$client.end();
+	});
+
+	const input = (key: string) =>
+		({
+			to: 'test@example.com',
+			template: 'newsletter-confirm',
+			data: { siteName: 'Better Sleep', confirmUrl: 'https://example.ro/c/t' },
+			idempotencyKey: key
+		}) as const;
+
+	function fakeTransport(impl?: (message: EmailMessage) => Promise<{ providerId: string }>) {
+		return { send: vi.fn(impl ?? (async () => ({ providerId: 'prov-1' }))) };
+	}
+
+	async function rowsFor(key: string) {
+		return db.select().from(emailLog).where(eq(emailLog.idempotencyKey, key));
+	}
+
+	it('dry-run records exactly one log row and NEVER calls the transport', async () => {
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: true, from: 'a@b.ro', transport });
+
+		const first = await sender.send(input('dry-1'));
+		const second = await sender.send(input('dry-1'));
+
+		expect(first.status).toBe('dryrun');
+		expect(second.status).toBe('skipped');
+		expect(transport.send).not.toHaveBeenCalled();
+		const rows = await rowsFor('dry-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('dryrun');
+		expect(rows[0].subject).toContain('Better Sleep');
+	});
+
+	it('concurrent sends with the same key collapse to one log row', async () => {
+		const sender = createEmailSender({ db, dryRun: true, from: 'a@b.ro' });
+		const outcomes = await Promise.all([
+			sender.send(input('race-1')),
+			sender.send(input('race-1')),
+			sender.send(input('race-1'))
+		]);
+		expect(outcomes.filter((o) => o.status === 'dryrun')).toHaveLength(1);
+		expect(outcomes.filter((o) => o.status === 'skipped')).toHaveLength(2);
+		expect(await rowsFor('race-1')).toHaveLength(1);
+	});
+
+	it('real mode sends once through the transport, then skips', async () => {
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+
+		const first = await sender.send(input('real-1'));
+		const second = await sender.send(input('real-1'));
+
+		expect(first.status).toBe('sent');
+		expect(second.status).toBe('skipped');
+		expect(transport.send).toHaveBeenCalledTimes(1);
+		const rows = await rowsFor('real-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('sent');
+		expect(rows[0].providerId).toBe('prov-1');
+	});
+
+	it('a failed delivery is recorded and may be retried, still with one row', async () => {
+		const transport = fakeTransport(async () => {
+			throw new Error('boom');
+		});
+		const failing = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		const failed = await failing.send(input('retry-1'));
+		expect(failed.status).toBe('error');
+		expect((await rowsFor('retry-1'))[0].status).toBe('error');
+
+		const working = createEmailSender({
+			db,
+			dryRun: false,
+			from: 'a@b.ro',
+			transport: fakeTransport()
+		});
+		const retried = await working.send(input('retry-1'));
+		expect(retried.status).toBe('sent');
+		const rows = await rowsFor('retry-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('sent');
+		expect(rows[0].error).toBeNull();
+	});
+
+	it('missing transport in real mode records an error instead of throwing', async () => {
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro' });
+		const outcome = await sender.send(input('no-transport-1'));
+		expect(outcome.status).toBe('error');
+		expect((await rowsFor('no-transport-1'))[0].status).toBe('error');
+	});
+
+	it('a hung Resend socket becomes a retryable error row, not a pinned request (hung before the fix)', async () => {
+		const sender = createEmailSender({
+			db,
+			dryRun: false,
+			from: 'a@b.ro',
+			transport: createResendTransport('re_key_not_real', hangingFetch, 50)
+		});
+		const outcome = await sender.send(input('hang-1'));
+		expect(outcome.status).toBe('error');
+		const [row] = await rowsFor('hang-1');
+		expect(row.status).toBe('error');
+		expect(row.error).toMatch(/timeout/i);
+	}, 3_000);
+});

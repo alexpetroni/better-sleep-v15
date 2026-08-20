@@ -1,0 +1,36 @@
+# De ce iarna dormi altfel decât vara
+
+Durata zilei se schimbă cu peste patru ore între solstițiul de vară și cel de iarnă, iar creierul înregistrează fiecare minut. Dacă în decembrie simți că ai nevoie de mai mult somn, iar în iunie te trezești singur la 5 dimineața fără alarmă, nu e imaginația ta. E un program biologic care a funcționat sute de mii de ani și pe care viața modernă îl forțează să stea pe loc.
+
+- Melatonina începe să se secrete cu peste o oră mai devreme iarna decât vara, iar dimineața se oprește mai târziu
+- Creierul ajustează ritmul circadian în funcție de durata luminii, nu de oră fixă
+- Programul social rigid (trezit la 7, culcat la 23, indiferent de sezon) contrazice un semnal biologic puternic
+- Diferența dintre nevoile reale de somn iarnă vs. vară poate fi de 30-60 de minute
+- Lipsa luminii naturale iarna dezancorează ceasul intern, ceea ce fragmentează somnul
+- Expunerea la lumină dimineața și reducerea luminii artificiale seara recalibrează ritmul în orice sezon
+
+Glanda pineală, structura mică din centrul creierului care produce melatonina, răspunde la un singur semnal: cât de multă lumină primesc ochii și când. Vara, când soarele apune la 21:00, secreția de melatonină începe pe la 21:30-22:00. Iarna, cu apusul la 17:00, melatonina poate porni deja pe la 19:00-19:30. Diferența depășește o oră, ceea ce înseamnă că organismul vrea un program de somn diferit în fiecare sezon.
+
+Cercetătorii de la Charité din Berlin au publicat în 2023 un studiu care a analizat somnul a peste 290 de participanți pe parcursul unui an. Rezultatele au arătat că somnul REM (faza legată de consolidarea memoriei și reglarea emoțională) era cu aproximativ 30 de minute mai lung iarna decât vara. Participanții nu dormeau neapărat mai mult ca număr total de ore, dar structura somnului se schimba semnificativ.
+
+## Ce se întâmplă când ignori semnalul
+
+Problema apare când programul social rămâne identic tot anul. Trezitul la 7 dimineața în decembrie înseamnă trezire cu cel puțin două ore înainte de răsărit. Corpul e încă în producție de melatonină, temperatura internă e la minim, cortizolul de trezire nu a pornit încă. E ca și cum ai scoate o prăjitură din cuptor la jumătate din timp: tehnic ai scos-o, dar procesul nu s-a terminat.
+
+Efectul cumulativ al acestui decalaj sezonier seamănă cu un jet lag cronic de intensitate mică. Nu e suficient de dramatic încât să-l numești insomnie, dar suficient cât să simți oboseala persistentă din noiembrie-februarie pe care mulți o pun pe seama depresiei sezoniere. Uneori e depresie sezonieră. Dar uneori e pur și simplu un deficit de somn creat de un orar care nu se mișcă odată cu soarele.
+
+Vara, problema se inversează. Lumina prelungită până târziu întârzie melatonina, iar dimineața devreme scurtează somnul de la celălalt capăt. Mulți oameni dorm mai puțin vara fără să-și dea seama, și compensează prin micro-somnuri de după-amiază sau prin cafeină suplimentară.
+
+Un factor pe care puțini îl iau în calcul e temperatura. Iarna, temperaturile scăzute din dormitor favorizează somnul profund (corpul preferă 16-18 grade pentru somn). Vara, nopțile calde pot fragmenta fazele profunde ale somnului, chiar dacă nu te trezești complet. Sezonul influențează somnul pe două canale simultane: lumină și temperatură.
+
+## Ce poți face concret
+
+Cea mai importantă intervenție e lumina naturală dimineața, și asta e valabil în ambele sezoane, dar mai ales iarna. Iarna, 20-30 de minute de lumină de exterior în prima oră după trezire (chiar și pe cer acoperit, lumina exterioară oferă 5.000-10.000 de lucși) ancorează ceasul intern și semnalează creierului că ziua a început. Fără acest semnal, nucleul suprachiasmatic plutește, iar rezultatul e somnolență de dimineață și insomnie de seară.
+
+Dacă flexibilitatea programului permite, un decalaj chiar și mic al orei de culcare și trezire între sezoane produce diferențe reale. Cu 30 de minute mai devreme iarna, cu 30 de minute mai târziu vara. Programul nu trebuie să se schimbe dramatic, doar să respire puțin odată cu lumina naturală.
+
+Seara, reducerea luminii artificiale devine și mai importantă iarna, tocmai pentru că diferența dintre lumina naturală (care a dispărut de ore) și cea artificială (care continuă până la culcare) e mai mare. Becuri calde sub 2700K în dormitor și baie, ecrane cu filtre activate și luminozitate redusă cu cel puțin o oră înainte de somn. Iarna, organismul e deja pregătit de somn la 20:00, iar lumina artificială puternică la 21:00 contracarează un semnal care a început cu ore în urmă.
+
+Temperatura dormitorului merită atenție vara. Un ventilator, lenjerie din materiale naturale care respiră și o perdea opacă (blackout) care blochează lumina de dimineață pot face diferența între 6 și 7 ore de somn efectiv în nopțile de iunie-iulie.
+
+Corpul știe deja ce vrea. Treaba ta e să îi permiți să facă ce face de sute de mii de ani: să doarmă puțin mai mult iarna și puțin mai puțin vara, să se trezească cu lumina și să se liniștească odată cu întunericul. Poți rezista acestui ritm, dar costul se simte în oboseală și performanță cognitivă. Iar ajustările necesare sunt, de cele mai multe ori, surprinzător de mici.

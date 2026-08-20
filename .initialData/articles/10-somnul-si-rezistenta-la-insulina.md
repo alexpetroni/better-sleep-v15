@@ -1,0 +1,42 @@
+# Somnul și rezistența la insulină: un cerc care se alimentează singur
+
+Legătura dintre somn și zahărul din sânge e mai strânsă decât pare. Câteva nopți scurte sunt suficiente pentru ca celulele corpului să devină mai puțin receptive la insulină, hormonul care reglează intrarea glucozei în celule. Iar rezistența la insulină, odată instalată, fragmentează somnul pe cont propriu. Cele două probleme se hrănesc reciproc, și rar le tratează cineva împreună.
+
+- Restricția de somn la 4-5 ore pe noapte, timp de 4 zile, reduce sensibilitatea la insulină cu 25-30% la persoane tinere și sănătoase (Buxton și colegii, Science Translational Medicine, 2012)
+- Efectul apare rapid și e independent de dietă sau exercițiu fizic
+- Rezistența la insulină produce fluctuații ale glicemiei nocturne care trezesc corpul prin eliberare de adrenalină și cortizol
+- Somnul profund (fazele N3) e faza în care sensibilitatea la insulină se recalibrează cel mai activ; reducerea acestei faze are efect metabolic direct
+- Persoanele cu prediabet sau diabet de tip 2 au frecvent somn fragmentat, iar tratarea somnului le ajută controlul glicemic
+- Ciclul se poate sparge din ambele direcții: somn mai bun sau glicemie mai stabilă, oricare vine prima
+
+## Ce face somnul pentru insulină
+
+Somnul profund, fazele N3 care apar predominant în prima parte a nopții, e perioada în care corpul face cea mai activă recalibrare metabolică. Activitatea sistemului nervos simpatic scade la minimum, iar sensibilitatea la insulină crește. E un fel de reset nocturn: celulele musculare, hepatice și adipoase devin din nou receptive la semnalul insulinei.
+
+Esra Tasali și colegii de la Universitatea din Chicago (2008, PNAS) au arătat asta clar: au suprimat selectiv somnul profund al unor subiecți tineri și sănătoși, fără a le reduce durata totală de somn. Doar trei nopți au fost suficiente pentru o reducere a sensibilității la insulină cu 25%, comparabilă cu prediabetul. Aceleași 8 ore în pat, dar fără faza N3, și metabolismul se comporta ca la început de diabet.
+
+Orfeu Buxton și echipa sa au arătat în 2012 că restricția de somn combinată cu perturbarea ritmului circadian produce un efect și mai pronunțat: după 3 săptămâni, secreția de insulină era redusă cu 32%. Pancreasul nu mai răspundea adecvat la glucoza din sânge.
+
+## Cum rezistența la insulină strică somnul
+
+Partea mai puțin cunoscută a relației e cea inversă. Când celulele devin rezistente la insulină, glicemia devine instabilă. În cursul nopții, între mese, ficatul eliberează glucoză treptat pentru a menține un nivel constant. Dacă celulele nu răspund bine la insulină, nivelul fluctuează. O scădere bruscă a glicemiei (hipoglicemie reactivă) declanșează un răspuns de urgență: glandele suprarenale eliberează adrenalină și cortizol ca să mobilizeze glucoza de rezervă.
+
+Asta e frecvent mecanismul din spatele trezirilor de la 2-4 dimineața, cu inima care bate repede, cu senzație de alertă. Nu e anxietate, nu e insomnie primară. E o urgență metabolică mică pe care corpul o rezolvă prin hormoni de stres, iar tu o experimentezi ca o trezire inexplicabilă.
+
+Iar apoi ciclul se strânge: trezirile nocturne fragmentează somnul profund, care e exact faza necesară pentru recalibrarea sensibilității la insulină. Mai puțin somn profund, mai multă rezistență la insulină, glicemie mai instabilă noaptea, mai multe treziri.
+
+## Ce poți face concret
+
+Ciclul se poate sparge din mai multe direcții.
+
+Stabilizarea glicemiei seara e primul pas accesibil. O cină care combină proteine, grăsimi și carbohidrați complecși produce o curbă glicemică mai lină pe parcursul nopții. Dacă trezirile de la 2-4 dimineața sunt frecvente, un experiment de două săptămâni cu o cină echilibrată, terminată cu 2-3 ore înainte de culcare, poate arăta dacă glicemia e un factor.
+
+Un snack mic înainte de culcare, bogat în proteine și grăsimi (câteva nuci, o lingură de unt de arahide, un ou fiert), poate preveni hipoglicemia nocturnă. E contraintuitiv, pentru că sfatul general e să nu mănânci înainte de somn. Dar pentru persoanele cu instabilitate glicemică, un snack mic e mai bine decât 8 ore fără niciun aport caloric.
+
+Protejarea somnului profund devine o prioritate metabolică, nu doar o chestiune de odihnă. Alcoolul, chiar și în cantități mici, reduce dramatic somnul profund, deși ajută la adormire. Temperatura camerei sub 19-20°C favorizează fazele N3. Și consistența orei de culcare permite creierului să aloce mai eficient timpul de somn profund în prima parte a nopții.
+
+Mișcarea fizică în timpul zilei crește sensibilitatea la insulină independent de somn. Duvivier și colegii (2016, Diabetologia) au arătat că înlocuirea a 1-2 ore de ședere cu mers pe jos crește sensibilitatea la insulină cu 20-30% a doua zi. Efectul se adună cu cel al somnului.
+
+Dacă somnul scurt e cronic, calitatea contează și mai mult. Chiar și 6 ore de somn neîntrerupt, cu faze de somn profund intacte, sunt metabolic mai utile decât 8 ore de somn fragmentat.
+
+Îmbunătățirile în sensibilitatea la insulină se măsoară în zile, nu în luni. Două-trei nopți de somn complet încep să restabilească echilibrul. Iar odată ce glicemia nocturnă se stabilizează, somnul se îmbunătățește la rândul lui. Dar prima noapte trebuie protejată conștient, pentru că ciclul nu se sparge singur.

@@ -1,0 +1,282 @@
+[
+  {
+    "id": 1,
+    "slug": "sistemul-glimfatic-curatenia-creierului",
+    "title": "The Glymphatic System: How the Brain Takes Out Its Trash While You Sleep",
+    "excerpt": "The brain has a waste-clearance system that only activates during deep sleep. When it doesn't get enough time to work, metabolic debris accumulates, and the cognitive fog the next day isn't just tiredness.",
+    "theme": "the-body-during-sleep"
+  },
+  {
+    "id": 2,
+    "slug": "fazele-somnului-ora-cu-ora",
+    "title": "Sleep Stages Explained: What's Actually Happening Hour by Hour",
+    "excerpt": "Each sleep cycle does something different for the body. Light sleep, deep sleep, and REM aren't interchangeable, and most sleep problems don't steal all of them equally.",
+    "theme": "the-body-during-sleep"
+  },
+  {
+    "id": 3,
+    "slug": "inertia-somnului",
+    "title": "Sleep Inertia: Why You Feel Worse After Waking Up Than Before Falling Asleep",
+    "excerpt": "That crushing grogginess in the first 30 minutes isn't a sign of bad sleep. It's the brain transitioning between states, and there's a reason some mornings are brutal while others aren't.",
+    "theme": "the-body-during-sleep"
+  },
+  {
+    "id": 4,
+    "slug": "hormonul-de-crestere-reparatia-musculara",
+    "title": "Growth Hormone, Muscle Repair, and Why Athletes Obsess Over Deep Sleep",
+    "excerpt": "The body does most of its physical repair work in the first half of the night. If that window gets disrupted, recovery stalls regardless of how many hours you spend in bed.",
+    "theme": "the-body-during-sleep"
+  },
+  {
+    "id": 5,
+    "slug": "insomnia-paradoxala",
+    "title": "Paradoxical Insomnia: When You're Sleeping More Than You Think",
+    "excerpt": "Some people are convinced they barely slept, but sleep studies show otherwise. The mismatch between perception and reality is a real phenomenon with a specific neurological explanation.",
+    "theme": "the-body-during-sleep"
+  },
+  {
+    "id": 6,
+    "slug": "respiratia-pe-gura-noaptea",
+    "title": "Mouth Breathing at Night: The Airway Problem That Mimics Insomnia",
+    "excerpt": "Breathing through the mouth during sleep changes blood oxygen levels, dries out airways, and activates the stress response. It's surprisingly common and rarely the first thing people check.",
+    "theme": "breathing-and-airway"
+  },
+  {
+    "id": 7,
+    "slug": "mouth-taping-dovezi",
+    "title": "Mouth Taping: What the Evidence Actually Shows",
+    "excerpt": "It's all over social media, and some of the logic is sound, but the practice has real contraindications. What it does, who it helps, and who should avoid it.",
+    "theme": "breathing-and-airway"
+  },
+  {
+    "id": 8,
+    "slug": "pozitia-limbii-in-somn",
+    "title": "The Tongue's Position During Sleep and Why It Matters More Than You'd Think",
+    "excerpt": "Tongue posture affects airway diameter. For people who snore or wake up with a dry mouth, the connection between tongue position and sleep quality is more direct than most realize.",
+    "theme": "breathing-and-airway"
+  },
+  {
+    "id": 9,
+    "slug": "leptina-grelina-foame-dupa-somn-prost",
+    "title": "Leptin, Ghrelin, and the Appetite Chaos That Follows a Bad Night",
+    "excerpt": "One short night shifts the hunger hormones measurably. The cravings the next day aren't a willpower problem; they're a hormonal recalibration that the body runs automatically.",
+    "theme": "hormones-and-metabolism"
+  },
+  {
+    "id": 10,
+    "slug": "somnul-si-rezistenta-la-insulina",
+    "title": "Sleep and Insulin Resistance: A Relationship That Runs in Both Directions",
+    "excerpt": "Poor sleep makes cells less responsive to insulin within days. Insulin resistance, in turn, fragments sleep. The loop is well-documented and undertreated.",
+    "theme": "hormones-and-metabolism"
+  },
+  {
+    "id": 11,
+    "slug": "raspunsul-cortizolului-la-trezire",
+    "title": "The Cortisol Awakening Response: Why the First Hour After Waking Sets the Tone",
+    "excerpt": "Cortisol is supposed to spike in the morning. When that spike is blunted or delayed, the entire day's energy curve shifts, and sleep that night usually suffers.",
+    "theme": "hormones-and-metabolism"
+  },
+  {
+    "id": 12,
+    "slug": "perimenopauza-si-somnul",
+    "title": "Perimenopause and Sleep: The 5-10 Year Window Nobody Prepares You For",
+    "excerpt": "The sleep disruption starts years before menopause is officially diagnosed. Progesterone drops, temperature regulation destabilizes, and the pattern looks different from standard insomnia.",
+    "theme": "hormones-and-metabolism"
+  },
+  {
+    "id": 13,
+    "slug": "testosteronul-si-somnul-barbati",
+    "title": "Testosterone and Sleep: The Cycle That Breaks Quietly in Men After 35",
+    "excerpt": "Testosterone production peaks during sleep, and poor sleep lowers it. Lower testosterone then makes sleep lighter. The spiral is gradual enough that most men attribute it to aging.",
+    "theme": "hormones-and-metabolism"
+  },
+  {
+    "id": 14,
+    "slug": "insomnia-conditionata",
+    "title": "Conditioned Insomnia: When Your Bed Becomes the Thing Keeping You Awake",
+    "excerpt": "The brain learns associations fast. If enough bad nights happen in the same bed, the bedroom itself becomes a trigger for alertness. This is the most common form of chronic insomnia.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 15,
+    "slug": "obosit-dar-alert-hyperarousal",
+    "title": "Tired but Wired: The Hyperarousal State That Won't Let You Sleep",
+    "excerpt": "Exhaustion and sleeplessness at the same time isn't a contradiction. The nervous system can get stuck in a state where fatigue is real but the off-switch doesn't work.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 16,
+    "slug": "adhd-si-somnul",
+    "title": "ADHD and Sleep: Why the Same Brain That Can't Focus During the Day Can't Shut Off at Night",
+    "excerpt": "Delayed circadian rhythm, dopamine-driven bedtime procrastination, and racing thoughts at night share a common neurological root in ADHD.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 17,
+    "slug": "terapia-restrictiei-de-somn",
+    "title": "Sleep Restriction Therapy: The Counterintuitive Method That Actually Works for Chronic Insomnia",
+    "excerpt": "Spending less time in bed to sleep better sounds backwards, but it's the most effective behavioral treatment for insomnia. How it works and why it succeeds where sleep hygiene fails.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 18,
+    "slug": "procrastinarea-somnului-din-razbunare",
+    "title": "Revenge Bedtime Procrastination: Why You Stay Up Late Even When You're Exhausted",
+    "excerpt": "The psychology behind refusing to go to bed when the day didn't feel like yours. It's not laziness; it's a specific response to perceived loss of autonomy during waking hours.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 19,
+    "slug": "vise-cosmaruri-calitatea-somnului",
+    "title": "Dreaming, Nightmares, and What They Mean for Sleep Quality",
+    "excerpt": "Vivid dreams aren't a sign of deep sleep. Nightmares aren't random. Both connect to REM architecture and emotional processing in ways that affect how rested you feel.",
+    "theme": "the-mind-and-sleep"
+  },
+  {
+    "id": 20,
+    "slug": "somnul-in-sarcina",
+    "title": "Sleep During Pregnancy: Trimester by Trimester, What Changes and Why",
+    "excerpt": "Each trimester brings a different sleep disruption pattern, driven by different hormonal and physical mechanisms. The fixes that work in the first trimester can backfire in the third.",
+    "theme": "life-circumstances"
+  },
+  {
+    "id": 21,
+    "slug": "somnul-in-cuplu",
+    "title": "Co-Sleeping With a Partner: When Two Sleep Patterns Collide",
+    "excerpt": "Different chronotypes, different temperature preferences, different movement patterns. The research on whether couples sleep better together or apart isn't what most people expect.",
+    "theme": "life-circumstances"
+  },
+  {
+    "id": 22,
+    "slug": "animale-de-companie-in-dormitor",
+    "title": "Pets in the Bedroom: What the Sleep Data Actually Shows",
+    "excerpt": "The emotional comfort is real. The sleep fragmentation is also real. The net effect depends on the animal, the person, and the specific sleep problem.",
+    "theme": "life-circumstances"
+  },
+  {
+    "id": 23,
+    "slug": "partenerul-lucreaza-noaptea",
+    "title": "Sleep and Shift Workers' Partners: The Disruption That Spreads to the Whole Household",
+    "excerpt": "When one person works nights, everyone's sleep architecture shifts. The secondhand circadian disruption is measurable and rarely addressed.",
+    "theme": "life-circumstances"
+  },
+  {
+    "id": 24,
+    "slug": "copiii-care-nu-dorm",
+    "title": "Children Who Don't Sleep: What Parents Get Wrong and What Actually Helps",
+    "excerpt": "Most pediatric sleep problems are behavioral, not medical, but the behavioral interventions are counterintuitive. What the evidence supports versus what parenting culture recommends.",
+    "theme": "life-circumstances"
+  },
+  {
+    "id": 25,
+    "slug": "canabis-cbd-si-somnul",
+    "title": "Cannabis, CBD, and Sleep: What the Research Shows vs. What People Experience",
+    "excerpt": "CBD and THC affect sleep architecture differently. One may help initiation, the other disrupts REM. The gap between anecdotal reports and controlled studies is wide.",
+    "theme": "substances-and-supplements"
+  },
+  {
+    "id": 26,
+    "slug": "suplimentele-de-melatonina",
+    "title": "Melatonin Supplements: Why Most People Take Too Much and Miss the Point",
+    "excerpt": "Melatonin is a timing signal, not a sedative. The effective dose is a fraction of what's sold, and taking it wrong can shift the circadian clock in the wrong direction.",
+    "theme": "substances-and-supplements"
+  },
+  {
+    "id": 27,
+    "slug": "glicina-inainte-de-somn",
+    "title": "Glycine Before Bed: The Amino Acid That Lowers Core Temperature From the Inside",
+    "excerpt": "Glycine drops core body temperature by dilating peripheral blood vessels. The mechanism is specific, the evidence is decent, and the cost is low.",
+    "theme": "substances-and-supplements"
+  },
+  {
+    "id": 28,
+    "slug": "ashwagandha-theanina-valeriana",
+    "title": "Ashwagandha, L-Theanine, Valerian: Sorting the Sleep Supplements That Work From the Ones That Don't",
+    "excerpt": "A clear-eyed look at the most popular non-melatonin sleep supplements. What the clinical trials actually show, at what doses, and for which type of sleep problem.",
+    "theme": "substances-and-supplements"
+  },
+  {
+    "id": 29,
+    "slug": "pozitia-de-somn",
+    "title": "Sleeping Position: What Your Spine, Airway, and Digestion Prefer",
+    "excerpt": "Side, back, and stomach sleeping each have measurable effects on airway patency, reflux frequency, and spinal load. The best position depends on which problem you're solving.",
+    "theme": "environment-and-behavior"
+  },
+  {
+    "id": 30,
+    "slug": "patura-ponderata",
+    "title": "Weighted Blankets: Deep Pressure Stimulation and What It Does to the Nervous System",
+    "excerpt": "The mechanism is real (parasympathetic activation through proprioceptive input) but the effect size varies. Who benefits most and who feels trapped.",
+    "theme": "environment-and-behavior"
+  },
+  {
+    "id": 31,
+    "slug": "schimbarile-sezoniere-somn",
+    "title": "Seasonal Sleep Shifts: Why Winter and Summer Nights Feel Fundamentally Different",
+    "excerpt": "Day length changes melatonin onset timing by over an hour between solstices. The body wants different sleep schedules in different seasons, and fighting that has a cost.",
+    "theme": "environment-and-behavior"
+  },
+  {
+    "id": 32,
+    "slug": "hidratarea-si-somnul",
+    "title": "Hydration and Sleep: The Narrow Window Between Too Little and Too Much Water",
+    "excerpt": "Dehydration increases cortisol. Overhydration means nocturia. The balance point matters, and timing water intake is more important than total volume.",
+    "theme": "environment-and-behavior"
+  },
+  {
+    "id": 33,
+    "slug": "altitudinea-si-somnul",
+    "title": "Altitude and Sleep: Why You Sleep Terribly in the Mountains (and It's Not Just the Hiking)",
+    "excerpt": "Above 2,500 meters, blood oxygen drops enough to fragment sleep architecture. The body compensates by increasing breathing rate, which itself causes micro-arousals.",
+    "theme": "environment-and-behavior"
+  },
+  {
+    "id": 34,
+    "slug": "somnul-si-sistemul-imunitar",
+    "title": "Sleep and the Immune System: Why One Bad Night Makes You More Likely to Get Sick",
+    "excerpt": "A single night of less than 6 hours reduces natural killer cell activity by 70%. The immune-sleep connection is one of the most dramatic dose-response relationships in medicine.",
+    "theme": "sleep-and-broader-health"
+  },
+  {
+    "id": 35,
+    "slug": "somnul-si-tensiunea-arteriala",
+    "title": "Sleep and Blood Pressure: The Nocturnal Dipping Pattern That Protects Your Heart",
+    "excerpt": "Blood pressure is supposed to drop 10-20% during sleep. When it doesn't (non-dipping pattern), cardiovascular risk rises significantly. Poor sleep is the most common cause.",
+    "theme": "sleep-and-broader-health"
+  },
+  {
+    "id": 36,
+    "slug": "somnul-si-longevitatea",
+    "title": "Sleep and Longevity: What the Large-Scale Studies Actually Found",
+    "excerpt": "The U-curve relationship between sleep duration and mortality. Why both too little and too much sleep correlate with shorter lifespan, and what confounders complicate the picture.",
+    "theme": "sleep-and-broader-health"
+  },
+  {
+    "id": 37,
+    "slug": "somnul-si-pielea",
+    "title": "Sleep and Skin: Why Beauty Sleep Is a Physiological Fact, Not a Marketing Phrase",
+    "excerpt": "Collagen synthesis, skin barrier repair, and blood flow to the skin all peak during deep sleep. Chronic sleep deprivation accelerates visible aging through specific, measurable pathways.",
+    "theme": "sleep-and-broader-health"
+  },
+  {
+    "id": 38,
+    "slug": "somnul-si-memoria",
+    "title": "Sleep and Memory: How the Brain Decides What to Keep and What to Discard Overnight",
+    "excerpt": "Memory consolidation happens during specific sleep stages. Declarative memories get processed in deep sleep, procedural skills in REM. Cutting either one short has different consequences.",
+    "theme": "sleep-and-broader-health"
+  },
+  {
+    "id": 39,
+    "slug": "cronotipurile-sunt-reale",
+    "title": "Chronotypes Are Real: Why Just Go to Bed Earlier Doesn't Work for Everyone",
+    "excerpt": "Morning larks and night owls have genetically different circadian clocks. Forcing a night owl into a lark's schedule creates chronic circadian misalignment with real metabolic consequences.",
+    "theme": "uncommon-angles"
+  },
+  {
+    "id": 40,
+    "slug": "tracker-de-somn-ajuta-sau-strica",
+    "title": "Sleep Trackers: Are They Helping You Sleep Better or Making Your Insomnia Worse?",
+    "excerpt": "Orthosomnia (anxiety caused by sleep tracking data) is a documented phenomenon. When tracking helps, when it hurts, and how to use the data without letting it run your nights.",
+    "theme": "uncommon-angles"
+  }
+]

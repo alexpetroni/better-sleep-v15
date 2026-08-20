@@ -1,0 +1,42 @@
+# Ce se întâmplă cu tensiunea arterială în timpul somnului
+
+În timpul somnului, tensiunea arterială ar trebui să scadă cu 10-20% față de valorile din timpul zilei. Acest fenomen se numește "dipping nocturn" și e unul dintre cele mai importante semnale pe care medicii cardiologi le caută. Când nu se întâmplă (tipar numit "non-dipping"), riscul cardiovascular crește semnificativ, iar somnul de proastă calitate e cea mai frecventă cauză.
+
+- Tensiunea arterială scade natural cu 10-20% în somn profund, iar inima și vasele de sânge au o perioadă de recuperare
+- Persoanele la care această scădere nu apare (non-dippers) au risc crescut de hipertrofie ventriculară, accident vascular cerebral și boală renală
+- Somnul fragmentat, chiar și fără reducerea duratei totale, perturbă tiparul de dipping
+- Apneea de somn e cauza medicală cea mai frecventă de non-dipping, dar nu singura
+- Somnul scurt cronic (sub 6 ore) crește riscul de hipertensiune cu 20-32%
+- Recuperarea tiparului de dipping începe cu calitatea somnului, nu cu medicamente antihipertensive suplimentare
+
+Sistemul cardiovascular nu funcționează la aceeași intensitate 24 de ore din 24. Are un ritm propriu, strâns legat de ciclul somn-veghe, care alternează între perioade de activitate ridicată (ziua) și perioade de recuperare (noaptea). Tensiunea arterială, ritmul cardiac și tonusul vascular scad toate în timpul somnului, mai ales în fazele profunde. E ca un motor care trece pe turație redusă: se răcește, se uzează mai puțin și durează mai mult.
+
+## Ce se întâmplă în corp noaptea
+
+Scăderea tensiunii nocturne nu e un efect pasiv al faptului că stai culcat. E un proces activ mediat de sistemul nervos autonom. În somnul profund, activitatea sistemului nervos simpatic (cel care accelerează inima și contractă vasele) scade, iar activitatea sistemului parasimpatic (cel care încetinește și relaxează) crește. Vasele de sânge se dilată ușor, inima bate mai rar, rinichii ajustează retenția de sodiu. Toate astea necesită somn de calitate pentru a se desfășura complet.
+
+Când somnul e fragmentat sau insuficient, sistemul simpatic rămâne parțial activat. Vasele nu se relaxează complet. Tensiunea nu coboară cum ar trebui. Efectul unei singure nopți proaste nu e mare. Dar acumulat pe luni și ani, lipsa acestei perioade de recuperare nocturnă suprasolicită peretele vascular, crește rigiditatea arterelor și forțează inima să lucreze mai mult decât e necesar.
+
+Un studiu publicat de Kazuo Eguchi și colegii săi în Journal of the American College of Cardiology a arătat că persoanele cu tipar non-dipping au un risc cardiovascular de 2-3 ori mai mare decât cele cu dipping normal, independent de valorile tensionale din timpul zilei. Poți avea tensiunea "normală" la cabinetul medical (unde se măsoară ziua) și totuși să ai un risc cardiovascular crescut din cauza a ceea ce se întâmplă noaptea.
+
+## Ce fragmentează tiparul de dipping
+
+Apneea obstructivă de somn e cauza medicală dominantă. Fiecare episod de apnee produce o mini-criză de oxigen care activează sistemul simpatic și crește brusc tensiunea. Zeci sau sute de astfel de episoade pe noapte mențin sistemul simpatic într-o stare de alertă cronică. Studiile arată că 30-50% dintre pacienții cu hipertensiune rezistentă la tratament au apnee de somn nediagnosticată.
+
+Dar apneea nu e singura cauză. Somnul scurt cronic, chiar fără apnee, e suficient. O meta-analiză publicată în Hypertension de Cappuccio și colegii (2007) a arătat că persoanele care dorm sub 6 ore au un risc cu 20-32% mai mare de a dezvolta hipertensiune comparativ cu cele care dorm 7-8 ore.
+
+Stresul cronic deschide alt mecanism. Cortizolul crescut seara menține tonusul simpatic ridicat și împiedică scăderea tensiunii. Consumul de alcool seara produce un efect similar: pare relaxant inițial, dar crește activitatea simpatică în a doua jumătate a nopții.
+
+## Ce poți face concret
+
+Dacă ai hipertensiune sau risc cardiovascular în familie, calitatea somnului contează cel puțin la fel de mult ca dieta și mișcarea. Intervențiile cele mai eficiente sunt cele care protejează somnul profund, faza în care dipping-ul e cel mai pronunțat.
+
+Primul pas e ora de culcare consistentă. Variabilitatea mare a orei de culcare (cu mai mult de o oră diferență de la o noapte la alta) perturbă ritmul circadian și reduce durata somnului profund. Un program regulat, chiar și în weekend, e una dintre cele mai subestimate intervenții cardiovasculare.
+
+Al doilea pas e evaluarea riscului de apnee de somn, mai ales dacă partenerul raportează sforăit, pauze respiratorii sau dacă te trezești cu senzație de oboseală în ciuda unui număr suficient de ore în pat. Apneea de somn e una dintre cele mai subdiagnosticate condiții medicale și una dintre cele mai tratabile.
+
+Exercițiul fizic regulat (30 de minute de mișcare moderată, 5 zile pe săptămână) reduce tensiunea arterială prin mai multe mecanisme, inclusiv creșterea duratei somnului profund. Exercițiul de dimineață sau după-amiază pare mai benefic pentru tensiune decât cel de seară târziu.
+
+Reducerea sodiului la cină (nu doar a sării adăugate, ci și a alimentelor procesate care conțin cantități mari de sodiu ascuns) reduce retenția de apă nocturnă și ușurează munca rinichilor în timpul nopții, sprijinind tiparul de dipping.
+
+Somnul prost crește tensiunea, iar tensiunea crescută poate fragmenta somnul. Cercul acesta se întrerupe cel mai ușor din partea somnului, pentru că acolo intervențiile sunt ieftine și fără efecte secundare. Dacă tensiunea ta diurnă e la limită sau ușor crescută, o discuție cu medicul despre monitorizarea nocturnă pe 24 de ore poate oferi informații pe care măsurătorile din cabinet nu le surprind.

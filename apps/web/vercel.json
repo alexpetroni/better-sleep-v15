@@ -1,0 +1,17 @@
+{
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"crons": [
+		{
+			"path": "/api/cron/chat-prune",
+			"schedule": "17 3 * * *"
+		},
+		{
+			"path": "/api/cron/shipment-sync",
+			"schedule": "7 * * * *"
+		},
+		{
+			"path": "/api/cron/nurture-send",
+			"schedule": "*/15 * * * *"
+		}
+	]
+}
