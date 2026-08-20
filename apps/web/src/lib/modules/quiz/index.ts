@@ -8,6 +8,8 @@ export {
 	pickBand,
 	scoreQuiz,
 	validateScoringConfig,
+	type ArchetypeDefinition,
+	type ArchetypeResult,
 	type DimensionScore,
 	type QuestionScoring,
 	type QuizAnswers,

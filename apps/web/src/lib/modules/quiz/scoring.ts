@@ -15,6 +15,20 @@ export interface ScoringBand {
 	advice: string;
 }
 
+/** Result-side copy for one archetype, snapshotted into the profile at scoring time. */
+export interface ArchetypeDefinition {
+	label: string;
+	essence: string;
+	/** The long-form "what it means" copy shown on the result page (paragraphs split by blank lines). */
+	advice: string;
+}
+
+/** A ranked archetype in an archetype-mode profile. */
+export interface ArchetypeResult extends ArchetypeDefinition {
+	key: string;
+	score: number;
+}
+
 export type QuestionScoring =
 	| {
 			kind: 'map';
@@ -36,6 +50,14 @@ export interface ScoringConfig {
 	dimensions?: Record<string, { label: string }>;
 	/** Sorted ascending by `min`; the total score picks the highest band it reaches. */
 	bands: ScoringBand[];
+	/**
+	 * `archetype`: every dimension is an archetype and the profile gains
+	 * `winner`/`runnerUp` (bands still apply — a single catch-all band keeps
+	 * band consumers like the result email working). Default: `band`.
+	 */
+	resultMode?: 'band' | 'archetype';
+	/** Archetype key → result copy. In `archetype` mode keys mirror `dimensions` 1:1. */
+	archetypes?: Record<string, ArchetypeDefinition>;
 }
 
 export interface DimensionScore {
@@ -51,6 +73,10 @@ export interface QuizProfile {
 	maxScore: number | null;
 	band: ScoringBand;
 	dimensions: DimensionScore[];
+	/** Set only in `archetype` mode — the band path is unchanged. */
+	resultMode?: 'band' | 'archetype';
+	winner?: ArchetypeResult;
+	runnerUp?: ArchetypeResult;
 }
 
 /** Flat answers keyed by question id — what the engine consumes. */
@@ -176,7 +202,31 @@ export function scoreQuiz(
 		})
 	);
 
-	return { score, maxScore, band: pickBand(scoring.bands, score), dimensions };
+	const profile: QuizProfile = { score, maxScore, band: pickBand(scoring.bands, score), dimensions };
+
+	if (scoring.resultMode === 'archetype') {
+		// Tie-break is deterministic: the higher score wins; on EQUAL scores the
+		// dimension declared EARLIER in `scoring.dimensions` wins (`dimensions`
+		// is built in declaration order and Array#sort is stable).
+		const ranked = [...dimensions].sort((a, b) => b.score - a.score);
+		const toArchetype = (dim: DimensionScore): ArchetypeResult => {
+			// Validation guarantees a matching entry; fall back to the dimension
+			// label so a stale stored config still renders something sensible.
+			const def = scoring.archetypes?.[dim.key];
+			return {
+				key: dim.key,
+				score: dim.score,
+				label: def?.label ?? dim.label,
+				essence: def?.essence ?? '',
+				advice: def?.advice ?? ''
+			};
+		};
+		profile.resultMode = 'archetype';
+		if (ranked[0]) profile.winner = toArchetype(ranked[0]);
+		if (ranked[1]) profile.runnerUp = toArchetype(ranked[1]);
+	}
+
+	return profile;
 }
 
 const OPTION_TYPES = new Set(['single-select', 'multi-select', 'select', 'likert']);
@@ -231,6 +281,50 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 					errors.push(`Dimensiunea "${key}" are nevoie de un "label" text.`);
 				}
 				dimensionKeys.add(key);
+			}
+		}
+	}
+
+	// resultMode + archetypes (archetype mode: dimensions ⇔ archetypes must match 1:1)
+	if (raw.resultMode !== undefined && raw.resultMode !== 'band' && raw.resultMode !== 'archetype') {
+		errors.push('"resultMode" trebuie să fie "band" sau "archetype".');
+	}
+	const archetypeKeys = new Set<string>();
+	if (raw.archetypes !== undefined) {
+		if (!isRecord(raw.archetypes)) {
+			errors.push('"archetypes" trebuie să fie un obiect { cheie: { label, essence, advice } }.');
+		} else {
+			for (const [key, value] of Object.entries(raw.archetypes)) {
+				if (
+					!isRecord(value) ||
+					typeof value.label !== 'string' ||
+					typeof value.essence !== 'string' ||
+					typeof value.advice !== 'string'
+				) {
+					errors.push(
+						`Arhetipul "${key}" are nevoie de "label", "essence" și "advice" (texte).`
+					);
+				}
+				archetypeKeys.add(key);
+			}
+		}
+	}
+	if (raw.resultMode === 'archetype') {
+		if (dimensionKeys.size < 2) {
+			errors.push('Modul "archetype" are nevoie de cel puțin două dimensiuni declarate.');
+		}
+		if (!isRecord(raw.archetypes)) {
+			errors.push('Modul "archetype" are nevoie de un obiect "archetypes".');
+		} else {
+			for (const key of dimensionKeys) {
+				if (!archetypeKeys.has(key)) {
+					errors.push(`Dimensiunea "${key}" nu are un arhetip corespunzător în "archetypes".`);
+				}
+			}
+			for (const key of archetypeKeys) {
+				if (!dimensionKeys.has(key)) {
+					errors.push(`Arhetipul "${key}" nu are o dimensiune corespunzătoare în "dimensions".`);
+				}
 			}
 		}
 	}

@@ -184,6 +184,160 @@ describe('scoreQuiz', () => {
 	});
 });
 
+// Archetype mode: two single-selects scored into three archetype dimensions.
+const ARCH_FORM: FormConfig = {
+	steps: [
+		{
+			id: 'seara',
+			label: 'Seara',
+			groups: [
+				{
+					id: 'g1',
+					label: 'Tipare',
+					questions: [
+						{
+							id: 'ganduri',
+							type: 'single-select',
+							label: 'Ce se întâmplă în capul tău seara?',
+							options: [
+								{ value: 'lista', label: 'Lista de mâine' },
+								{ value: 'scene', label: 'Scene din ziua trecută' },
+								{ value: 'garda', label: 'Ascult casa' }
+							]
+						},
+						{
+							id: 'fraza',
+							type: 'single-select',
+							label: 'Care frază te descrie?',
+							options: [
+								{ value: 'mn', label: 'Mai am de făcut' },
+								{ value: 'ru', label: 'Nu pot lăsa ce s-a întâmplat' },
+								{ value: 'st', label: 'Nu e sigur să las garda jos' }
+							]
+						}
+					]
+				}
+			]
+		}
+	]
+};
+
+const ARCH_SCORING: ScoringConfig = {
+	resultMode: 'archetype',
+	questions: {
+		ganduri: { kind: 'map', dimension: 'MN', map: { lista: 2 } },
+		fraza: { kind: 'map', dimension: 'RU', map: { ru: 3 } }
+	},
+	dimensions: {
+		MN: { label: 'Managerul' },
+		RU: { label: 'Ruminatorul' },
+		ST: { label: 'Străjerul' }
+	},
+	archetypes: {
+		MN: { label: 'Managerul', essence: 'Mintea rulează liste', advice: 'Copie MN.' },
+		RU: { label: 'Ruminatorul', essence: 'Reia scene', advice: 'Copie RU.' },
+		ST: { label: 'Străjerul', essence: 'Nu lasă garda jos', advice: 'Copie ST.' }
+	},
+	bands: [{ key: 'arhetip', min: 0, label: 'Tiparul tău', advice: 'Vezi rezultatul.' }]
+};
+
+// Same form, but RU and ST each get exactly 2 points → a deliberate tie.
+const ARCH_TIE_SCORING: ScoringConfig = {
+	...ARCH_SCORING,
+	questions: {
+		ganduri: { kind: 'map', dimension: 'RU', map: { scene: 2 } },
+		fraza: { kind: 'map', dimension: 'ST', map: { st: 2 } }
+	}
+};
+
+describe('scoreQuiz — archetype mode', () => {
+	it('band mode profiles carry no archetype fields', () => {
+		const profile = scoreQuiz(FORM, SCORING, { adormire: 'sub-15' });
+		expect(profile.resultMode).toBeUndefined();
+		expect(profile.winner).toBeUndefined();
+		expect(profile.runnerUp).toBeUndefined();
+	});
+
+	it('picks the highest-scoring archetype as winner and the second as runnerUp', () => {
+		const profile = scoreQuiz(ARCH_FORM, ARCH_SCORING, { ganduri: 'lista', fraza: 'ru' });
+		expect(profile.resultMode).toBe('archetype');
+		expect(profile.winner).toMatchObject({
+			key: 'RU',
+			score: 3,
+			label: 'Ruminatorul',
+			essence: 'Reia scene',
+			advice: 'Copie RU.'
+		});
+		expect(profile.runnerUp).toMatchObject({ key: 'MN', score: 2, label: 'Managerul' });
+		// The band path still works underneath (single catch-all band).
+		expect(profile.band.key).toBe('arhetip');
+	});
+
+	it('breaks ties by declaration order in dimensions (documented tie-break)', () => {
+		// RU and ST both score 2; MN scores 0. Declaration order: MN, RU, ST →
+		// RU (earlier than ST) wins, ST is runner-up.
+		const profile = scoreQuiz(ARCH_FORM, ARCH_TIE_SCORING, { ganduri: 'scene', fraza: 'st' });
+		expect(profile.winner?.key).toBe('RU');
+		expect(profile.runnerUp?.key).toBe('ST');
+	});
+
+	it('an all-zero submission still yields a winner, by declaration order', () => {
+		const profile = scoreQuiz(ARCH_FORM, ARCH_SCORING, {});
+		expect(profile.winner?.key).toBe('MN');
+		expect(profile.runnerUp?.key).toBe('RU');
+	});
+});
+
+describe('validateScoringConfig — archetype mode', () => {
+	it('accepts the reference archetype config', () => {
+		expect(validateScoringConfig(ARCH_FORM, ARCH_SCORING)).toEqual([]);
+	});
+
+	it('rejects an unknown resultMode', () => {
+		const bad = { ...ARCH_SCORING, resultMode: 'winner' };
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('resultMode');
+	});
+
+	it('rejects a dimension with no matching archetypes entry', () => {
+		const bad = {
+			...ARCH_SCORING,
+			archetypes: { MN: ARCH_SCORING.archetypes!.MN, RU: ARCH_SCORING.archetypes!.RU }
+		};
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('"ST"');
+	});
+
+	it('rejects an archetypes entry with no matching dimension', () => {
+		const bad = {
+			...ARCH_SCORING,
+			archetypes: {
+				...ARCH_SCORING.archetypes,
+				EP: { label: 'Epuizatul', essence: 'Nu mai are din ce', advice: 'Copie EP.' }
+			}
+		};
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('"EP"');
+	});
+
+	it('rejects archetype mode without archetypes or with malformed entries', () => {
+		const { archetypes: _dropped, ...withoutArchetypes } = ARCH_SCORING;
+		expect(validateScoringConfig(ARCH_FORM, withoutArchetypes).join(' ')).toContain('archetypes');
+		const malformed = {
+			...ARCH_SCORING,
+			archetypes: { ...ARCH_SCORING.archetypes, MN: { label: 'Managerul' } }
+		};
+		expect(validateScoringConfig(ARCH_FORM, malformed).join(' ')).toContain('"MN"');
+	});
+
+	it('rejects archetype mode with fewer than two dimensions', () => {
+		const bad = {
+			...ARCH_SCORING,
+			questions: { ganduri: { kind: 'map', dimension: 'MN', map: { lista: 2 } } },
+			dimensions: { MN: { label: 'Managerul' } },
+			archetypes: { MN: ARCH_SCORING.archetypes!.MN }
+		};
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('două dimensiuni');
+	});
+});
+
 describe('answer flattening', () => {
 	it('flattens formcomp step responses to a questionId map', () => {
 		expect(flattenStepResponses({ noapte: { adormire: 'sub-15' }, zi: { oboseala: 2 } })).toEqual({
