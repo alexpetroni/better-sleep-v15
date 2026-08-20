@@ -1,3 +1,6 @@
+// Relative on purpose: the plain-node seed script loads this config, and the
+// nurture barrel is the universal (node-safe) one.
+import { RESULT_URL_TOKEN } from '../../modules/nurture/index.ts';
 import type { SiteConfig } from '../types.ts';
 
 export const sleepSite: SiteConfig = {
@@ -87,6 +90,38 @@ export const sleepSite: SiteConfig = {
 						'O rutină de seară bună are trei ingrediente: aceeași oră, aceleași gesturi, fără ecrane în ultimele 30 de minute.',
 						'Repet-o 10 zile la rând și urmărește cum se schimbă cât de repede adormi.'
 					]
+				}
+			]
+		},
+		{
+			// The deck's block-5 promise ("îți trimitem protocolul complet"):
+			// captured on the archetype quiz result, delivered here. Step 0's CTA
+			// resolves per subscriber to their own result page at send time.
+			key: 'protocol-arhetip-somn',
+			name: 'Protocolul după testul de somn',
+			trigger: { kind: 'quiz-completed', quizSlug: 'arhetip-somn' },
+			consentKey: 'newsletter',
+			steps: [
+				{
+					offsetDays: 0,
+					templateKey: 'nurture',
+					subject: 'Protocolul tău de somn',
+					paragraphs: [
+						'Ai făcut testul și ți-ai văzut tiparul. De aici începe partea utilă: protocolul — ce schimbi în rutina de seară, în ce ordine, și la ce să fii atent în primele săptămâni.',
+						'Începe cu primul pas recomandat pentru tiparul tău, de pe pagina rezultatului. Un singur obicei, ținut zilnic, mută mai mult decât cinci începute și abandonate.'
+					],
+					cta: { label: 'Vezi rezultatul și protocolul tău', url: RESULT_URL_TOKEN }
+				},
+				{
+					offsetDays: 3,
+					hourLocal: 9,
+					templateKey: 'nurture',
+					subject: 'Trei zile de protocol: ce ar trebui să simți',
+					paragraphs: [
+						'Trei zile nu schimbă un somn, dar arată o direcție: adormi puțin mai ușor, sau măcar serile au aceeași structură. Dacă n-ai început încă, alege un singur pas din protocol și ține-te de el o săptămână.',
+						'După 3 săptămâni reevaluăm. Dacă tiparul s-a schimbat, se schimbă și protocolul — poți reface testul oricând.'
+					],
+					cta: { label: 'Refă testul de somn', url: '/quiz/arhetip-somn' }
 				}
 			]
 		},
