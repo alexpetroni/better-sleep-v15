@@ -26,6 +26,7 @@
 		"chat:prune": "node scripts/chat-prune.ts",
 		"media:blurhash": "node scripts/media-blurhash.ts",
 		"content": "node scripts/content.ts",
+		"articles:from-initialdata": "node scripts/articles-from-initialdata.ts",
 		"content:init": "node scripts/content.ts import-dir",
 		"subscriber:delete": "node scripts/subscriber-delete.ts",
 		"user:create": "node scripts/user-create.ts"
