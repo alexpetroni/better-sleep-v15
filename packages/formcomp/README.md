@@ -98,6 +98,7 @@ Ready-to-run `FormConfig` objects live in the `./src/examples/` directory. Each 
 | `all-inputs` | `src/examples/all-inputs.ts` | Every built-in input type, `tooltip`, `inputType: 'email'`, group `intro`, and the summary screen. |
 | `customized` | `src/examples/customized.ts` | All `settings` labels/messages, summary customization, and `class`/`optionClass` styling hooks. |
 | `kiosk` | `src/examples/kiosk.ts` | Linear one-way flow: `showProgress: false`, `allowBackNavigation: false`. |
+| `lead-capture` | `src/examples/lead-capture.ts` | Email-format validation, a required `consent` checkbox, and the anti-spam honeypot. |
 | `sleep-assessment` | `src/examples/sleep-assessment.ts` | Larger three-step form combining everything. |
 
 Drop a new `.ts` file into `./src/examples/`, add it to `src/examples/index.ts`, and it will show up in the `/examples` gallery automatically.
@@ -261,6 +262,7 @@ interface FormSettings {
   successTitle?: string;         // built-in success screen heading, default 'Thank you!'
   successMessage?: string;       // built-in success screen body
   submitErrorMessage?: string;   // shown when the POST fails (server messages win)
+  honeypot?: boolean;            // render a hidden anti-spam field (see "Anti-spam honeypot")
 }
 ```
 
@@ -356,8 +358,9 @@ interface Question {
 | `'date-input'` | `DateInput` | `string` | HTML date input, ISO `YYYY-MM-DD`. |
 | `'number-input'` | `NumberInput` | `number` | Supports `min`, `max`, `step`, `unit`, `placeholder`. |
 | `'range'` | `RangeInput` | `{ from, to }` | A from–to interval as two number fields. `min`/`max` bound both ends; `minLabel`/`maxLabel` label the fields (default From/To); supports `step`, `unit`. Half-filled or inverted ranges fail validation. |
-| `'text-input'` | `TextInput` | `string` | Plain text field. Supports `placeholder` and `inputType: 'email' \| 'url'`. |
+| `'text-input'` | `TextInput` | `string` | Plain text field. Supports `placeholder` and `inputType: 'email' \| 'url'`. With `inputType: 'email'`, non-empty values must match a conservative email pattern (one `@`, non-empty local part, domain with a dot) or validation fails as *invalid*. |
 | `'textarea'` | `TextArea` | `string` | Multi-line. Supports `rows` (default 4), `placeholder`. |
+| `'consent'` | `ConsentCheckbox` | `boolean` | A single checkbox with the question's `label` rendered next to it (put the full consent text there). When `required`, only `true` validates — GDPR's "this specific box must be ticked". `displayValue` is `'Yes'` (passed through `translate`) or `'—'`. |
 
 ### QuestionOption
 
@@ -621,6 +624,51 @@ const config: FormConfig = {
 };
 ```
 
+## Email validation
+
+A `text-input` question with `inputType: 'email'` gets a real format check on top of the browser attribute (the form itself is `novalidate`): a non-empty value must have exactly one `@`, a non-empty local part, and a domain containing a dot. Anything else fails validation as *invalid* (red ring + `settings.invalidMessage`). An empty value on a non-required question stays valid. No exotic RFC 5322 corners are attempted; `isValidEmail(value)` is exported if you need the same rule elsewhere.
+
+```ts
+{
+  id: 'email',
+  type: 'text-input',
+  inputType: 'email',
+  label: 'Email address',
+  required: true,
+  placeholder: 'jane@example.com'
+}
+```
+
+## Consent checkbox
+
+The `consent` question type renders a single checkbox with the question's `label` next to it — put the full consent sentence in the label (it goes through `translate` like every other label). The answer value is a boolean, and when `required`, only `true` validates: an unticked box blocks submission with the *required* message, which is what GDPR's "this specific box must be ticked" needs (a `multi-select` + `required` cannot express that). In summaries and payloads the `displayValue` is `'Yes'` (a translate key — localize it to e.g. `'Da'`) or `'—'` when unticked.
+
+```ts
+{
+  id: 'gdpr_consent',
+  type: 'consent',
+  label: 'I agree to receive the newsletter and I accept the privacy policy.',
+  required: true
+}
+```
+
+## Anti-spam honeypot
+
+Set `settings.honeypot: true` and the form renders an extra text input named `website` (`HONEYPOT_FIELD` export) that humans never see: positioned off-screen, `aria-hidden`, `tabindex="-1"`, `autocomplete="off"` — deliberately **not** `display:none`, which naive bots skip.
+
+```ts
+const config: FormConfig = {
+  settings: { honeypot: true },
+  submit: { url: '/api/subscribe' },
+  steps: [/* … */]
+};
+```
+
+Two layers of defense:
+
+1. **Client**: if the honeypot is filled at submit time, the form shows the normal success state (or navigates to `submit.successUrl`) **without** calling `submit.url` and without firing `onSubmitSuccess`/`onSubmitError` — a silent drop the bot can't distinguish from success.
+2. **Server**: the payload always carries `honeypot: { field: 'website', value: '' }` when the feature is on, so an endpoint can independently reject any submission where the key is missing (request didn't come from the form) or the value is non-empty (bot that bypassed the client).
+
 ## Submitting results
 
 Set `config.submit` and the form POSTs the results as JSON when the user submits (after the summary screen, when enabled):
@@ -716,7 +764,7 @@ Validation runs automatically when the user clicks "Next". The validator:
 1. Walks all groups and questions in the current step's config.
 2. Skips any group or question hidden by a `condition`.
 3. For each visible question with `required: true`, checks that a response exists and is non-empty.
-4. For answered `number-input` / `scale` questions, checks the value is within `min`/`max`. For `range` questions, both ends must be filled, within bounds, and not inverted.
+4. For answered `number-input` / `scale` questions, checks the value is within `min`/`max`. For `range` questions, both ends must be filled, within bounds, and not inverted. For `text-input` questions with `inputType: 'email'`, a non-empty value must be a plausible email address. A required `consent` question must be `true`.
 5. If invalid, highlights the first failing group (red ring, smooth scroll) and shows an error message via `role="alert"` — `settings.requiredMessage` for missing answers, `settings.invalidMessage` for out-of-range ones.
 
 No hand-coded validation arrays are needed. The config is the single source of truth.
@@ -754,6 +802,7 @@ src/lib/
       NumberInput.svelte             # number with min/max/unit
       TextInput.svelte               # text/email/url
       TextArea.svelte                # multi-line text
+      ConsentCheckbox.svelte         # single boolean consent checkbox
     layout/
       ProgressBar.svelte             # horizontal step indicator with arrows
       NavigationButtons.svelte       # back/next buttons
@@ -772,8 +821,9 @@ import { MultiStepForm, createFormState, evaluateCondition, validateStep, collec
 import type { FormConfig, Question, Condition } from 'formcomp';
 ```
 
-- **Components**: `MultiStepForm`, `FormStep`, `QuestionRenderer`, `GroupRenderer`, `SummaryStep`, all 12 input components (+ `FieldLabel`), all 4 layout components
+- **Components**: `MultiStepForm`, `FormStep`, `QuestionRenderer`, `GroupRenderer`, `SummaryStep`, all 13 input components (+ `FieldLabel`), all 4 layout components
 - **State**: `createFormState`
-- **Utilities**: `evaluateCondition`, `isAnswered`, `validateStep`, `questionStatus`, `isStepVisible`, `collectResponses`, `validateConfig`, `buildSubmitPayload`, `formatAnswer`, `useTranslate`
+- **Utilities**: `evaluateCondition`, `isAnswered`, `validateStep`, `questionStatus`, `isStepVisible`, `collectResponses`, `validateConfig`, `isValidEmail`, `buildSubmitPayload`, `formatAnswer`, `useTranslate`
+- **Constants**: `HONEYPOT_FIELD`
 - **Types**: `FormConfig`, `FormSettings`, `SubmitConfig`, `SubmitAnswer`, `SubmitPayload`, `StepConfig`, `QuestionGroup`, `Question`, `QuestionOption`, `RangeValue`, `Condition`, `SimpleCondition`, `CompoundCondition`, `ConditionOperator`, `QuestionType`, `DisplayVariant`, `LayoutHint`, `TranslateFn`, `FormStateAdapter`, `FormStateController`, `FormStateOptions`, `FormCallbacks`
 - **Context keys**: `FORM_STATE_KEY`, `TRANSLATE_KEY`, `STEP_ID_KEY`
