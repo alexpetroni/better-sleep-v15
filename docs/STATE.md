@@ -1,4 +1,43 @@
-# STATE — betterSleep after BS-0 repo shape (2026-08-20)
+# STATE — betterSleep after BS-1 formcomp extensions (2026-08-20)
+
+## BS-1 — formcomp 0.3.0: email validation, consent, honeypot (2026-08-20)
+
+`packages/formcomp` bumped 0.2.1 → **0.3.0** with three additive extensions
+that unblock lead capture (BS-2+ will use them on the quiz result form).
+Nothing existing changed shape; all previous configs keep working.
+
+- **Email-format validation.** A `text-input` question with
+  `inputType: 'email'` now fails as `reason: 'invalid'` (red ring +
+  `settings.invalidMessage`) unless a non-empty value matches a conservative
+  pattern: one `@`, non-empty local part, domain with a dot, no whitespace.
+  Empty + not required stays valid. Rule lives in `questionStatus()`
+  (`src/lib/validation/validator.ts`), so both Next-blocking and the
+  red-ring UX use it; `isValidEmail()` is exported for reuse.
+- **`consent` question type.** Single checkbox, boolean answer; when
+  `required`, ONLY `true` validates (reported as 'missing' — GDPR's "this
+  specific box must be ticked", which multi-select + required cannot say).
+  Full consent sentence goes in the question's `label`, rendered next to the
+  box by the new `ConsentCheckbox.svelte` (exported from the barrel).
+  `formatAnswer` → `translate('Yes')` / `'—'` (host localizes 'Yes' → 'Da');
+  `validateConfig` warns if a consent question carries `options`.
+- **Opt-in honeypot.** `settings.honeypot: true` renders an off-screen text
+  input named `website` (`HONEYPOT_FIELD` export) — `aria-hidden`,
+  `tabindex="-1"`, `autocomplete="off"`, NOT display:none. Filled at submit
+  ⇒ the client shows the normal success flow (or navigates to
+  `submit.successUrl`) WITHOUT POSTing and without firing submit callbacks.
+  `buildSubmitPayload(config, get, translate, honeypotValue?)` always adds
+  `payload.honeypot = { field, value }` when the setting is on — a server
+  should reject when the key is absent or the value non-empty (BS phase that
+  builds the capture endpoint must implement that check).
+- **Tests.** `tests/unit/email-consent-honeypot.test.ts` (all cases verified
+  to fail against 0.2.1 by stashing src); new `/examples/lead-capture` +
+  `tests/lead-capture.spec.ts` (playwright: invalid-email block, consent
+  block, payload contents, silent bot drop with zero requests). Suites:
+  formcomp 41 unit + 19 e2e green; root gate green (web 769 unit tests, so
+  the seeded `evaluare-somn` quiz still renders/submits unchanged).
+- README documents all three (config shape + example each); CHANGELOG 0.3.0.
+  Remember `pnpm --filter formcomp package` (root `prepare`) rebuilds `dist/`
+  consumed by apps/web.
 
 ## BS-0 — single brand, single locale (2026-08-20)
 
