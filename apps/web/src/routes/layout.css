@@ -3,3 +3,33 @@
 @plugin '@tailwindcss/typography';
 /* formcomp components ship Tailwind utility classes; scan its dist so they get generated. */
 @source '../../node_modules/formcomp/dist';
+/* Self-hosted variable font (bundled from node_modules, served same-origin —
+   the perf e2e gate forbids third-party font requests). Includes latin-ext,
+   which Romanian diacritics need. */
+@import '@fontsource-variable/plus-jakarta-sans';
+
+@theme {
+	--font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Scroll-driven entry reveals (landing): the `reveal` action adds
+   `reveal-hidden` on mount and `reveal-shown` on intersection. All rules sit
+   behind prefers-reduced-motion, so reduced-motion users (and no-JS visitors,
+   for whom the action never runs) always see static, fully visible content. */
+@media (prefers-reduced-motion: no-preference) {
+	html {
+		scroll-behavior: smooth;
+	}
+	.reveal-hidden {
+		opacity: 0;
+		transform: translateY(2.5rem);
+		transition:
+			opacity 800ms cubic-bezier(0.32, 0.72, 0, 1),
+			transform 800ms cubic-bezier(0.32, 0.72, 0, 1);
+		transition-delay: var(--reveal-delay, 0ms);
+	}
+	.reveal-hidden.reveal-shown {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}

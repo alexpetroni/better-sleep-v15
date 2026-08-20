@@ -14,7 +14,15 @@ export const sleepSite: SiteConfig = {
 		'color-brand-soft': 'oklch(0.93 0.03 275)',
 		'color-accent': 'oklch(0.72 0.15 60)',
 		'color-surface': 'oklch(0.99 0.005 275)',
-		'color-ink': 'oklch(0.22 0.03 275)'
+		'color-ink': 'oklch(0.22 0.03 275)',
+		// Nighttime palette for the landing's dark sections (hero, night map,
+		// final CTA): the brand indigo dropped to night lightness. "moon" is the
+		// warm highlight that carries CTAs and time marks on dark ground.
+		'color-night': 'oklch(0.16 0.04 278)',
+		'color-night-raised': 'oklch(0.21 0.05 278)',
+		'color-night-ink': 'oklch(0.94 0.015 278)',
+		'color-night-muted': 'oklch(0.78 0.03 278)',
+		'color-moon': 'oklch(0.87 0.09 85)'
 	},
 	nav: [
 		{ label: 'Acasă', href: '/' },
