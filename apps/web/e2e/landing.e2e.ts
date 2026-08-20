@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { ARCHETYPE_PAGES } from '../src/lib/modules/quiz/index.ts';
+import { NIGHT_MAP_SKUS, NIGHT_SEGMENT_KEYS } from '../src/lib/modules/shop/index.ts';
 
 // BS-5 landing gate: the ten deck blocks (and ONLY those — Authority and
 // Testimonials are deliberately absent), the hero CTA into the quiz, the
@@ -71,6 +72,36 @@ test('each pattern card links only to real archetype pages and reaches one', asy
 		await expect(page.getByTestId('archetype-name')).toBeVisible();
 		await page.goBack();
 	}
+});
+
+test('the night map names real seeded SKUs and every link resolves (BS-6)', async ({ page }) => {
+	await page.goto('/');
+	const links = page.locator('[data-testid="nightmap-sku-link"]');
+	const expectedCount = NIGHT_SEGMENT_KEYS.reduce((n, key) => n + NIGHT_MAP_SKUS[key].length, 0);
+	await expect(links).toHaveCount(expectedCount);
+
+	// Each of the four segments names at least two SKUs, in segment order.
+	const segments = page.locator('[data-testid="landing-nightmap"] ol > li');
+	await expect(segments).toHaveCount(4);
+	for (let i = 0; i < 4; i++) {
+		const skus = NIGHT_MAP_SKUS[NIGHT_SEGMENT_KEYS[i]];
+		const segmentLinks = segments.nth(i).locator('[data-testid="nightmap-sku-link"]');
+		await expect(segmentLinks).toHaveCount(skus.length);
+		await expect(segmentLinks.first()).toHaveText(skus[0].label);
+	}
+
+	// Every href is a live product page — the SKUs are really seeded.
+	const hrefs = await links.evaluateAll((els) => els.map((a) => a.getAttribute('href')!));
+	for (const href of hrefs) {
+		expect(href).toMatch(/^\/magazin\/[a-z0-9-]+$/);
+		const response = await page.request.get(href);
+		expect(response.status(), href).toBe(200);
+	}
+
+	// Click-through: the first ADORMIREA SKU lands on its shop page.
+	await links.first().click();
+	await expect(page).toHaveURL(new RegExp(`/magazin/${NIGHT_MAP_SKUS.adormirea[0].slug}$`));
+	await expect(page.getByTestId('product-title')).toBeVisible();
 });
 
 test('the objection accordion opens', async ({ page }) => {

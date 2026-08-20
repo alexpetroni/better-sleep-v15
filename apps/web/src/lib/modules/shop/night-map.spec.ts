@@ -47,8 +47,7 @@ describe('NIGHT_MAP_SKUS', () => {
 				expect(product, `${key}: "${slug}" is not a committed product`).toBeDefined();
 				// The label is the product name minus its pack-size suffix — a
 				// rename in the catalogue must break this pin.
-				const named =
-					product!.name === label || product!.name.startsWith(`${label},`);
+				const named = product!.name === label || product!.name.startsWith(`${label},`);
 				expect(named, `${key}: label "${label}" does not name "${product!.name}"`).toBe(true);
 				expect(seen.has(slug), `"${slug}" appears in two segments`).toBe(false);
 				seen.add(slug);

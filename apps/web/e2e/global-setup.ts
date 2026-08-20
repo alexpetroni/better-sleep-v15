@@ -1,6 +1,7 @@
 // Runs once before the e2e suite: migrate the site database, seed the staff
 // users the admin tests log in with, and clear rate-limit counters left by a
 // previous run (their 15-minute window outlives a test cycle).
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -15,6 +16,8 @@ import {
 	seedPillars
 } from '../src/lib/db/seed.ts';
 import { createAuth } from '../src/lib/modules/auth/auth.ts';
+import { parseBundle } from '../src/lib/modules/content/bundle.ts';
+import { importContent } from '../src/lib/modules/content/import.ts';
 import { upsertStaffUser } from '../src/lib/modules/auth/staff.ts';
 import { storageConfigFromEnv } from '../src/lib/modules/media/env.ts';
 import { createStorage } from '../src/lib/modules/media/storage.ts';
@@ -78,6 +81,19 @@ export default async function globalSetup() {
 			// The shop e2e runs against the seeded demo catalog (idempotent; also
 			// restores stock levels consumed by earlier webhook simulations).
 			await seedDemoProducts(db, storage);
+			// The 33 BS-6 catalogue products (product bundles only — the article
+			// bundles stay out so the blog e2e keeps its listing assumptions).
+			// The landing night map links into these; the shop e2e counts them.
+			const sleepContentDir = path.resolve(import.meta.dirname, '../../../content/sleep');
+			for (const file of (await readdir(sleepContentDir)).filter((f) => f.endsWith('.json'))) {
+				const parsed = parseBundle(
+					JSON.parse(await readFile(path.join(sleepContentDir, file), 'utf8'))
+				);
+				if (!parsed.ok) throw new Error(`Invalid bundle ${file}: ${parsed.error}`);
+				if (parsed.bundle.type !== 'product') continue;
+				const imported = await importContent({ db, storage }, parsed.bundle);
+				if (!imported.ok) throw new Error(`Import failed for ${file}: ${imported.error}`);
+			}
 			// The full-funnel e2e walks pillar page → demo article and the legal
 			// pages linked from the footer.
 			await seedDemoArticles(db);

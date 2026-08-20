@@ -27,9 +27,10 @@ test('visitor browses, fills the cart, reaches checkout; a signed webhook create
 	const clientEmail = 'e2e-client@example.com';
 
 	try {
-		// --- Catalog: the 3 seeded products render with real cover images.
+		// --- Catalog: 3 demo products + the 33 BS-6 catalogue products; the
+		// demo ones render with real cover images.
 		await page.goto('/magazin');
-		await expect(page.locator('[data-testid="product-card"]')).toHaveCount(3);
+		await expect(page.locator('[data-testid="product-card"]')).toHaveCount(36);
 		const mascaCard = page.locator(`[data-testid="product-card"][data-slug="${MASCA.slug}"]`);
 		await expect(mascaCard.getByTestId('product-price')).toHaveText('89,90 lei');
 		const cover = mascaCard.locator('img');
@@ -186,6 +187,27 @@ test('visitor browses, fills the cart, reaches checkout; a signed webhook create
 	} finally {
 		await db.$client.end();
 	}
+});
+
+test('a BS-6 catalogue product sells at its captured RON price', async ({ page }) => {
+	// Melatonină 3 mg — 32 integer lei in .initialData/zenyth-products.json.
+	await page.goto('/magazin');
+	const card = page.locator('[data-testid="product-card"][data-slug="melatonin-3-mg"]');
+	await expect(card.getByTestId('product-price')).toHaveText('32,00 lei');
+
+	// Product page: Romanian description (diacritics + the price-source line).
+	await card.locator('a').first().click();
+	await expect(page.getByTestId('product-title')).toHaveText('Melatonină 3 mg, 30 capsule');
+	const description = page.getByTestId('product-description');
+	await expect(description).toContainText('ritmului circadian');
+	await expect(description).toContainText('Sursă preț');
+
+	// Add to cart → integer-bani total formatted through util/money.
+	await page.getByTestId('product-add-to-cart').click();
+	await expect(page).toHaveURL(/\/cos$/);
+	const line = page.locator('[data-testid="cart-line"][data-slug="melatonin-3-mg"]');
+	await expect(line.getByTestId('cart-line-total')).toHaveText('32,00 lei');
+	await expect(page.getByTestId('cart-total')).toHaveText('32,00 lei');
 });
 
 test('a tracked product at zero stock shows a disabled buy button', async ({ page }, testInfo) => {
