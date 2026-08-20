@@ -55,6 +55,10 @@ function newsletterEvent(email: string, ip: string): Omit<EmailActionEvent, 'par
 function quizEmailEvent(email: string, ip: string): EmailActionEvent {
 	const body = new FormData();
 	body.set('email', email);
+	// BS-3 hardening: the throttle sits BEHIND the consent and (empty) honeypot
+	// gates — a post that fails those is refused without spending budget.
+	body.set('newsletter_consent', 'yes');
+	body.set('website', '');
 	return {
 		request: new Request('http://localhost/quiz/x/rezultat/y', { method: 'POST', body }),
 		params: { slug: 'evaluare-somn', resultId: 'no-such-result' },
