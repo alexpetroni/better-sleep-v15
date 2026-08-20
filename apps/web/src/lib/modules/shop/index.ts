@@ -20,6 +20,12 @@ export {
 	legalTransitions,
 	type FulfillmentStatus
 } from './fulfillment.ts';
+export {
+	NIGHT_MAP_SKUS,
+	NIGHT_SEGMENT_KEYS,
+	type NightMapSku,
+	type NightSegmentKey
+} from './night-map.ts';
 export type {
 	BuyerCompany,
 	OrderEventRow,

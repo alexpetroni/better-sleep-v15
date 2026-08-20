@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import messages from '../../../messages/ro.json';
 import { ARCHETYPE_PAGES, SLEEP_PATTERNS } from '../../lib/modules/quiz/index.ts';
+import { NIGHT_MAP_SKUS, NIGHT_SEGMENT_KEYS } from '../../lib/modules/shop/index.ts';
 import { load } from './+page.server.ts';
 
 // The landing load is pure static data — no DB, no event access. The
 // generated load type unions with `void`, so narrow to the actual shape.
 const data = (await load({} as never)) as {
+	nightMapSkus: typeof NIGHT_MAP_SKUS;
 	patterns: { slug: string; title: string; archetypes: { name: string; slug: string }[] }[];
 };
 
@@ -29,6 +31,15 @@ describe('landing +page.server load', () => {
 		// The landing is the intended entry point to /tipuri — every archetype
 		// page must be reachable from the pattern grid.
 		expect(linked.size).toBe(ARCHETYPE_PAGES.length);
+	});
+
+	it('supplies the night-map SKUs for all four segments (BS-6 seam)', () => {
+		// Slug/name validity against the committed catalogue is pinned in
+		// modules/shop/night-map.spec.ts — here only the pass-through matters.
+		expect(data.nightMapSkus).toBe(NIGHT_MAP_SKUS);
+		for (const key of NIGHT_SEGMENT_KEYS) {
+			expect(data.nightMapSkus[key].length, key).toBeGreaterThanOrEqual(2);
+		}
 	});
 });
 
