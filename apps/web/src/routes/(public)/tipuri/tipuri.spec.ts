@@ -51,7 +51,10 @@ beforeAll(async () => {
 	await storage.ensureBucket();
 	const summary = await importContentDirs({ db, storage }, [path.join(ROOT, 'content/sleep')]);
 	if (summary.failed > 0) throw new Error('content/sleep import failed');
-});
+	// Rebuilding the schema plus importing all committed bundles (40 articles +
+	// 33 products since BS-6) overruns the default 10s hook timeout under a
+	// full-suite run, though it takes ~5s in isolation.
+}, 60_000);
 
 afterAll(async () => {
 	await db?.$client.end();
