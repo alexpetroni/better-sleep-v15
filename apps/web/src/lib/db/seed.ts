@@ -5,7 +5,10 @@ import { media } from '../modules/media/schema.ts';
 import { DEFAULT_PAGES } from '../modules/pages/seed-pages.ts';
 import { ensurePage } from '../modules/pages/service.ts';
 import type { Storage } from '../modules/media/storage.ts';
+import type { FormConfig } from 'formcomp';
 import { quizzes } from '../modules/quiz/schema.ts';
+import type { ScoringConfig } from '../modules/quiz/scoring.ts';
+import { ARCHETYPE_QUIZ_SEED } from '../modules/quiz/seed-archetype-quiz.ts';
 import { SLEEP_QUIZ_SEED } from '../modules/quiz/seed-quiz.ts';
 import { validateForPublish } from '../modules/quiz/validate.ts';
 import {
@@ -79,23 +82,28 @@ const DEMO_ARTICLES = [
 	}
 ];
 
-/**
- * The demo-able sleep screening quiz, published and tagged `somn` (active on
- * both sites). Idempotent: fixed id + upsert-by-slug.
- */
-export async function seedDemoQuiz(db: Db): Promise<string> {
-	const errors = validateForPublish(SLEEP_QUIZ_SEED.formSchema, SLEEP_QUIZ_SEED.scoring);
-	if (errors.length) throw new Error(`Seed quiz is not publishable: ${errors.join(' ')}`);
-	const [pillar] = await db
-		.select()
-		.from(pillars)
-		.where(eq(pillars.slug, SLEEP_QUIZ_SEED.pillarSlug));
-	if (!pillar) {
-		throw new Error(
-			`Cannot seed the demo quiz: pillar "${SLEEP_QUIZ_SEED.pillarSlug}" is not seeded`
-		);
+interface QuizSeed {
+	id: string;
+	slug: string;
+	title: string;
+	introMd: string;
+	pillarSlug: string;
+	resultTemplateKey: string;
+	formSchema: FormConfig;
+	scoring: ScoringConfig;
+}
+
+/** Upsert one published seed quiz (fixed id + upsert-by-slug, idempotent). */
+async function upsertSeedQuiz(db: Db, seed: QuizSeed): Promise<string> {
+	const errors = validateForPublish(seed.formSchema, seed.scoring);
+	if (errors.length) {
+		throw new Error(`Seed quiz "${seed.slug}" is not publishable: ${errors.join(' ')}`);
 	}
-	const { id, slug, title, introMd, resultTemplateKey, formSchema, scoring } = SLEEP_QUIZ_SEED;
+	const [pillar] = await db.select().from(pillars).where(eq(pillars.slug, seed.pillarSlug));
+	if (!pillar) {
+		throw new Error(`Cannot seed quiz "${seed.slug}": pillar "${seed.pillarSlug}" is not seeded`);
+	}
+	const { id, slug, title, introMd, resultTemplateKey, formSchema, scoring } = seed;
 	const values = {
 		slug,
 		title,
@@ -110,7 +118,23 @@ export async function seedDemoQuiz(db: Db): Promise<string> {
 		.insert(quizzes)
 		.values({ id, ...values })
 		.onConflictDoUpdate({ target: quizzes.slug, set: { ...values, updatedAt: new Date() } });
-	return SLEEP_QUIZ_SEED.slug;
+	return seed.slug;
+}
+
+/**
+ * The demo-able sleep screening quiz, published and tagged `somn` (active on
+ * both sites). Idempotent: fixed id + upsert-by-slug.
+ */
+export async function seedDemoQuiz(db: Db): Promise<string> {
+	return upsertSeedQuiz(db, SLEEP_QUIZ_SEED);
+}
+
+/**
+ * The archetype quiz `/quiz/arhetip-somn` — the site's central conversion
+ * device (12 questions, archetype scoring mode). Idempotent like the demo quiz.
+ */
+export async function seedArchetypeQuiz(db: Db): Promise<string> {
+	return upsertSeedQuiz(db, ARCHETYPE_QUIZ_SEED);
 }
 
 /**

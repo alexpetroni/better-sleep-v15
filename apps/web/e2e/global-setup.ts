@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { resolveSiteConfig } from '../src/lib/config/index.ts';
 import { createDb } from '../src/lib/db/client.ts';
 import {
+	seedArchetypeQuiz,
 	seedDefaultPages,
 	seedDemoArticles,
 	seedDemoProducts,
@@ -34,9 +35,10 @@ export default async function globalSetup() {
 		const db = createDb(siteDatabaseUrl(siteId));
 		try {
 			await migrate(db, { migrationsFolder: path.resolve(import.meta.dirname, '../drizzle') });
-			// The quiz e2e runs against the seeded pillars + demo quiz (idempotent).
+			// The quiz e2e runs against the seeded pillars + demo/archetype quizzes (idempotent).
 			await seedPillars(db, resolveSiteConfig(siteId).pillars);
 			await seedDemoQuiz(db);
+			await seedArchetypeQuiz(db);
 			const auth = createAuth({ db, secret });
 			await upsertStaffUser(auth, { ...E2E_ADMIN, role: 'admin' });
 			await upsertStaffUser(auth, { ...E2E_EDITOR, role: 'editor' });

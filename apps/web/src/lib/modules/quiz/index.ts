@@ -18,3 +18,9 @@ export {
 	type ScoringConfig
 } from './scoring.ts';
 export { countQuestions, validateForPublish, validateFormSchema } from './validate.ts';
+export {
+	ARCHETYPE_IDS,
+	SLEEP_PATTERNS,
+	type ArchetypeId,
+	type SleepPattern
+} from './patterns.ts';

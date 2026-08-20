@@ -42,6 +42,16 @@ export type QuestionScoring =
 			multiplier?: number;
 			cap?: number;
 			dimension?: string;
+	  }
+	| {
+			kind: 'weights';
+			/**
+			 * Answer value → points per dimension key: which OPTION you pick
+			 * decides which dimension(s) score — the backbone of archetype
+			 * quizzes, where every option names a different archetype's lived
+			 * experience. Multi-select answers sum every selected value.
+			 */
+			weights: Record<string, Record<string, number>>;
 	  };
 
 export interface ScoringConfig {
@@ -142,8 +152,50 @@ function numericPoints(
 	return points;
 }
 
+/** Per-dimension points of one `weights` question for the given answer. */
+function weightPoints(
+	weights: Record<string, Record<string, number>>,
+	answer: unknown
+): Record<string, number> {
+	const out: Record<string, number> = {};
+	if (answer === undefined || answer === null) return out;
+	for (const value of Array.isArray(answer) ? answer : [answer]) {
+		const entry = weights[String(value)];
+		if (!entry) continue;
+		for (const [dim, points] of Object.entries(entry)) out[dim] = (out[dim] ?? 0) + points;
+	}
+	return out;
+}
+
+/** Highest reachable points per dimension of one `weights` question. */
+function weightMaxByDimension(
+	weights: Record<string, Record<string, number>>,
+	question: Question | undefined
+): Record<string, number> {
+	const out: Record<string, number> = {};
+	for (const entry of Object.values(weights)) {
+		for (const [dim, points] of Object.entries(entry)) {
+			out[dim] =
+				question?.type === 'multi-select'
+					? (out[dim] ?? 0) + Math.max(0, points)
+					: Math.max(out[dim] ?? 0, points);
+		}
+	}
+	return out;
+}
+
 /** Highest reachable points for one scored question, or null when unbounded. */
 function questionMax(spec: QuestionScoring, question: Question | undefined): number | null {
+	if (spec.kind === 'weights') {
+		const totals = Object.values(spec.weights).map((entry) =>
+			Object.values(entry).reduce((a, b) => a + b, 0)
+		);
+		if (totals.length === 0) return 0;
+		if (question?.type === 'multi-select') {
+			return totals.filter((t) => t > 0).reduce((a, b) => a + b, 0);
+		}
+		return Math.max(0, ...totals);
+	}
 	if (spec.kind === 'map') {
 		const values = Object.values(spec.map);
 		if (values.length === 0) return 0;
@@ -176,11 +228,26 @@ export function scoreQuiz(
 
 	for (const [questionId, spec] of Object.entries(scoring.questions)) {
 		const question = byId.get(questionId);
+		const max = questionMax(spec, question);
+
+		if (spec.kind === 'weights') {
+			// Weights spread one question's points across dimensions per option.
+			const byDim = weightPoints(spec.weights, answers[questionId]);
+			score += Object.values(byDim).reduce((a, b) => a + b, 0);
+			maxScore = maxScore === null || max === null ? null : maxScore + max;
+			const maxByDim = weightMaxByDimension(spec.weights, question);
+			for (const [key, dimension] of perDimension) {
+				dimension.score += byDim[key] ?? 0;
+				dimension.maxScore =
+					dimension.maxScore === null ? null : dimension.maxScore + (maxByDim[key] ?? 0);
+			}
+			continue;
+		}
+
 		const points =
 			spec.kind === 'map'
 				? mapPoints(spec.map, answers[questionId])
 				: numericPoints(spec, question, answers[questionId]);
-		const max = questionMax(spec, question);
 
 		score += points;
 		maxScore = maxScore === null || max === null ? null : maxScore + max;
@@ -342,8 +409,11 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 			errors.push(`${where} nu există în schema formularului.`);
 			continue;
 		}
-		if (!isRecord(spec) || (spec.kind !== 'map' && spec.kind !== 'numeric')) {
-			errors.push(`${where}: "kind" trebuie să fie "map" sau "numeric".`);
+		if (
+			!isRecord(spec) ||
+			(spec.kind !== 'map' && spec.kind !== 'numeric' && spec.kind !== 'weights')
+		) {
+			errors.push(`${where}: "kind" trebuie să fie "map", "numeric" sau "weights".`);
 			continue;
 		}
 		if (spec.dimension !== undefined) {
@@ -351,7 +421,32 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 				errors.push(`${where}: dimensiunea "${String(spec.dimension)}" nu este declarată.`);
 			}
 		}
-		if (spec.kind === 'map') {
+		if (spec.kind === 'weights') {
+			if (!isRecord(spec.weights)) {
+				errors.push(`${where}: "weights" trebuie să fie un obiect { valoare: { dimensiune: puncte } }.`);
+				continue;
+			}
+			const optionValues = OPTION_TYPES.has(question.type)
+				? new Set((question.options ?? []).map((o) => o.value))
+				: null;
+			for (const [value, entry] of Object.entries(spec.weights)) {
+				if (optionValues && !optionValues.has(value)) {
+					errors.push(`${where}: valoarea "${value}" nu este printre opțiunile întrebării.`);
+				}
+				if (!isRecord(entry)) {
+					errors.push(`${where}: punctajele pentru "${value}" trebuie să fie un obiect { dimensiune: puncte }.`);
+					continue;
+				}
+				for (const [dim, points] of Object.entries(entry)) {
+					if (!dimensionKeys.has(dim)) {
+						errors.push(`${where}: dimensiunea "${dim}" (la valoarea "${value}") nu este declarată.`);
+					}
+					if (typeof points !== 'number') {
+						errors.push(`${where}: punctajul pentru "${value}" → "${dim}" trebuie să fie un număr.`);
+					}
+				}
+			}
+		} else if (spec.kind === 'map') {
 			if (!isRecord(spec.map)) {
 				errors.push(`${where}: "map" trebuie să fie un obiect { valoare: puncte }.`);
 				continue;

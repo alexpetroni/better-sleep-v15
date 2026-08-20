@@ -184,6 +184,36 @@ describe('scoreQuiz', () => {
 	});
 });
 
+// A weights-kind config on the archetype form: which OPTION you pick decides
+// which dimension(s) score.
+function weightsScoring(): ScoringConfig {
+	return {
+		resultMode: 'archetype',
+		questions: {
+			ganduri: {
+				kind: 'weights',
+				weights: { lista: { MN: 2 }, scene: { RU: 2 }, garda: { ST: 2, MN: 1 } }
+			},
+			semne: {
+				kind: 'weights',
+				weights: { liste: { MN: 2 }, scenarii: { RU: 1, MN: 1 }, niciuna: {} }
+			},
+			fraza: { kind: 'weights', weights: { mn: { MN: 3 }, ru: { RU: 3 }, st: { ST: 3 } } }
+		},
+		dimensions: {
+			MN: { label: 'Managerul' },
+			RU: { label: 'Ruminatorul' },
+			ST: { label: 'Străjerul' }
+		},
+		archetypes: {
+			MN: { label: 'Managerul', essence: 'Mintea rulează liste', advice: 'Copie MN.' },
+			RU: { label: 'Ruminatorul', essence: 'Reia scene', advice: 'Copie RU.' },
+			ST: { label: 'Străjerul', essence: 'Nu lasă garda jos', advice: 'Copie ST.' }
+		},
+		bands: [{ key: 'arhetip', min: 0, label: 'Tiparul tău', advice: 'Vezi rezultatul.' }]
+	};
+}
+
 // Archetype mode: two single-selects scored into three archetype dimensions.
 const ARCH_FORM: FormConfig = {
 	steps: [
@@ -203,6 +233,16 @@ const ARCH_FORM: FormConfig = {
 								{ value: 'lista', label: 'Lista de mâine' },
 								{ value: 'scene', label: 'Scene din ziua trecută' },
 								{ value: 'garda', label: 'Ascult casa' }
+							]
+						},
+						{
+							id: 'semne',
+							type: 'multi-select',
+							label: 'Ce ți se potrivește?',
+							options: [
+								{ value: 'liste', label: 'Fac liste în minte' },
+								{ value: 'scenarii', label: 'Derulez scenarii' },
+								{ value: 'niciuna', label: 'Niciuna', exclusive: true }
 							]
 						},
 						{
@@ -285,6 +325,73 @@ describe('scoreQuiz — archetype mode', () => {
 		const profile = scoreQuiz(ARCH_FORM, ARCH_SCORING, {});
 		expect(profile.winner?.key).toBe('MN');
 		expect(profile.runnerUp?.key).toBe('RU');
+	});
+});
+
+describe('scoreQuiz — weights kind', () => {
+	it('attributes points to the dimensions of the PICKED option', () => {
+		const profile = scoreQuiz(ARCH_FORM, weightsScoring(), {
+			ganduri: 'garda', // ST 2, MN 1
+			semne: ['niciuna'],
+			fraza: 'st' // ST 3
+		});
+		expect(profile.score).toBe(6);
+		expect(profile.winner).toMatchObject({ key: 'ST', score: 5 });
+		expect(profile.runnerUp).toMatchObject({ key: 'MN', score: 1 });
+	});
+
+	it('multi-select weights sum every selected value', () => {
+		const profile = scoreQuiz(ARCH_FORM, weightsScoring(), {
+			ganduri: 'scene', // RU 2
+			semne: ['liste', 'scenarii'], // MN 2+1, RU 1
+			fraza: 'ru' // RU 3
+		});
+		expect(profile.dimensions.find((d) => d.key === 'RU')?.score).toBe(6);
+		expect(profile.dimensions.find((d) => d.key === 'MN')?.score).toBe(3);
+		expect(profile.winner?.key).toBe('RU');
+	});
+
+	it('unknown and missing answers score 0', () => {
+		const profile = scoreQuiz(ARCH_FORM, weightsScoring(), { ganduri: 'inexistent' });
+		expect(profile.score).toBe(0);
+	});
+
+	it('computes the maximum reachable score overall and per dimension', () => {
+		const profile = scoreQuiz(ARCH_FORM, weightsScoring(), {});
+		// ganduri best option totals 3; semne positive totals 2+2; fraza 3.
+		expect(profile.maxScore).toBe(3 + 4 + 3);
+		// MN: best single option 2 (ganduri) + 2+1 (semne) + 3 (fraza).
+		expect(profile.dimensions.find((d) => d.key === 'MN')?.maxScore).toBe(8);
+		// ST: 2 (ganduri) + 0 (semne) + 3 (fraza).
+		expect(profile.dimensions.find((d) => d.key === 'ST')?.maxScore).toBe(5);
+	});
+});
+
+describe('validateScoringConfig — weights kind', () => {
+	it('accepts the reference weights config', () => {
+		expect(validateScoringConfig(ARCH_FORM, weightsScoring())).toEqual([]);
+	});
+
+	it('rejects weight values that are not options of the question', () => {
+		const bad = weightsScoring();
+		bad.questions.ganduri = { kind: 'weights', weights: { 'nu-exista': { MN: 2 } } };
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('nu-exista');
+	});
+
+	it('rejects weights that reference undeclared dimensions', () => {
+		const bad = weightsScoring();
+		bad.questions.ganduri = { kind: 'weights', weights: { lista: { XX: 2 } } };
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('"XX"');
+	});
+
+	it('rejects non-numeric weight points', () => {
+		const bad = weightsScoring();
+		bad.questions.ganduri = {
+			kind: 'weights',
+			// @ts-expect-error — deliberately malformed untrusted JSON
+			weights: { lista: { MN: 'două' } }
+		};
+		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('număr');
 	});
 });
 

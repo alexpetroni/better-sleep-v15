@@ -6,6 +6,7 @@ import { loadRootEnv } from './env.ts';
 import { resolveSiteConfig } from '../src/lib/config/index.ts';
 import { createDb } from '../src/lib/db/client.ts';
 import {
+	seedArchetypeQuiz,
 	seedDemoArticles,
 	seedDemoProducts,
 	seedDefaultPages,
@@ -35,6 +36,8 @@ const articleCount = await seedDemoArticles(db);
 console.log(`Seeded ${articleCount} demo article(s)`);
 const quizSlug = await seedDemoQuiz(db);
 console.log(`Seeded demo quiz "/quiz/${quizSlug}"`);
+const archetypeSlug = await seedArchetypeQuiz(db);
+console.log(`Seeded archetype quiz "/quiz/${archetypeSlug}"`);
 // Product placeholder images land in storage — needs the compose MinIO up.
 const storage = createStorage(storageConfigFromEnv(process.env));
 await storage.ensureBucket();
