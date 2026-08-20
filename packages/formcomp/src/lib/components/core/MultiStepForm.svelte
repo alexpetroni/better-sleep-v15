@@ -5,7 +5,7 @@
 	import { createFormState } from '../../state/form-state.svelte.js';
 	import { validateStep, collectResponses, isStepVisible } from '../../validation/validator.js';
 	import { validateConfig } from '../../validation/config-check.js';
-	import { buildSubmitPayload } from '../../submission.js';
+	import { buildSubmitPayload, HONEYPOT_FIELD } from '../../submission.js';
 	import { cn } from '../../utils.js';
 	import ProgressBar from '../layout/ProgressBar.svelte';
 	import NavigationButtons from '../layout/NavigationButtons.svelte';
@@ -39,6 +39,7 @@
 	let successPayload = $state<SubmitPayload | null>(null);
 	let successResponse = $state<unknown>(null);
 	let successText = $state<{ title: string; message: string } | null>(null);
+	let honeypotValue = $state('');
 
 	setContext(FORM_STATE_KEY, formState);
 	if (translateFn) {
@@ -149,7 +150,27 @@
 
 		if (!config.submit) return;
 
-		const payload = buildSubmitPayload(config, getResponse, t);
+		const payload = buildSubmitPayload(config, getResponse, t, honeypotValue);
+
+		// A filled honeypot means a bot: mimic the normal success flow without
+		// POSTing and without firing the submit callbacks, so the bot can't
+		// tell it was dropped.
+		if (settings.honeypot && honeypotValue.trim() !== '') {
+			if (config.submit.successUrl) {
+				window.location.assign(config.submit.successUrl);
+				return;
+			}
+			successPayload = payload;
+			successResponse = null;
+			successText = {
+				title: t(settings.successTitle ?? 'Thank you!'),
+				message: t(settings.successMessage ?? 'Your answers have been submitted.')
+			};
+			submitState = 'succeeded';
+			focusStepStart();
+			return;
+		}
+
 		submitState = 'submitting';
 		submitError = null;
 
@@ -265,6 +286,20 @@
 	{/if}
 
 	<form novalidate onsubmit={handleSubmit}>
+		{#if settings.honeypot}
+			<!-- Anti-spam honeypot: kept out of sight and out of the tab order but
+			     NOT display:none, so naive bots still fill it. -->
+			<div class="absolute -left-[9999px] size-px overflow-hidden" aria-hidden="true">
+				<input
+					type="text"
+					name={HONEYPOT_FIELD}
+					tabindex="-1"
+					autocomplete="off"
+					value={honeypotValue}
+					oninput={(e) => (honeypotValue = (e.target as HTMLInputElement).value)}
+				/>
+			</div>
+		{/if}
 		{#if showingSummary}
 			<SummaryStep
 				{config}

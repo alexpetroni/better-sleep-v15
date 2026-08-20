@@ -10,6 +10,15 @@ export interface ValidationResult {
 
 type GetResponse = (stepId: string, questionId: string) => unknown;
 
+// Conservative email shape: one @ with a non-empty local part and a domain
+// containing a dot, no whitespace. Deliberately no RFC 5322 corner cases.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Conservative email-format check used for `text-input` questions with `inputType: 'email'`. */
+export function isValidEmail(value: string): boolean {
+	return EMAIL_PATTERN.test(value.trim());
+}
+
 function isQuestionVisible(
 	question: Question,
 	getResponse: GetResponse,
@@ -34,6 +43,12 @@ export function questionStatus(question: Question, value: unknown): 'ok' | 'miss
 		return 'ok';
 	}
 
+	// A consent box counts only when this specific box is ticked — `false` is
+	// as missing as no answer at all.
+	if (question.type === 'consent') {
+		return question.required && value !== true ? 'missing' : 'ok';
+	}
+
 	if (!isAnswered(value)) return question.required ? 'missing' : 'ok';
 
 	if (
@@ -42,6 +57,15 @@ export function questionStatus(question: Question, value: unknown): 'ok' | 'miss
 	) {
 		if (question.min !== undefined && value < question.min) return 'invalid';
 		if (question.max !== undefined && value > question.max) return 'invalid';
+	}
+
+	if (
+		question.type === 'text-input' &&
+		question.inputType === 'email' &&
+		typeof value === 'string' &&
+		!isValidEmail(value)
+	) {
+		return 'invalid';
 	}
 
 	return 'ok';

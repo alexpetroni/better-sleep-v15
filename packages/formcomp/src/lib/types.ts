@@ -39,7 +39,8 @@ export type QuestionType =
 	| 'text-input'
 	| 'textarea'
 	| 'likert'
-	| 'scale';
+	| 'scale'
+	| 'consent';
 
 /** Answer value of a 'range' question: an inclusive from–to interval. */
 export interface RangeValue {
@@ -155,6 +156,14 @@ export interface FormSettings {
 	successMessage?: string;
 	/** Message shown when the POST fails (or i18n key). Server-provided error messages take precedence. */
 	submitErrorMessage?: string;
+	/**
+	 * Render a visually-hidden anti-spam text field. When a bot fills it, the
+	 * client shows the normal success state without POSTing and without firing
+	 * the submit callbacks. The field name and value are also included in the
+	 * submit payload (`payload.honeypot`) so a server can reject independently.
+	 * Default: false.
+	 */
+	honeypot?: boolean;
 }
 
 export interface FormConfig {
@@ -207,6 +216,12 @@ export interface SubmitPayload {
 		submittedAt: string;
 	};
 	answers: SubmitAnswer[];
+	/**
+	 * Present when `settings.honeypot` is enabled: the honeypot field name and
+	 * its value (empty for humans). A server should reject when the key is
+	 * absent or the value is non-empty.
+	 */
+	honeypot?: { field: string; value: string };
 }
 
 // ── Translation ──

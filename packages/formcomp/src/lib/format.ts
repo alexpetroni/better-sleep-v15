@@ -36,6 +36,10 @@ export function formatAnswer(
 		case 'number-input':
 		case 'scale':
 			return `${value}${unit}`;
+		case 'consent':
+			// 'Yes' is a translate key like every other default string — hosts
+			// localize it (e.g. to "Da"); an unticked box reads as unanswered.
+			return value === true ? translate('Yes') : '—';
 		default:
 			return String(value);
 	}

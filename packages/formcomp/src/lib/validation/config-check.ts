@@ -38,6 +38,12 @@ export function validateConfig(config: FormConfig): string[] {
 					warnings.push(`Question "${question.id}" (${question.type}) has no options`);
 				}
 
+				if (question.type === 'consent' && question.options?.length) {
+					warnings.push(
+						`Question "${question.id}" (consent) has options — a consent checkbox renders only its label`
+					);
+				}
+
 				if (question.uuid) {
 					if (uuids.has(question.uuid)) {
 						warnings.push(`Duplicate question uuid "${question.uuid}"`);

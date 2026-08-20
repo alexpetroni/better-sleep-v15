@@ -5,17 +5,25 @@ import { formatAnswer } from './format.js';
 type GetResponse = (stepId: string, questionId: string) => unknown;
 type Translate = (key: string) => string;
 
+/** Field name of the hidden anti-spam input rendered when `settings.honeypot` is enabled. */
+export const HONEYPOT_FIELD = 'website';
+
 /**
  * Build the JSON payload for the configured submit endpoint. Only currently
  * visible answers are included (same visibility fixpoint as
  * `collectResponses`). Each answer carries the question's stable `uuid`
  * (falling back to `id`) so a backend can match answers across quiz
  * revisions, plus the raw value and a human-readable `displayValue`.
+ *
+ * When `settings.honeypot` is enabled the payload also carries the honeypot
+ * field name and its current value (`honeypotValue`, empty for humans) so a
+ * server endpoint can reject bot submissions independently of the client.
  */
 export function buildSubmitPayload(
 	config: FormConfig,
 	getResponse: GetResponse,
-	translate: Translate = (k) => k
+	translate: Translate = (k) => k,
+	honeypotValue?: string
 ): SubmitPayload {
 	const collected = collectResponses(config, getResponse);
 	const answers: SubmitAnswer[] = [];
@@ -40,11 +48,17 @@ export function buildSubmitPayload(
 		}
 	}
 
-	return {
+	const payload: SubmitPayload = {
 		form: {
 			version: config.version,
 			submittedAt: new Date().toISOString()
 		},
 		answers
 	};
+
+	if (config.settings?.honeypot) {
+		payload.honeypot = { field: HONEYPOT_FIELD, value: honeypotValue ?? '' };
+	}
+
+	return payload;
 }

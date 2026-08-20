@@ -18,6 +18,7 @@ export { default as NumberInput } from './components/inputs/NumberInput.svelte';
 export { default as RangeInput } from './components/inputs/RangeInput.svelte';
 export { default as TextInput } from './components/inputs/TextInput.svelte';
 export { default as TextArea } from './components/inputs/TextArea.svelte';
+export { default as ConsentCheckbox } from './components/inputs/ConsentCheckbox.svelte';
 export { default as FieldLabel } from './components/inputs/FieldLabel.svelte';
 
 // Layout components
@@ -31,11 +32,11 @@ export { createFormState, type FormStateOptions } from './state/form-state.svelt
 
 // Condition & Validation
 export { evaluateCondition, isAnswered } from './conditions/evaluator.js';
-export { validateStep, questionStatus, isStepVisible, collectResponses } from './validation/validator.js';
+export { validateStep, questionStatus, isStepVisible, collectResponses, isValidEmail } from './validation/validator.js';
 export { validateConfig } from './validation/config-check.js';
 
 // Submission
-export { buildSubmitPayload } from './submission.js';
+export { buildSubmitPayload, HONEYPOT_FIELD } from './submission.js';
 export { formatAnswer } from './format.js';
 
 // i18n

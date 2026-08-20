@@ -15,6 +15,7 @@
 	import RangeInput from '../inputs/RangeInput.svelte';
 	import TextInput from '../inputs/TextInput.svelte';
 	import TextArea from '../inputs/TextArea.svelte';
+	import ConsentCheckbox from '../inputs/ConsentCheckbox.svelte';
 	import type { RangeValue } from '../../types.js';
 
 	interface Props {
@@ -165,6 +166,16 @@
 		tooltip={question.tooltip}
 		type={question.inputType ?? 'text'}
 		placeholder={question.placeholder}
+		{warning}
+		class={question.class}
+	/>
+{:else if question.type === 'consent'}
+	<ConsentCheckbox
+		value={getValue() as boolean | undefined}
+		onchange={(v) => setValue(v)}
+		name={question.id}
+		label={question.label}
+		tooltip={question.tooltip}
 		{warning}
 		class={question.class}
 	/>
