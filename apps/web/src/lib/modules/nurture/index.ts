@@ -2,6 +2,7 @@
 // safe for site config, components and plain-node scripts.
 export {
 	NURTURE_TEMPLATE_KEYS,
+	RESULT_URL_TOKEN,
 	SEQUENCE_TRIGGER_KINDS,
 	validateSequenceDefinition,
 	type NurtureSequenceDefinition,

@@ -1,9 +1,11 @@
-import { and, asc, eq, inArray, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, or } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import type { ConsentKey } from '../crm/consent.ts';
 import { subscribers } from '../crm/schema.ts';
 import type { EmailSender } from '../email/service.ts';
+import { quizResults, quizzes } from '../quiz/schema.ts';
+import { RESULT_URL_TOKEN, type SequenceTrigger } from './definition.ts';
 import {
 	NURTURE_MAX_ATTEMPTS,
 	NURTURE_SEND_BATCH,
@@ -37,6 +39,29 @@ export interface NurtureDrainDeps {
 	siteName: string;
 	/** Public origin for unsubscribe/CTA links, e.g. https://bettersleep.ro */
 	baseUrl: string;
+}
+
+/**
+ * The subscriber's own latest result for the sequence's trigger quiz —
+ * resolves a RESULT_URL_TOKEN cta at send time. Null when the trigger is not
+ * quiz-completed or no linked result exists (erased since enrollment): the
+ * cta is then dropped and the email still goes out.
+ */
+async function resolveResultUrl(
+	db: Db,
+	trigger: SequenceTrigger,
+	subscriberId: string,
+	baseUrl: string
+): Promise<string | null> {
+	if (trigger.kind !== 'quiz-completed') return null;
+	const [row] = await db
+		.select({ id: quizResults.id })
+		.from(quizResults)
+		.innerJoin(quizzes, eq(quizResults.quizId, quizzes.id))
+		.where(and(eq(quizResults.subscriberId, subscriberId), eq(quizzes.slug, trigger.quizSlug)))
+		.orderBy(desc(quizResults.createdAt))
+		.limit(1);
+	return row ? `${baseUrl}/quiz/${trigger.quizSlug}/rezultat/${row.id}` : null;
 }
 
 export interface NurtureDrainResult {
@@ -142,12 +167,21 @@ export async function drainNurtureSends(
 			continue;
 		}
 
-		const cta = step.cta
+		let cta = step.cta
 			? {
 					label: step.cta.label,
 					url: step.cta.url.startsWith('/') ? `${deps.baseUrl}${step.cta.url}` : step.cta.url
 				}
 			: undefined;
+		if (step.cta?.url === RESULT_URL_TOKEN) {
+			const resultUrl = await resolveResultUrl(
+				deps.db,
+				row.sequence.trigger,
+				row.subscriber.id,
+				deps.baseUrl
+			);
+			cta = resultUrl ? { label: step.cta.label, url: resultUrl } : undefined;
+		}
 		const outcome = await deps.email.send({
 			to: row.subscriber.email,
 			template: step.templateKey,

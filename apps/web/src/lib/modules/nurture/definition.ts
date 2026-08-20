@@ -14,6 +14,15 @@ export const NURTURE_TEMPLATE_KEYS = ['nurture'] as const;
 
 export type NurtureTemplateKey = (typeof NURTURE_TEMPLATE_KEYS)[number];
 
+/**
+ * A step CTA whose `url` is exactly this token resolves at SEND time to the
+ * subscriber's own latest result page for the sequence's trigger quiz
+ * (`/quiz/<slug>/rezultat/<id>`, absolutized). Only `quiz-completed`
+ * sequences can carry it — validation refuses it elsewhere, and refuses any
+ * other `{{…}}` so a typo'd token can't ship as a literal URL.
+ */
+export const RESULT_URL_TOKEN = '{{resultUrl}}';
+
 export interface SequenceStep {
 	/** Whole days after enrollment (0 = the enrollment day). */
 	offsetDays: number;
@@ -76,6 +85,12 @@ export function validateSequenceDefinition(def: NurtureSequenceDefinition): stri
 		}
 		if (!(NURTURE_TEMPLATE_KEYS as readonly string[]).includes(step.templateKey)) {
 			problems.push(`${stepAt}: unknown templateKey "${step.templateKey}"`);
+		}
+		if (step.cta?.url.includes('{{') && step.cta.url !== RESULT_URL_TOKEN) {
+			problems.push(`${stepAt}: cta.url may only be the exact ${RESULT_URL_TOKEN} token or a plain URL`);
+		}
+		if (step.cta?.url === RESULT_URL_TOKEN && def.trigger.kind !== 'quiz-completed') {
+			problems.push(`${stepAt}: ${RESULT_URL_TOKEN} needs a quiz-completed trigger`);
 		}
 		if (!step.subject.trim()) problems.push(`${stepAt}: subject must not be empty`);
 		if (step.paragraphs.length === 0 || step.paragraphs.some((p) => !p.trim())) {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { validateSequenceDefinition, type NurtureSequenceDefinition } from './definition.ts';
+import {
+	RESULT_URL_TOKEN,
+	validateSequenceDefinition,
+	type NurtureSequenceDefinition
+} from './definition.ts';
 import { computeStepScheduledAt, retryDelayMs } from './schedule.ts';
 
 // Pure schedule math. The DST cases are the point: Europe/Bucharest springs
@@ -116,5 +120,20 @@ describe('validateSequenceDefinition', () => {
 				trigger: { kind: 'quiz-completed', quizSlug: ' ' }
 			})
 		).not.toEqual([]);
+	});
+
+	it('confines the result-URL cta token to quiz-completed sequences and exact spelling', () => {
+		const withCta = (url: string, trigger = valid.trigger): NurtureSequenceDefinition => ({
+			...valid,
+			trigger,
+			steps: [{ ...valid.steps[0], cta: { label: 'Vezi', url } }]
+		});
+		const quizTrigger = { kind: 'quiz-completed', quizSlug: 'arhetip-somn' } as const;
+		expect(validateSequenceDefinition(withCta(RESULT_URL_TOKEN, quizTrigger))).toEqual([]);
+		// On a consent-confirmed trigger there is no result to point at.
+		expect(validateSequenceDefinition(withCta(RESULT_URL_TOKEN))).not.toEqual([]);
+		// A misspelled token must never ship as a literal URL.
+		expect(validateSequenceDefinition(withCta('{{resulturl}}', quizTrigger))).not.toEqual([]);
+		expect(validateSequenceDefinition(withCta('/blog', quizTrigger))).toEqual([]);
 	});
 });

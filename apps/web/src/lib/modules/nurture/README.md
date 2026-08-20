@@ -66,6 +66,18 @@ launch scale. A larger backlog simply drains over consecutive runs, oldest
   `pending → sending → sent`, with `failed` (parked for the operator after
   `NURTURE_MAX_ATTEMPTS`), and `cancelled` (consent withdrawn / unsubscribe).
 
+## Step CTAs and the result-URL token
+
+A step's optional `cta.url` is normally static data — a site-relative path is
+absolutized at send time. One token exists on top of that: a `cta.url` that is
+exactly `{{resultUrl}}` (`RESULT_URL_TOKEN`, `definition.ts`) resolves at send
+time to the subscriber's **own** latest result page for the sequence's
+`quiz-completed` trigger quiz (`/quiz/<slug>/rezultat/<id>`). Only
+quiz-completed sequences may carry it, and any other `{{…}}` string is refused
+by `validateSequenceDefinition` — a typo'd token cannot ship as a literal URL.
+If the linked result no longer exists at send time (GDPR erasure), the CTA is
+dropped and the email still goes out.
+
 ## Consent (the GDPR-critical property)
 
 Enrollment has exactly one gate, `isMailable`: the sequence's `consent_key`

@@ -8,7 +8,12 @@ import { emailLog } from '../email/schema.ts';
 import { createEmailSender, type EmailSender } from '../email/service.ts';
 import { quizResults, quizzes } from '../quiz/schema.ts';
 import { drainNurtureSends, type NurtureDrainDeps } from './drain.ts';
-import type { NurtureSequenceDefinition, SequenceStep, SequenceTrigger } from './definition.ts';
+import {
+	RESULT_URL_TOKEN,
+	type NurtureSequenceDefinition,
+	type SequenceStep,
+	type SequenceTrigger
+} from './definition.ts';
 import { computeStepScheduledAt } from './schedule.ts';
 import { nurtureEnrollments, nurtureSends, nurtureSequences } from './schema.ts';
 import {
@@ -240,6 +245,51 @@ describe('quiz and order triggers', () => {
 		const { result, slug } = await makeQuizResult(null, 'ridicat');
 		await makeSequence({ trigger: { kind: 'quiz-completed', quizSlug: slug } });
 		expect(await enrollFromQuizResult({ db }, result.id, NOW)).toBe(0);
+	});
+
+	it('resolves a {{resultUrl}} cta to the SUBSCRIBER OWN result page at send time', async () => {
+		const subscriber = await makeSubscriber();
+		const { slug, result } = await makeQuizResult(subscriber.id, 'ridicat');
+		await makeSequence({
+			trigger: { kind: 'quiz-completed', quizSlug: slug },
+			steps: [
+				{
+					offsetDays: 0,
+					templateKey: 'nurture',
+					subject: 'Protocolul tău',
+					paragraphs: ['Pas.'],
+					cta: { label: 'Vezi rezultatul', url: RESULT_URL_TOKEN }
+				}
+			]
+		});
+		expect(await enrollFromQuizResult({ db }, result.id, NOW)).toBe(1);
+		expect((await drainNurtureSends(drainDeps(), { now: NOW })).sent).toBe(1);
+		const [logged] = await emailLogTo(subscriber.email);
+		expect((logged.data as { cta: { url: string } }).cta.url).toBe(
+			`https://example.ro/quiz/${slug}/rezultat/${result.id}`
+		);
+	});
+
+	it('drops the cta (but still sends) when the linked result was erased since enrollment', async () => {
+		const subscriber = await makeSubscriber();
+		const { slug, result } = await makeQuizResult(subscriber.id, 'ridicat');
+		await makeSequence({
+			trigger: { kind: 'quiz-completed', quizSlug: slug },
+			steps: [
+				{
+					offsetDays: 0,
+					templateKey: 'nurture',
+					subject: 'Protocolul tău',
+					paragraphs: ['Pas.'],
+					cta: { label: 'Vezi rezultatul', url: RESULT_URL_TOKEN }
+				}
+			]
+		});
+		await enrollFromQuizResult({ db }, result.id, NOW);
+		await db.delete(quizResults).where(eq(quizResults.id, result.id));
+		expect((await drainNurtureSends(drainDeps(), { now: NOW })).sent).toBe(1);
+		const [logged] = await emailLogTo(subscriber.email);
+		expect((logged.data as { cta?: unknown }).cta).toBeUndefined();
 	});
 
 	it('order-paid enrolls the (mailable) subscriber once; later orders are no-ops', async () => {
