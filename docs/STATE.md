@@ -1,3 +1,43 @@
+# STATE — betterSleep after BS-0 repo shape (2026-08-20)
+
+## BS-0 — single brand, single locale (2026-08-20)
+
+This repo is now **betterSleep only** (cloned from better-base, which served
+two sites from one codebase). Everything below this section describes the
+inherited platform; where it says "both sites" / "life", read it historically.
+
+- **One site.** `config/sites/life.ts`, the `life-coach` persona, `content/life/`
+  and the `better_life` bootstrap database are gone. `SITES` holds only
+  `sleep` (`resolveSiteConfig('life')` now throws — asserted in
+  `config.spec.ts`). `sleepSite`: `id: 'sleep'`, `name: 'Better Sleep'`,
+  `domain: 'bettersleep.ro'`, and the nav gained
+  `{ label: 'Testul de somn', href: '/quiz/arhetip-somn' }` — the quiz slug
+  BS-2 will seed (404 until then).
+- **One locale.** `project.inlang/settings.json` and `sleepSite.locales` are
+  `['ro']`; `messages/en.json` is deleted. The public layout emits one
+  self-referential `ro` hreflang plus `x-default` (no `en` alternate —
+  `frontend.e2e.ts` asserts its absence).
+- **E2E harness is single-site.** `playwright.config.ts` runs ONE project
+  (`sleep`) against ONE preview server on :4173; `e2e/env.ts` `SITE_DB_NAMES`
+  has only `sleep`; `funnel-life.e2e.ts` is deleted (`funnel.ts` +
+  `funnel-sleep.e2e.ts` remain). Test conventions otherwise unchanged.
+- **Specs that needed "all 9 pillars like better-life"** (blog, content
+  export/import, shop, seed idempotency) now seed
+  `CANONICAL_PILLARS.map((p) => p.slug)` — the canonical pillar registry in
+  `config/pillars.ts` is untouched and still has all 9.
+- **Identity.** Root `package.json` name is `better-sleep`; a root `README.md`
+  describes the repo and key commands. Phase plans for this project:
+  `docs/phases/BS-*.md`.
+
+Verified for this phase: `pnpm lint && pnpm check && pnpm test:unit` green;
+fresh volume → `docker compose up -d --wait` → `pnpm db:migrate &&
+pnpm storage:init && pnpm db:seed` clean; `pnpm test:e2e` green on the single
+site.
+
+---
+
+# Inherited platform state (better-base, up to 2026-08-19)
+
 # STATE — after launch polish (2026-08-08, branch `feat/vercel-neon`)
 
 ## Launch polish: chat history restore, blurhash, launch dry run (2026-08-08, NEXT-10)
