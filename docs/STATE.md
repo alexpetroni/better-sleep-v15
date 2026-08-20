@@ -1,4 +1,60 @@
-# STATE — betterSleep after BS-2 archetype quiz (2026-08-20)
+# STATE — betterSleep after BS-3 email capture (2026-08-20)
+
+## BS-3 — email capture on the quiz result: the protocol offer (2026-08-20)
+
+The deck's block-5 follow-up ("îți trimitem protocolul complet"): the quiz
+result stays fully ungated; a capture form below it exchanges email +
+newsletter consent for "the full protocol". The footer newsletter plain-form
+path is untouched.
+
+- **Capture form** (`CaptureForm.svelte`, route-local next to the rezultat
+  page): built from BS-1's formcomp pieces — `TextInput` (email question,
+  `questionStatus` gives the invalid/missing distinction), `ConsentCheckbox`
+  (label = the footer's `newsletter_consent_label`, required), and the
+  off-screen honeypot (`HONEYPOT_FIELD` = `website`, always posted, empty for
+  humans). It submits as a PLAIN form POST to the route's `?/email` action —
+  SvelteKit actions only take form-encoded bodies, so `MultiStepForm`'s JSON
+  submit is NOT used; the component intercepts submit for client validation
+  and mimics formcomp's silent bot drop (filled honeypot ⇒ fake success, no
+  POST). The trusted field `newsletter_consent=yes` is a hidden input that
+  exists only while the box is ticked (checkbox itself posts a decoy name).
+  The old name + profile-consent inputs are GONE (and `profile_emails` can no
+  longer be granted from this route).
+- **Hardened `?/email` action** ("never trust the browser", newsletter-action
+  pattern), gate order: honeypot missing-or-non-empty → silent fake
+  `{ sent: true }` (nothing written, no budget spent) → consent ≠ 'yes' →
+  `fail(400, { error: 'consent' })` → `consumePublicEmailBudget('quiz-email')`
+  → 429 → `claimQuizResult` (email validity → 400 `invalid-email`, unknown
+  result → 404, always `newsletter: true` / `profileEmails: false`) →
+  `enrollFromQuizResult`. The throttle spec's quiz events now carry
+  consent + empty honeypot.
+- **Nurture `{{resultUrl}}` token** (`RESULT_URL_TOKEN`, definition.ts,
+  exported from the universal barrel): a step `cta.url` that is EXACTLY the
+  token resolves at send time to the subscriber's own latest result for the
+  sequence's trigger quiz (`/quiz/<slug>/rezultat/<id>` absolutized); result
+  erased ⇒ cta dropped, email still sent. Validation confines it to
+  quiz-completed sequences and refuses any other `{{…}}` (typos can't ship).
+- **`protocol-arhetip-somn` sequence** in `config/sites/sleep.ts`: trigger
+  `quiz-completed`/`arhetip-somn`, consent `newsletter`; step 0 same-day
+  "Protocolul tău de somn" with the `{{resultUrl}}` CTA, step +3d 09:00 a
+  follow-up with a retake CTA. Seeded by the existing `seedNurtureSequences`
+  upsert (operator `active` flag untouched). NOTE: `sleep.ts` imports the
+  token via a RELATIVE path to the nurture universal barrel (plain-node seed).
+- **Tests.** `capture-action.spec.ts` (route-level, real seeded quiz + real
+  sleep nurture config): consent missing/'no'/'on' → 400; honeypot filled or
+  absent → success-shaped no-op (no subscriber, no email); invalid email →
+  400; fresh email → 1 subscriber + both dry-run emails + NO enrollment
+  before confirm; confirmed subscriber → exactly 1 subscriber + 1 enrollment
+  in `protocol-arhetip-somn`, resubmit a no-op (1 result email total);
+  spent budget → 429 before anything. nurture.spec: token resolves to the
+  subscriber's own URL; erased result drops the cta. schedule.spec: token
+  validation. e2e: archetype walk now submits email+consent and asserts both
+  dry-run emails; funnel/quiz e2e use the new capture-form selectors
+  (`capture-form` testid, `input[name="email"]`,
+  `input[name="newsletter_consent_box"]`).
+- Messages: `quiz_capture_*` keys added; `quiz_email_heading/blurb/
+  name_placeholder/submit/sent` and `quiz_consent_profile_label` removed;
+  consent errors reuse `newsletter_consent_required`.
 
 ## BS-2 — the archetype quiz `/quiz/arhetip-somn` (2026-08-20)
 
