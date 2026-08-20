@@ -1,4 +1,60 @@
-# STATE — betterSleep after BS-3 email capture (2026-08-20)
+# STATE — betterSleep after BS-4 articles + archetype pages (2026-08-20)
+
+## BS-4 — 40 articles seeded + /tipuri archetype pages (2026-08-20)
+
+The 40 finished Romanian articles from `.initialData/articles/` are now
+seeded content, and each of the nine archetypes has a public landing page
+with adapted long-form copy and a curated reading list.
+
+- **Conversion script** (`apps/web/scripts/articles-from-initialdata.ts`,
+  `pnpm --filter web articles:from-initialdata`): deterministic, rerunnable.
+  Reads `.initialData/articles/NN-<slug>.md` (line 1 = `# H1` → title, rest
+  → bodyMd — the files have NO frontmatter) + `topics.json` (ONLY `slug` is
+  used; its `title`/`excerpt` are ENGLISH working copy) and writes the 40
+  committed v2 article bundles `content/sleep/0010-…0400-<slug>.json`
+  (pillar `somn`, published, `coverMediaId: null`, publishedAt staggered
+  2 days apart anchored at 2026-08-18 → range 2026-06-01…08-18). Fails
+  loudly on: missing file/topic/meta entry, empty or overlong seo fields,
+  or any field equal to the English topics.json text. Stale generated
+  article bundles (`NNNN-*.json`, `type: article`) are deleted on re-run.
+- **Editorial meta** (`apps/web/scripts/article-meta.ro.json`): committed,
+  keyed by slug — fresh Romanian `excerpt` (deck tone), `seoTitle` (≤60)
+  and `seoDescription` (≤160) for all 40, written from the articles' actual
+  content. Edit THIS file (not the bundles) and regenerate.
+- **Seeding**: no seed-script changes — `pnpm db:seed` / `pnpm content:init`
+  already import `content/sleep/`. Proven on a scratch DB: fresh
+  migrate+seed imports all 40 (exit 0), re-run creates nothing (43 published
+  articles total incl. the 3 demo ones). `sleep-content.spec.ts` re-proves
+  on `TEST_DATABASE_URL`: 40 published + pillar-tagged, idempotent re-run,
+  diacritics/markdown intact, and NO article title/excerpt/seo field equals
+  the English topics.json title/excerpt.
+- **Archetype→articles** (`modules/quiz/archetype-articles.ts`, universal
+  barrel): `ARCHETYPE_ARTICLES` — each of the 9 ids → ≥3 seeded slugs by
+  subject matter (many-to-many). Spec validates against the committed
+  bundles, so a renamed article slug fails the suite.
+- **Archetype page copy** (`modules/quiz/archetype-pages.ts`, universal
+  barrel): `ARCHETYPE_PAGES` / `ARCHETYPE_PAGES_BY_SLUG` — slug (source
+  filenames: `strajerul`…`epuizatul`), name, essence, keyPhrase, 2 intro
+  paragraphs + avoid/start lists, adapted to site voice from the
+  archetype-copy ALARMA sections (doctor persona removed). Also
+  `ARCHETYPE_QUIZ_SLUG` (= `arhetip-somn`, spec-pinned to the seed) so
+  client code never imports the full seed config.
+- **Route `(public)/tipuri/[archetype]`**: header (kicker/name/essence/
+  quoted key phrase), intro, two list cards, curated article grid, CTA into
+  the quiz. Unknown slug → 404. Loads via `listPublishedBySlugs` (NEW blog
+  service: published articles from an explicit slug list, newest first,
+  unknown/unpublished slugs silently absent) + `imgSources`. Pages are in
+  `sitemap.xml` (static-path list; spec asserts all nine). NOT in the nav —
+  BS-5's landing patterns section is the intended entry point.
+- **`modules/blog/ArticleCards.svelte`** (universal barrel): the /blog card
+  grid extracted as a shared component (`cards`, optional `testid` — /blog
+  keeps `blog-card`, tipuri uses `archetype-article-card`); /blog was
+  refactored to use it, pillar pages keep their own h3 variant.
+- **Tests**: `archetype-articles.spec.ts` (coverage, no dead slugs, quiz-slug
+  pin), `sleep-content.spec.ts`, `tipuri.spec.ts` (route-level with real
+  bundles: all 9 resolve with ≥1 article, 404 on unknown), blog.spec
+  `listPublishedBySlugs` cases, sitemap.spec /tipuri assertions.
+- Messages: `tipuri_*` keys (kicker, list headings, articles heading, CTA).
 
 ## BS-3 — email capture on the quiz result: the protocol offer (2026-08-20)
 

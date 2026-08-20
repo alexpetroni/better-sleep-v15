@@ -15,6 +15,13 @@ results, and the email funnel that links results to `modules/crm` subscribers.
   JSON editor.
 - `patterns.ts` — the copy deck's four public sleep patterns mapped to
   archetype ids (consumed by the landing page and archetype pages).
+- `archetype-articles.ts` — `ARCHETYPE_ARTICLES`: editorial mapping of each
+  archetype to ≥3 seeded article slugs (the `/tipuri` reading lists; spec
+  validates every slug against the committed `content/sleep` bundles).
+- `archetype-pages.ts` — `ARCHETYPE_PAGES(_BY_SLUG)`: the `/tipuri/[slug]`
+  page copy (essence, key phrase, intro paragraphs, avoid/start lists),
+  adapted from `.initialData/archetype-copy/`; plus `ARCHETYPE_QUIZ_SLUG`
+  for the pages' CTA (spec-pinned to `ARCHETYPE_QUIZ_SEED.slug`).
 - `seed-archetype-quiz.ts` — `/quiz/arhetip-somn`: 12 ro questions, 3 steps,
   9 archetypes, result copy adapted from `.initialData/archetype-copy/`.
   The result renders WITHOUT requiring an email (deliberate, per the deck).
