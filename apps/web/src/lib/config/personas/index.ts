@@ -1,12 +1,10 @@
-import { lifeCoach } from './life-coach.ts';
 import { sleepCoach } from './sleep-coach.ts';
 import type { Persona } from './types.ts';
 
 export type { Persona } from './types.ts';
 
 const PERSONAS: Record<string, Persona> = {
-	[sleepCoach.key]: sleepCoach,
-	[lifeCoach.key]: lifeCoach
+	[sleepCoach.key]: sleepCoach
 };
 
 /** Resolve a persona from a site config's `chatPersonaKey` (fails fast). */

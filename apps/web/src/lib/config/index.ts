@@ -1,14 +1,12 @@
 import { PILLARS_BY_SLUG } from './pillars.ts';
 import { sleepSite } from './sites/sleep.ts';
-import { lifeSite } from './sites/life.ts';
 import type { SiteConfig } from './types.ts';
 
 export type { SiteConfig, NavItem } from './types.ts';
 export { CANONICAL_PILLARS, PILLARS_BY_SLUG, type PillarDef } from './pillars.ts';
 
 const SITES: Record<string, SiteConfig> = {
-	[sleepSite.id]: sleepSite,
-	[lifeSite.id]: lifeSite
+	[sleepSite.id]: sleepSite
 };
 
 /**

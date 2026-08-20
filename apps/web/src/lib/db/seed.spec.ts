@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { resolveSiteConfig } from '../config/index.ts';
+import { CANONICAL_PILLARS, resolveSiteConfig } from '../config/index.ts';
 import { createDb, type Db } from './client.ts';
 import { articlePillars, articles } from '../modules/blog/schema.ts';
 import { storageConfigFromEnv } from '../modules/media/env.ts';
@@ -49,12 +49,12 @@ describe('seedPillars', () => {
 	});
 
 	it('is idempotent: re-seeding never duplicates rows', async () => {
-		const site = resolveSiteConfig('life');
-		await seedPillars(db, site.pillars);
+		const allPillars = CANONICAL_PILLARS.map((p) => p.slug);
+		await seedPillars(db, allPillars);
 		const afterFirst = await countPillars();
 		expect(afterFirst).toBe(9);
 
-		await seedPillars(db, site.pillars);
+		await seedPillars(db, allPillars);
 		expect(await countPillars()).toBe(afterFirst);
 	});
 

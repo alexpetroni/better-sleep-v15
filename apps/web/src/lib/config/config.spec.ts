@@ -11,15 +11,16 @@ describe('resolveSiteConfig', () => {
 		expect(site.nav.length).toBeGreaterThan(0);
 	});
 
-	it('resolves the life site with all 9 canonical pillars', () => {
-		const site = resolveSiteConfig('life');
-		expect(site.id).toBe('life');
-		expect(site.pillars).toHaveLength(9);
+	it('only activates canonical pillars on the sleep site', () => {
+		const site = resolveSiteConfig('sleep');
 		for (const slug of site.pillars) {
 			expect(PILLARS_BY_SLUG.has(slug), `pillar "${slug}" must be canonical`).toBe(true);
 		}
-		// life activates every canonical pillar exactly once
-		expect(new Set(site.pillars).size).toBe(CANONICAL_PILLARS.length);
+		expect(new Set(site.pillars).size).toBe(site.pillars.length);
+	});
+
+	it('no longer knows the removed life site', () => {
+		expect(() => resolveSiteConfig('life')).toThrow(/Unknown SITE_ID/);
 	});
 
 	it('throws on an unknown SITE_ID', () => {

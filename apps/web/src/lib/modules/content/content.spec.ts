@@ -4,7 +4,7 @@ import path from 'node:path';
 import { count, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { FormConfig } from 'formcomp';
-import { resolveSiteConfig } from '../../config/index.ts';
+import { CANONICAL_PILLARS, resolveSiteConfig } from '../../config/index.ts';
 import { createDb, type Db } from '../../db/client.ts';
 import { pillars } from '../../db/schema/core.ts';
 import { seedPillars } from '../../db/seed.ts';
@@ -20,10 +20,10 @@ import type { ContentBundle } from './bundle.ts';
 import { exportContent, type ContentDeps } from './export.ts';
 import { importContent } from './import.ts';
 
-// The cross-site content sharing round trip, tested exactly as it will be
-// used: TWO databases (source A gets all 9 pillars like better-life, target B
-// only `somn` like better-sleep) and TWO buckets. Export from A, import into
-// B, import twice → no duplicates anywhere.
+// The cross-database content sharing round trip, tested exactly as it will be
+// used: TWO databases (source A gets all 9 canonical pillars, target B only
+// `somn` like betterSleep) and TWO buckets. Export from A, import into B,
+// import twice → no duplicates anywhere.
 
 const FIXTURE = path.resolve(import.meta.dirname, '../../../../tests/fixtures/test-image.png');
 
@@ -68,8 +68,8 @@ beforeAll(async () => {
 	await resetDatabase(dbB);
 	// A carries all 9 pillars — deliberately in a rotated order so `somn` gets
 	// a DIFFERENT numeric id than in B, proving mapping happens by slug.
-	const life = resolveSiteConfig('life').pillars;
-	await seedPillars(dbA, [...life.filter((s) => s !== 'somn'), 'somn']);
+	const all = CANONICAL_PILLARS.map((p) => p.slug);
+	await seedPillars(dbA, [...all.filter((s) => s !== 'somn'), 'somn']);
 	await seedPillars(dbB, resolveSiteConfig('sleep').pillars);
 
 	storageA = createStorage({ ...storageCfg, bucket: 'better-base-content-a' });

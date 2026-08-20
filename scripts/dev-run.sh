@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command local launch of better-base on the HOST (not the phase-runner
+# One-command local launch of betterSleep on the HOST (not the phase-runner
 # container). Brings up the compose stack, migrates + seeds, builds, and starts
 # the adapter-node server, then prints the URL. Idempotent: safe to re-run.
 #
@@ -15,8 +15,7 @@
 #   - Port 3000 is often taken by other projects; we default to 4173.
 #
 # Usage:
-#   bash scripts/dev-run.sh                 # sleep site on :4173, build + launch
-#   SITE_ID=life bash scripts/dev-run.sh    # the life site (9 pillars)
+#   bash scripts/dev-run.sh                 # betterSleep on :4173, build + launch
 #   PORT=4300 bash scripts/dev-run.sh       # different port
 #   SKIP_BUILD=1 bash scripts/dev-run.sh    # reuse the existing build
 #   ADMIN_EMAIL=a@b.ro ADMIN_PASSWORD='min12chars…' bash scripts/dev-run.sh
@@ -29,7 +28,7 @@ SITE_ID="${SITE_ID:-sleep}"
 PORT="${PORT:-4173}"
 DB_PORT="${DB_PORT:-5433}"
 MINIO_PORT="${MINIO_PORT:-9000}"
-DB_NAME="better_sleep"; [ "$SITE_ID" = "life" ] && DB_NAME="better_life"
+DB_NAME="better_sleep"
 
 say() { printf '\033[1;34m▶ %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
@@ -107,7 +106,7 @@ code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/" 2>/de
 health="$(curl -s "http://localhost:${PORT}/api/health" 2>/dev/null || true)"
 cat <<EOF
 
-  better-base is up  →  http://localhost:${PORT}   (SITE_ID=${SITE_ID})
+  betterSleep is up  →  http://localhost:${PORT}   (SITE_ID=${SITE_ID})
   admin:  http://localhost:${PORT}/admin/login
   health: ${health}
   logs:   .run/app.log        stop: bash scripts/dev-stop.sh

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { withDbFault } from '../../../../tests/helpers/db-fault.ts';
-import { resolveSiteConfig } from '../../config/index.ts';
+import { CANONICAL_PILLARS, resolveSiteConfig } from '../../config/index.ts';
 import { createDb, type Db } from '../../db/client.ts';
 import { pillars } from '../../db/schema/core.ts';
 import { seedPillars } from '../../db/seed.ts';
@@ -26,15 +26,15 @@ import {
 } from './service.ts';
 
 // Integration test against the compose Postgres (TEST_DATABASE_URL, reset +
-// re-migrated fresh). All 9 canonical pillars are seeded — the same rows a
-// better-life database has — so site-visibility is asserted against the REAL
-// site configs' pillar lists.
+// re-migrated fresh). All 9 canonical pillars are seeded — more than the sleep
+// site activates — so per-site visibility is asserted against the REAL sleep
+// config pillar list vs. the full canonical set.
 let db: Db;
 let deps: BlogDeps;
 
 const USER_ID = 'blog-spec-user';
 const sleepPillars = resolveSiteConfig('sleep').pillars;
-const lifePillars = resolveSiteConfig('life').pillars;
+const allPillars = CANONICAL_PILLARS.map((p) => p.slug);
 
 beforeAll(async () => {
 	const url = process.env.TEST_DATABASE_URL;
@@ -46,7 +46,7 @@ beforeAll(async () => {
 	await migrate(db, {
 		migrationsFolder: path.resolve(import.meta.dirname, '../../../../drizzle')
 	});
-	await seedPillars(db, lifePillars);
+	await seedPillars(db, allPillars);
 	await db.insert(users).values({ id: USER_ID, name: 'Blog Spec', email: 'blog-spec@example.com' });
 	deps = { db };
 });
@@ -158,13 +158,13 @@ describe('pillar visibility follows the site config', () => {
 		expect(sleepSlugs).not.toContain(nutritieArticle.slug);
 		expect(sleepSlugs).not.toContain(untagged.slug);
 
-		const onLife = await listPublished(deps, { pillarSlugs: lifePillars });
-		const lifeSlugs = onLife.items.map((i) => i.article.slug);
-		// An article tagged only `somn` appears on better-life (somn is active there).
-		expect(lifeSlugs).toContain(somnArticle.slug);
-		expect(lifeSlugs).toContain(nutritieArticle.slug);
+		const onAll = await listPublished(deps, { pillarSlugs: allPillars });
+		const allSlugs = onAll.items.map((i) => i.article.slug);
+		// With every canonical pillar active, both tagged articles appear.
+		expect(allSlugs).toContain(somnArticle.slug);
+		expect(allSlugs).toContain(nutritieArticle.slug);
 		// Tagged to no active pillar of the site → does not appear.
-		expect(lifeSlugs).not.toContain(untagged.slug);
+		expect(allSlugs).not.toContain(untagged.slug);
 
 		expect((await listPublished(deps, { pillarSlugs: [] })).items).toHaveLength(0);
 	});

@@ -52,9 +52,8 @@ launch scale. A larger backlog simply drains over consecutive runs, oldest
 - `nurture_sequences` — one row per sequence: unique `key`, `trigger` (jsonb),
   `consent_key` (which marketing consent gates it), ordered `steps` (jsonb:
   offset from enrollment, template key, subject/copy), `active` flag. Sequences
-  are **data**: better-life seeds different rows from `config/sites/life.ts`
-  and the operator can deactivate a sequence in `/admin/nurture` without a
-  deploy. Seeding (`seedNurtureSequences`) upserts by `key` but deliberately
+  are **data**: they are seeded from `config/sites/sleep.ts` and the operator
+  can deactivate a sequence in `/admin/nurture` without a deploy. Seeding (`seedNurtureSequences`) upserts by `key` but deliberately
   never touches `active` — the operator's kill switch survives a reseed.
 - `nurture_enrollments` — one subscriber in one sequence,
   `UNIQUE (sequence_id, subscriber_id)`: **a subscriber enrolls in a sequence

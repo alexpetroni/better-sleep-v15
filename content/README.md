@@ -8,9 +8,8 @@ step against an existing database.
 
 ```
 content/
-  common/        imported for EVERY site
-  sleep/         imported when SITE_ID=sleep
-  life/          imported when SITE_ID=life
+  common/        imported first for every seed run
+  sleep/         imported for the site (SITE_ID=sleep)
   examples/      NOT imported — reference bundles to copy from
 ```
 
@@ -89,8 +88,8 @@ key (`article` / `quiz` / `product`).
 - **Edits are overwritten.** A re-run resets an item to what the file says. Keep
   the file as the source of truth, or drop it once the content lives in admin.
 - **Pillars must exist.** A bundle whose pillars are all inactive on the target
-  site is refused (the item would be invisible in every listing). This is how
-  `life`-only content stays out of the `sleep` site. Pass `--allow-untagged` to
-  `pnpm content import-dir` to override.
+  site is refused (the item would be invisible in every listing) — content
+  tagged only to inactive pillars stays out of the site. Pass `--allow-untagged`
+  to `pnpm content import-dir` to override.
 - **One bad file doesn't stop the rest.** Failures are reported per file and the
   run continues, but `pnpm db:seed` exits non-zero if any file failed.

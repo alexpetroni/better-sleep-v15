@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import Stripe from 'stripe';
 import { withDbFault } from '../../../../tests/helpers/db-fault.ts';
-import { resolveSiteConfig } from '../../config/index.ts';
+import { CANONICAL_PILLARS, resolveSiteConfig } from '../../config/index.ts';
 import { createDb, type Db } from '../../db/client.ts';
 import { pillars } from '../../db/schema/core.ts';
 import { seedPillars } from '../../db/seed.ts';
@@ -37,7 +37,7 @@ const WEBHOOK_SECRET = 'whsec_shop_spec_secret';
 const stripeSigner = new Stripe('sk_test_offline_signing_only');
 
 const SLEEP_PILLARS = resolveSiteConfig('sleep').pillars;
-const LIFE_PILLARS = resolveSiteConfig('life').pillars;
+const ALL_PILLARS = CANONICAL_PILLARS.map((p) => p.slug);
 
 let db: Db;
 let deps: ShopDeps;
@@ -54,7 +54,7 @@ beforeAll(async () => {
 	await migrate(db, {
 		migrationsFolder: path.resolve(import.meta.dirname, '../../../../drizzle')
 	});
-	await seedPillars(db, LIFE_PILLARS); // all 9, so both site configs can be exercised
+	await seedPillars(db, ALL_PILLARS); // all 9, so pillar visibility can be exercised
 	deps = { db };
 	email = createEmailSender({ db, dryRun: true, from: 'test@example.ro' });
 	webhookDeps = { db, email, siteName: 'Better Sleep' };
@@ -171,21 +171,21 @@ describe('public visibility (active + tagged to a site pillar)', () => {
 		const onSleep = (await listVisibleProducts(deps, { pillarSlugs: SLEEP_PILLARS })).map(
 			(i) => i.product.id
 		);
-		const onLife = (await listVisibleProducts(deps, { pillarSlugs: LIFE_PILLARS })).map(
+		const onAll = (await listVisibleProducts(deps, { pillarSlugs: ALL_PILLARS })).map(
 			(i) => i.product.id
 		);
 
 		// somn-tagged: visible on both sites.
 		expect(onSleep).toContain(somnProduct.id);
-		expect(onLife).toContain(somnProduct.id);
-		// nutritie-tagged: hidden on better-sleep, visible on better-life —
-		// the "products tagged to inactive pillars are excluded per site" DoD case.
+		expect(onAll).toContain(somnProduct.id);
+		// nutritie-tagged: hidden on betterSleep (somn-only), visible where the
+		// pillar is active — products tagged to inactive pillars are excluded.
 		expect(onSleep).not.toContain(nutritieProduct.id);
-		expect(onLife).toContain(nutritieProduct.id);
+		expect(onAll).toContain(nutritieProduct.id);
 		// untagged / draft / archived: visible nowhere.
 		for (const hidden of [untagged.id, draft.id, archived.id]) {
 			expect(onSleep).not.toContain(hidden);
-			expect(onLife).not.toContain(hidden);
+			expect(onAll).not.toContain(hidden);
 		}
 	});
 
@@ -202,8 +202,8 @@ describe('public visibility (active + tagged to a site pillar)', () => {
 		expect(
 			await getProductBySlug(deps, foreign.slug, { sitePillarSlugs: SLEEP_PILLARS })
 		).toBeNull();
-		const onLife = await getProductBySlug(deps, foreign.slug, { sitePillarSlugs: LIFE_PILLARS });
-		expect(onLife?.product.id).toBe(foreign.id);
+		const onAll = await getProductBySlug(deps, foreign.slug, { sitePillarSlugs: ALL_PILLARS });
+		expect(onAll?.product.id).toBe(foreign.id);
 	});
 
 	it('tracked zero stock is out of stock but still listed', async () => {
