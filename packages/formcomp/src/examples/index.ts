@@ -7,6 +7,7 @@ import { allInputsConfig } from './all-inputs.js';
 import { customizedConfig } from './customized.js';
 import { kioskConfig } from './kiosk.js';
 import { sleepAssessmentConfig } from './sleep-assessment.js';
+import { leadCaptureConfig } from './lead-capture.js';
 
 export interface Example {
 	slug: string;
@@ -53,6 +54,12 @@ export const examples: Example[] = [
 		config: kioskConfig
 	},
 	{
+		slug: 'lead-capture',
+		title: 'Lead capture',
+		description: 'Email-format validation, a required consent checkbox, and the invisible anti-spam honeypot.',
+		config: leadCaptureConfig
+	},
+	{
 		slug: 'sleep-assessment',
 		title: 'Sleep assessment',
 		description: 'A larger three-step sleep assessment combining conditions, Likert batches, and layout.',
@@ -71,5 +78,6 @@ export {
 	allInputsConfig,
 	customizedConfig,
 	kioskConfig,
-	sleepAssessmentConfig
+	sleepAssessmentConfig,
+	leadCaptureConfig
 };
