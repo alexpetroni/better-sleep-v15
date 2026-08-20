@@ -1,4 +1,68 @@
-# STATE — betterSleep after BS-5 landing page (2026-08-20)
+# STATE — betterSleep after BS-6 products (2026-08-20)
+
+## BS-6 — the real Zenyth catalogue + night-map SKUs (2026-08-20)
+
+The shop now sells the 33 real products captured in
+`.initialData/zenyth-products.json` (real names, real integer-lei prices),
+and the landing night map names the SKUs that support each phase of the
+night — the deck's block-6 loop is closed.
+
+- **Conversion script** (`apps/web/scripts/products-from-initialdata.ts`,
+  `pnpm --filter web products:from-initialdata`): deterministic, rerunnable —
+  the BS-4 article-script pattern. Reads the zenyth capture (slug = last URL
+  segment; name/price as captured; the `blurb` is working copy that must
+  never ship) + the committed Romanian editorial pass
+  `scripts/product-descriptions.ro.json` (fresh 2–4 sentence `description`
+  per slug — edit THIS and regenerate) and writes 33 v2 product bundles
+  `content/sleep/1010-…1330-<slug>.json`, numbered after the article bundles
+  so import order stays articles-then-products. Each: pillar `somn`, status
+  `active`, `priceCents = priceLei * 100`, currency `ron` (lowercase — the
+  schema default and Stripe's code; the phase doc's 'RON' means the same),
+  stock 25 (arbitrary test stock), `coverMediaId: null`, `gallery: []`,
+  Stripe ids untraveled (bundle-excluded), and a trailing
+  `Sursă preț: [zenyth.ro](<url>), 2026-08-20` line in `descriptionMd`.
+  Fails loudly on slug/price/description gaps or a description that copies
+  the captured blurb; stale generated product bundles are deleted on re-run.
+- **Seeding**: no seed-script changes — `pnpm db:seed` / `content:init`
+  import `content/sleep/`. Proven on a scratch DB: fresh migrate+seed
+  imports all 73 bundles (40 articles + 33 products), exit 0; re-run is a
+  no-op (36 products total incl. the 3 demo ones — same precedent as BS-4's
+  43 articles). `sleep-content.spec.ts` re-proves on `TEST_DATABASE_URL`:
+  33 active pillar-tagged products, captured prices in integer bani,
+  stock 25, null Stripe ids, Romanian descriptions with the Sursă-preț
+  line and never the blurb, idempotent re-import, and the 216-lei product
+  formatting as `216,00 lei`.
+- **Night-map SKUs** (`modules/shop/night-map.ts`, universal barrel):
+  `NIGHT_MAP_SKUS` maps the four `NightSegment` keys to 2–3
+  `{ slug, label }` entries chosen from the actual ingredients — adormirea:
+  melatonină 3/10 mg + glicină; somn-profund: magneziu bisglicinat 1000 mg,
+  treonat Magtein, bisglicinat Optimum; fereastra-fragila: PentaMag (Mg+B6),
+  taurat, GABA; rem: L-teanină + ashwagandha KSM-66 Forte. `label` is the
+  product name minus the pack-size suffix. The landing load passes the map
+  into `LandingNightMap`'s BS-5 `segmentExtra` seam; chips under a
+  `home_nightmap_sku_label` ("Susținere în această fază") label link to
+  `/magazin/[slug]`. `night-map.spec.ts` pins every slug+label to a
+  committed ACTIVE product bundle — a catalogue rename/removal fails the
+  suite, not the page.
+- **Money proof** (`night-map.spec.ts`): 216 lei + 2×49 lei = `314,00 lei`
+  crosses a 300-lei free-shipping threshold (`>=` at exactly 30000); minus
+  one item, 265 lei + 19,99 lei standard shipping = `284,99 lei` — all
+  integer bani through `cartTotalCents`/`shippingOptionsForCart`/
+  `formatCents` (money helpers live in `$lib/util/money.ts`).
+- **e2e**: global-setup imports the PRODUCT bundles only into the e2e DB
+  (article bundles stay out so blog listing assumptions hold) → /magazin
+  serves 36 there. landing.e2e: every night-map chip renders per segment in
+  order, each href answers 200, click-through to the first ADORMIREA SKU.
+  shop.e2e: catalogue count 36; a real product's `32,00 lei` price,
+  Romanian description and correct cart total; the demo-mask cover check
+  now scrolls into view first (lazy-load below the fold in the 36-grid).
+- **What remains for a real launch**: live Stripe keys + product sync
+  (`stripe_product_id`/`stripe_price_id` are null by design; admin re-sync
+  exists), real product images (bundles ship `coverMediaId: null` — the
+  /magazin cards render the neutral placeholder block), supplier
+  confirmation of the captured prices/stock (stock 25 is arbitrary; prices
+  are a 2026-08-20 snapshot, see each product's Sursă-preț line), and a
+  decision on retiring the 3 demo products from `db:seed`.
 
 ## BS-5 — the landing page: ten deck blocks (2026-08-20)
 
