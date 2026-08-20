@@ -35,7 +35,12 @@ test('visitor browses, fills the cart, reaches checkout; a signed webhook create
 		await expect(mascaCard.getByTestId('product-price')).toHaveText('89,90 lei');
 		const cover = mascaCard.locator('img');
 		await expect(cover).toBeVisible();
-		expect(await cover.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+		// The card sits below the fold in the 36-product grid; the lazy-loaded
+		// cover only fetches once scrolled into view.
+		await mascaCard.scrollIntoViewIfNeeded();
+		await expect
+			.poll(() => cover.evaluate((el: HTMLImageElement) => el.naturalWidth))
+			.toBeGreaterThan(0);
 
 		// --- Product page: gallery renders, add 2 units to the cart.
 		await mascaCard.locator('a').first().click();
