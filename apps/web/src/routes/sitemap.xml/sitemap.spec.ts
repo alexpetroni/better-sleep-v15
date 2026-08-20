@@ -77,5 +77,12 @@ describe('sitemap.xml', () => {
 		);
 		// Draft products stay out.
 		expect(body).not.toContain(`/magazin/${draft.value.slug}</loc>`);
+
+		// The nine static archetype pages (BS-4) are listed.
+		const { ARCHETYPE_PAGES } = await import('../../lib/modules/quiz/index.ts');
+		expect(ARCHETYPE_PAGES.length).toBe(9);
+		for (const archetype of ARCHETYPE_PAGES) {
+			expect(body).toContain(`/tipuri/${archetype.slug}</loc>`);
+		}
 	});
 });

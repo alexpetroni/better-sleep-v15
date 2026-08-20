@@ -237,3 +237,10 @@ export const ARCHETYPE_PAGES: readonly ArchetypePage[] = [
 export const ARCHETYPE_PAGES_BY_SLUG: ReadonlyMap<string, ArchetypePage> = new Map(
 	ARCHETYPE_PAGES.map((page) => [page.slug, page])
 );
+
+/**
+ * Slug of the seeded archetype quiz the pages' CTA links into. Duplicated
+ * from ARCHETYPE_QUIZ_SEED so client code never pulls the full seed config;
+ * archetype-articles.spec.ts asserts the two stay equal.
+ */
+export const ARCHETYPE_QUIZ_SLUG = 'arhetip-somn';

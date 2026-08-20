@@ -1,6 +1,7 @@
 import { getDb } from '$lib/db';
 import { listPublishedForSitemap } from '$lib/modules/blog/server';
 import { listPages } from '$lib/modules/pages/server';
+import { ARCHETYPE_PAGES } from '$lib/modules/quiz';
 import { listVisibleProducts } from '$lib/modules/shop/server';
 import { canonicalUrl } from '$lib/seo';
 import { getSite } from '$lib/server/site';
@@ -23,7 +24,8 @@ export const GET: RequestHandler = async () => {
 		'/',
 		'/blog',
 		'/magazin',
-		...site.pillars.map((slug) => `/sanatate/${slug}`)
+		...site.pillars.map((slug) => `/sanatate/${slug}`),
+		...ARCHETYPE_PAGES.map((page) => `/tipuri/${page.slug}`)
 	];
 	const entries = [
 		...staticPaths.map((path) => ({ loc: canonicalUrl(path), lastmod: null as string | null })),

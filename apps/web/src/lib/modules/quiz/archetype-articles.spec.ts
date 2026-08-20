@@ -61,6 +61,12 @@ describe('ARCHETYPE_PAGES', () => {
 		}
 	});
 
+	it('links its CTA to the seeded archetype quiz', async () => {
+		const { ARCHETYPE_QUIZ_SEED } = await import('./seed-archetype-quiz.ts');
+		const { ARCHETYPE_QUIZ_SLUG } = await import('./archetype-pages.ts');
+		expect(ARCHETYPE_QUIZ_SLUG).toBe(ARCHETYPE_QUIZ_SEED.slug);
+	});
+
 	it('is indexed by slug', () => {
 		expect(ARCHETYPE_PAGES_BY_SLUG.size).toBe(ARCHETYPE_PAGES.length);
 		expect(ARCHETYPE_PAGES_BY_SLUG.get('ruminatorul')?.id).toBe('RU');
