@@ -1,4 +1,58 @@
-# STATE — betterSleep after BS-1 formcomp extensions (2026-08-20)
+# STATE — betterSleep after BS-2 archetype quiz (2026-08-20)
+
+## BS-2 — the archetype quiz `/quiz/arhetip-somn` (2026-08-20)
+
+The site's central conversion device: a 12-question ro quiz that identifies
+the visitor's sleep archetype. The seeded `evaluare-somn` band quiz is
+untouched. All in `modules/quiz`:
+
+- **Scoring engine (additive, `scoring.ts`).** Two orthogonal extensions:
+  - `resultMode?: 'band' | 'archetype'` (+ `archetypes?: Record<key,
+    { label, essence, advice }>`): in archetype mode every dimension key IS
+    an archetype key (validated 1:1 both ways, ≥2 dimensions required) and
+    `scoreQuiz` adds `profile.winner`/`profile.runnerUp` (full copy
+    snapshotted into the stored profile, like bands). Tie-break: higher
+    score wins; equal scores → earlier declaration order in `dimensions`
+    (stable sort). Bands stay REQUIRED in archetype mode — configs carry one
+    catch-all band so band consumers (result email `bandLabel` fallback,
+    admin results table) keep working. Band-mode profiles carry none of the
+    new fields; all old tests untouched.
+  - New question-scoring kind `weights`: `{ kind: 'weights', weights:
+    { optionValue: { dimensionKey: points } } }` — the PICKED option decides
+    which dimension(s) score (map/numeric attribute a whole question to one
+    dimension, which cannot express "each option names a different
+    archetype"). Multi-select sums selected values; validation checks option
+    values, declared dimensions, numeric points.
+- **Patterns (`patterns.ts`, exported from the universal barrel).**
+  `SLEEP_PATTERNS`: the deck's four block-3 patterns (adormitul-imposibil,
+  trezirea-de-la-3, somnul-care-nu-odihneste, ritmul-dat-peste-cap) → lists
+  of `ArchetypeId` (`'ST'|'MN'|'RU'|'VU'|'SA'|'PE'|'AN'|'FU'|'EP'`,
+  many-to-many, union covers all nine). BS-4/BS-5 consume this.
+- **Seed (`seed-archetype-quiz.ts`).** `/quiz/arhetip-somn`, "Testul de
+  somn", 12 required questions / 3 steps (Seara, Noaptea, Ziua și tu; 11
+  single-select + 1 multi-select), per-question `uuid`s, pillar `somn`,
+  published. Options name lived experiences (+2 main / +1 secondary signal);
+  the closing key-phrase question gives +3 so every archetype is reachable.
+  `archetypes` result copy adapted from `.initialData/archetype-copy/`
+  (~2 paragraphs each, blank-line separated). Wired into `pnpm db:seed` AND
+  the e2e global-setup via `seedArchetypeQuiz(db)` (idempotent
+  upsert-by-slug like the demo quiz; both now share `upsertSeedQuiz`).
+- **Result rendering.** `(public)/quiz/[slug]/rezultat/[resultId]` branches
+  on `profile.winner` (snapshot-consistent — old stored results keep the
+  band view): archetype kicker + winner name + essence, "Ce înseamnă asta"
+  paragraphs from `winner.advice`, runner-up card (name + essence). NO
+  score/band/dimension-bars UI in archetype mode (deck tone: no clinical
+  numbers). Result stays fully visible WITHOUT email; the optional email
+  form below is unchanged. The transactional quiz-result email now uses
+  `winner.label` as `bandLabel` when present.
+- **Tests.** `scoring.spec.ts`: weights scoring/max/validation, archetype
+  winner/runnerUp/tie-break, archetype validation refusals.
+  `seed-archetype-quiz.spec.ts`: publishability, 12 scored+required+uuid'd
+  questions, and the reachability proof — for each of the 9 archetypes an
+  answer set constructed from the scoring map makes it the strict winner;
+  plus the patterns↔archetypes coverage test. e2e (`quiz.e2e.ts`): walks
+  all 12 questions → rendered Ruminatorul result, asserts no band UI, email
+  optional, noindex.
 
 ## BS-1 — formcomp 0.3.0: email validation, consent, honeypot (2026-08-20)
 
