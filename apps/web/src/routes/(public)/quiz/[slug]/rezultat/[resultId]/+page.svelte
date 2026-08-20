@@ -2,8 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { m } from '$lib/paraglide/messages';
 	import Seo from '$lib/components/Seo.svelte';
-	import { singleSubmit } from '$lib/components/single-submit';
 	import { canonicalUrl } from '$lib/seo';
+	import CaptureForm from './CaptureForm.svelte';
 
 	let { data, form } = $props();
 
@@ -102,78 +102,7 @@
 		</section>
 	{/if}
 
-	<section class="rounded-xl border border-(--color-brand-soft) p-6">
-		{#if form?.sent}
-			<p data-testid="result-email-sent" class="font-medium text-green-700">
-				{m.quiz_email_sent()}
-			</p>
-		{:else}
-			<h2 class="mb-1 text-lg font-semibold">{m.quiz_email_heading()}</h2>
-			<p class="mb-4 text-sm text-(--color-ink)/70">{m.quiz_email_blurb()}</p>
-			{#if data.claimed}
-				<p class="mb-4 text-sm text-(--color-ink)/70" data-testid="result-already-claimed">
-					{m.quiz_email_already()}
-				</p>
-			{/if}
-			{#if form?.error === 'rate-limited'}
-				<p data-testid="result-email-error" class="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">
-					{m.quiz_email_rate_limited()}
-				</p>
-			{:else if form?.error}
-				<p data-testid="result-email-error" class="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">
-					{m.quiz_email_invalid()}
-				</p>
-			{/if}
-			<form method="POST" action="?/email" use:singleSubmit>
-				<div class="mb-3 flex flex-col gap-2 sm:flex-row">
-					<input
-						type="text"
-						name="name"
-						data-testid="result-name"
-						placeholder={m.quiz_email_name_placeholder()}
-						class="rounded border border-(--color-brand-soft) px-3 py-2 sm:w-40"
-					/>
-					<input
-						type="email"
-						name="email"
-						required
-						data-testid="result-email"
-						placeholder={m.newsletter_email_placeholder()}
-						class="grow rounded border border-(--color-brand-soft) px-3 py-2"
-					/>
-				</div>
-				<!-- GDPR: both marketing consents default UNTICKED and are optional;
-				     the result email itself is transactional. -->
-				<label class="mb-2 flex items-start gap-2 text-sm">
-					<input
-						type="checkbox"
-						name="newsletter_consent"
-						value="yes"
-						data-testid="result-consent-newsletter"
-						class="mt-0.5"
-					/>
-					<span>{m.newsletter_consent_label()}</span>
-				</label>
-				<label class="mb-4 flex items-start gap-2 text-sm">
-					<input
-						type="checkbox"
-						name="profile_consent"
-						value="yes"
-						data-testid="result-consent-profile"
-						class="mt-0.5"
-					/>
-					<span>{m.quiz_consent_profile_label()}</span>
-				</label>
-				<button
-					type="submit"
-					data-testid="result-email-submit"
-					class="rounded bg-(--color-brand) px-4 py-2 font-semibold text-white hover:opacity-90"
-				>
-					{m.quiz_email_submit()}
-				</button>
-			</form>
-		{/if}
-	</section>
+	<CaptureForm claimed={data.claimed} {form} />
 
 	<p class="mt-8">
 		<a href={resolve('/')} class="text-(--color-brand) hover:underline">{m.error_back_home()}</a>

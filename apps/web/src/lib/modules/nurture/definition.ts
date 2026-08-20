@@ -87,7 +87,9 @@ export function validateSequenceDefinition(def: NurtureSequenceDefinition): stri
 			problems.push(`${stepAt}: unknown templateKey "${step.templateKey}"`);
 		}
 		if (step.cta?.url.includes('{{') && step.cta.url !== RESULT_URL_TOKEN) {
-			problems.push(`${stepAt}: cta.url may only be the exact ${RESULT_URL_TOKEN} token or a plain URL`);
+			problems.push(
+				`${stepAt}: cta.url may only be the exact ${RESULT_URL_TOKEN} token or a plain URL`
+			);
 		}
 		if (step.cta?.url === RESULT_URL_TOKEN && def.trigger.kind !== 'quiz-completed') {
 			problems.push(`${stepAt}: ${RESULT_URL_TOKEN} needs a quiz-completed trigger`);

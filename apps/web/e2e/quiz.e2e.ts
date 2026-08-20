@@ -64,15 +64,16 @@ test('visitor completes the seeded quiz, opts into the funnel, confirms and unsu
 		// Result pages carry personal scores (PII) — they must never be indexed.
 		await expect(page.locator('head meta[name="robots"]')).toHaveAttribute('content', /noindex/);
 
-		// GDPR: both consent checkboxes start UNTICKED; the result is already
-		// fully visible without giving an email.
-		await expect(page.getByTestId('result-consent-newsletter')).not.toBeChecked();
-		await expect(page.getByTestId('result-consent-profile')).not.toBeChecked();
+		// GDPR: the consent box starts UNTICKED; the result is already fully
+		// visible without giving an email. (BS-3: the capture is a formcomp form
+		// with a required consent + honeypot.)
+		const captureForm = page.getByTestId('capture-form');
+		const consentBox = captureForm.locator('input[name="newsletter_consent_box"]');
+		await expect(consentBox).not.toBeChecked();
 
-		// Leave an email with newsletter consent only.
-		await page.getByTestId('result-name').fill('E2E Vizitator');
-		await page.getByTestId('result-email').fill(visitorEmail);
-		await page.getByTestId('result-consent-newsletter').check();
+		// Leave an email with newsletter consent.
+		await captureForm.locator('input[name="email"]').fill(visitorEmail);
+		await consentBox.check();
 		await page.getByTestId('result-email-submit').click();
 		await expect(page.getByTestId('result-email-sent')).toBeVisible();
 
@@ -136,47 +137,69 @@ test('visitor completes the seeded quiz, opts into the funnel, confirms and unsu
 
 test('visitor walks all 12 archetype questions to a rendered archetype result — no email required', async ({
 	page
-}) => {
-	await page.goto('/quiz/arhetip-somn');
-	await expect(page.getByRole('heading', { name: 'Testul de somn' })).toBeVisible();
-	await expect(page.getByTestId('quiz-intro')).toContainText('3 minute');
+}, testInfo) => {
+	const siteId = testInfo.project.name as keyof typeof SITE_DB_NAMES;
+	const visitorEmail = `e2e-arhetip@example.com`;
+	const db = createDb(siteDatabaseUrl(siteId));
 
-	// Step 1 — seara: a Ruminator's evening.
-	await pick(page, 'seara_in_pat', 'reluari');
-	await pick(page, 'seara_corp', 'incordare');
-	await pick(page, 'seara_ganduri', 'discutii');
-	await pick(page, 'seara_amanare', 'devreme');
-	await page.getByRole('button', { name: 'Înainte' }).click();
+	try {
+		await page.goto('/quiz/arhetip-somn');
+		await expect(page.getByRole('heading', { name: 'Testul de somn' })).toBeVisible();
+		await expect(page.getByTestId('quiz-intro')).toContainText('3 minute');
 
-	// Step 2 — noaptea.
-	await pick(page, 'noapte_treziri', 'trei');
-	await pick(page, 'noapte_cauza', 'greseli');
-	await pick(page, 'noapte_reactie', 'reiau');
-	await pick(page, 'dimineata', 'nota');
-	await page.getByRole('button', { name: 'Înainte' }).click();
+		// Step 1 — seara: a Ruminator's evening.
+		await pick(page, 'seara_in_pat', 'reluari');
+		await pick(page, 'seara_corp', 'incordare');
+		await pick(page, 'seara_ganduri', 'discutii');
+		await pick(page, 'seara_amanare', 'devreme');
+		await page.getByRole('button', { name: 'Înainte' }).click();
 
-	// Step 3 — ziua și tu.
-	await pick(page, 'zi_tipar', 'inghit');
-	await pick(page, 'zi_odihna', 'vinovatie');
-	await pick(page, 'semne_corp', 'replici');
-	await pick(page, 'fraza', 'ru');
-	await page.getByRole('button', { name: 'Trimite răspunsurile' }).click();
+		// Step 2 — noaptea.
+		await pick(page, 'noapte_treziri', 'trei');
+		await pick(page, 'noapte_cauza', 'greseli');
+		await pick(page, 'noapte_reactie', 'reiau');
+		await pick(page, 'dimineata', 'nota');
+		await page.getByRole('button', { name: 'Înainte' }).click();
 
-	// RU scores 14 (runner-up PE on 5) → the Ruminator result page renders.
-	await expect(page).toHaveURL(/\/quiz\/arhetip-somn\/rezultat\/[a-f0-9-]+$/);
-	await expect(page.getByTestId('result-archetype')).toHaveText('Ruminatorul');
-	await expect(page.getByTestId('result-archetype-essence')).toContainText('Reia scene');
-	await expect(page.getByTestId('result-archetype-meaning')).toContainText('replica perfectă');
-	await expect(page.getByTestId('result-runner-up')).toContainText('Perfecționistul');
-	// Archetype mode shows no clinical score/band UI.
-	await expect(page.getByTestId('result-band')).toHaveCount(0);
-	await expect(page.getByTestId('result-score')).toHaveCount(0);
-	// The deck's promise: the result is fully visible WITHOUT leaving an email —
-	// the email form exists below, strictly optional and unticked.
-	await expect(page.getByTestId('result-email')).toBeVisible();
-	await expect(page.getByTestId('result-consent-newsletter')).not.toBeChecked();
-	// PII: archetype results are personal — never indexed.
-	await expect(page.locator('head meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+		// Step 3 — ziua și tu.
+		await pick(page, 'zi_tipar', 'inghit');
+		await pick(page, 'zi_odihna', 'vinovatie');
+		await pick(page, 'semne_corp', 'replici');
+		await pick(page, 'fraza', 'ru');
+		await page.getByRole('button', { name: 'Trimite răspunsurile' }).click();
+
+		// RU scores 14 (runner-up PE on 5) → the Ruminator result page renders.
+		await expect(page).toHaveURL(/\/quiz\/arhetip-somn\/rezultat\/[a-f0-9-]+$/);
+		await expect(page.getByTestId('result-archetype')).toHaveText('Ruminatorul');
+		await expect(page.getByTestId('result-archetype-essence')).toContainText('Reia scene');
+		await expect(page.getByTestId('result-archetype-meaning')).toContainText('replica perfectă');
+		await expect(page.getByTestId('result-runner-up')).toContainText('Perfecționistul');
+		// Archetype mode shows no clinical score/band UI.
+		await expect(page.getByTestId('result-band')).toHaveCount(0);
+		await expect(page.getByTestId('result-score')).toHaveCount(0);
+		// The deck's promise: the result is fully visible WITHOUT leaving an
+		// email — the protocol capture form sits below, strictly optional,
+		// consent unticked, with the BS-1 honeypot rendered for bots to fill.
+		const captureForm = page.getByTestId('capture-form');
+		const consentBox = captureForm.locator('input[name="newsletter_consent_box"]');
+		await expect(captureForm.locator('input[name="email"]')).toBeVisible();
+		await expect(consentBox).not.toBeChecked();
+		await expect(captureForm.locator('input[name="website"]')).toBeAttached();
+		// PII: archetype results are personal — never indexed.
+		await expect(page.locator('head meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+
+		// BS-3: submit email + consent → the double-opt-in confirm email (and
+		// the transactional result email) land in email_log, strictly dry-run.
+		await captureForm.locator('input[name="email"]').fill(visitorEmail);
+		await consentBox.check();
+		await page.getByTestId('result-email-submit').click();
+		await expect(page.getByTestId('result-email-sent')).toBeVisible();
+		const logs = await db.select().from(emailLog).where(eq(emailLog.toEmail, visitorEmail));
+		expect(logs.map((l) => l.template).sort()).toEqual(['newsletter-confirm', 'quiz-result']);
+		expect(logs.every((l) => l.status === 'dryrun')).toBe(true);
+	} finally {
+		await db.$client.end();
+	}
 });
 
 test('footer newsletter signup starts double opt-in from the blog', async ({ page }, testInfo) => {

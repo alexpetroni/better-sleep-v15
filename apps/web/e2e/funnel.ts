@@ -115,9 +115,9 @@ export function defineFunnelSpec(siteId: keyof typeof SITE_DB_NAMES) {
 				await expect(page.getByTestId('result-score')).toContainText('20 din 32');
 
 				// --- Subscribe from the result page (newsletter consent ticked).
-				await page.getByTestId('result-name').fill('E2E Funnel');
-				await page.getByTestId('result-email').fill(visitorEmail);
-				await page.getByTestId('result-consent-newsletter').check();
+				const captureForm = page.getByTestId('capture-form');
+				await captureForm.locator('input[name="email"]').fill(visitorEmail);
+				await captureForm.locator('input[name="newsletter_consent_box"]').check();
 				await page.getByTestId('result-email-submit').click();
 				await expect(page.getByTestId('result-email-sent')).toBeVisible();
 
