@@ -42,7 +42,9 @@
 	<div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
 		<a href={resolve('/')} class="text-lg font-bold">{data.site.name}</a>
 		<nav>
-			<ul class="flex items-center gap-4">
+			<!-- Must wrap on narrow phones: the landing gate asserts no horizontal
+			     scroll at 360px, and this nav is wider than that in one row. -->
+			<ul class="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
 				{#each data.site.nav as item (item.href)}
 					<li>
 						<!-- Static config hrefs; cast to a static route type because the Pathname
@@ -72,7 +74,9 @@
 	</div>
 </header>
 
-<main class="mx-auto max-w-4xl px-4 py-8">
+<!-- The landing composes full-bleed sections and manages its own containers;
+     every other public page keeps the shared reading-width main. -->
+<main class={page.route.id === '/(public)' ? undefined : 'mx-auto max-w-4xl px-4 py-8'}>
 	{@render children()}
 </main>
 
