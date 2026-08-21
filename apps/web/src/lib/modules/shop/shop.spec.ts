@@ -347,6 +347,54 @@ describe('cart details and checkout session', () => {
 		);
 	});
 
+	it('clamps a quantity above tracked stock pre-payment and flags the line (M-3)', async () => {
+		const scarce = await makeProduct({ name: 'Stoc limitat', priceCents: 2000, stock: 25 });
+		const details = await loadCartDetails(
+			{ db },
+			[{ productId: scarce.id, qty: 26 }],
+			SLEEP_PILLARS
+		);
+		// The line stays purchasable — at what can actually ship.
+		expect(details.lines[0]).toMatchObject({ qty: 25, available: true, stockLimited: true });
+		expect(details.lines[0].lineTotalCents).toBe(50_000);
+		expect(details.totalCents).toBe(50_000);
+
+		// Untracked stock (null) is never clamped; exact-stock qty is not flagged.
+		const untracked = await makeProduct({ name: 'Neurmărit nelimitat', priceCents: 1000 });
+		const exact = await loadCartDetails(
+			{ db },
+			[
+				{ productId: untracked.id, qty: 99 },
+				{ productId: scarce.id, qty: 25 }
+			],
+			SLEEP_PILLARS
+		);
+		expect(exact.lines.map((l) => l.stockLimited)).toEqual([false, false]);
+		expect(exact.lines[0].qty).toBe(99);
+	});
+
+	it('checkout charges the clamped quantity, not the requested one (M-3)', async () => {
+		const scarce = await makeProduct({ name: 'Stoc cinci', priceCents: 2000, stock: 5 });
+		const outcome = await createCheckoutFromCart(
+			{ db, gateway, baseUrl: 'https://example.ro' },
+			{
+				items: [{ productId: scarce.id, qty: 8 }],
+				sitePillarSlugs: SLEEP_PILLARS,
+				shippingSettings: settingsDefaults(),
+				shippingOptionId: 'standard'
+			}
+		);
+		expect(outcome.ok).toBe(true);
+		if (!outcome.ok) return;
+		const session = gateway.sessions.get(outcome.sessionId)!;
+		// 5 × 20 lei goods — the paid snapshot in metadata carries qty 5 too,
+		// so the webhook decrements exactly what was sold.
+		expect(session.input.lineItems).toMatchObject([{ qty: 5, unitAmountCents: 2000 }]);
+		expect(session.metadata.cart).toBe(
+			buildCartMetadata([{ productId: scarce.id, qty: 5, priceCents: 2000 }])
+		);
+	});
+
 	it('refuses an empty cart and carts with unavailable products', async () => {
 		const empty = await createCheckoutFromCart(
 			{ db, gateway, baseUrl: 'https://example.ro' },

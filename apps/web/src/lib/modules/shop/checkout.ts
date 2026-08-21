@@ -128,6 +128,13 @@ export interface CartLine {
 	lineTotalCents: number;
 	/** False when the product went inactive/out of stock since it was added. */
 	available: boolean;
+	/**
+	 * True when the requested quantity exceeded the tracked stock and `qty`
+	 * was clamped down to it (review M-3). The cart page explains the
+	 * adjustment; checkout charges the clamped quantity — the webhook's
+	 * oversell clamp stays as the backstop for the concurrent-buyer race only.
+	 */
+	stockLimited: boolean;
 }
 
 export interface CartDetails {
@@ -164,11 +171,20 @@ export async function loadCartDetails(
 		const tagged = tagRows.some(
 			(t) => t.productId === product.id && sitePillarSlugs.includes(t.slug)
 		);
+		// M-3: quantity is checked against tracked stock BEFORE payment. A qty
+		// above what can ship is clamped (not refused — the buyer still gets
+		// everything available) and flagged so the cart page says why.
+		const qty =
+			product.stock !== null && product.stock > 0
+				? Math.min(item.qty, product.stock)
+				: item.qty;
+		const stockLimited = qty < item.qty;
 		lines.push({
 			product,
-			qty: item.qty,
-			lineTotalCents: product.priceCents * item.qty,
-			available: product.status === 'active' && tagged && !isOutOfStock(product)
+			qty,
+			lineTotalCents: product.priceCents * qty,
+			available: product.status === 'active' && tagged && !isOutOfStock(product),
+			stockLimited
 		});
 	}
 	return {

@@ -57,6 +57,10 @@
 						<span data-testid="cart-line-unavailable" class="block text-sm text-red-700">
 							{m.cart_unavailable()}
 						</span>
+					{:else if line.stockLimited}
+						<span data-testid="cart-line-stock-limited" class="block text-sm text-amber-700">
+							{m.cart_stock_limited({ qty: line.qty })}
+						</span>
 					{/if}
 				</div>
 				<form method="POST" action="?/setQty" use:singleSubmit class="flex items-center gap-2">

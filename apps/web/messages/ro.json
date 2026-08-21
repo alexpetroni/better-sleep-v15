@@ -277,6 +277,7 @@
 	"cart_remove": "Șterge",
 	"cart_total": "Total",
 	"cart_unavailable": "Nu mai este disponibil — șterge-l din coș pentru a continua.",
+	"cart_stock_limited": "Doar {qty} în stoc — am ajustat cantitatea.",
 	"cart_checkout": "Plătește cu Stripe",
 	"cart_checkout_note": "Plata și adresa de livrare se completează securizat la Stripe.",
 	"cart_payments_disabled": "Magazinul nu acceptă încă plăți online. Revino în curând.",

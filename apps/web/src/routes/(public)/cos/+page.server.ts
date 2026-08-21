@@ -27,6 +27,8 @@ export interface CartPageLine {
 	qty: number;
 	lineTotalCents: number;
 	available: boolean;
+	/** Qty was clamped down to the tracked stock (M-3); qty is the clamped value. */
+	stockLimited: boolean;
 	cover: ImageSources | null;
 }
 
@@ -57,6 +59,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			qty: line.qty,
 			lineTotalCents: line.lineTotalCents,
 			available: line.available,
+			stockLimited: line.stockLimited,
 			cover: cover?.key ? imgSources(cover, { w: 160, h: 120, fit: 'fill' }) : null
 		};
 	});

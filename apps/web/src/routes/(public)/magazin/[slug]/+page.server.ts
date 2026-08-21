@@ -53,7 +53,12 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const qty = Math.max(1, Number(form.get('qty')) || 1);
-		writeCart(cookies, addToCart(readCart(cookies), found.product.id, qty));
+		// M-3: never put more in the cart than the tracked stock can ship. The
+		// cart page re-checks (and messages) in loadCartDetails — this clamp
+		// just keeps the obvious single-add case honest at the source.
+		const stock = found.product.stock;
+		const capped = stock === null ? qty : Math.min(qty, stock);
+		writeCart(cookies, addToCart(readCart(cookies), found.product.id, capped));
 		redirect(303, '/cos');
 	}
 };
