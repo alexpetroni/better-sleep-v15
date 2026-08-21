@@ -173,7 +173,15 @@ export async function confirmSubscriber(
 	return { ok: true, subscriber: updated, already: false };
 }
 
-/** One-click unsubscribe by the stored (non-expiring) token: revokes ALL consents. */
+/**
+ * One-click unsubscribe by the stored (non-expiring) token: revokes ALL
+ * consents AND clears `confirmedAt`. Confirmation is per-grant, not
+ * per-address-forever (review 2026-08-21 H-2): after a withdrawal, anyone
+ * re-entering this address on a public form starts a FRESH double opt-in —
+ * `sendNewsletterConfirmEmail`'s `already-confirmed` fast path and the
+ * nurture `isMailable` gate both key on `confirmedAt`, so no marketing email
+ * can resume until the mailbox owner clicks a new confirm link.
+ */
 export async function unsubscribeByToken(
 	deps: CrmDeps,
 	token: string
@@ -186,7 +194,11 @@ export async function unsubscribeByToken(
 	const now = new Date();
 	const [updated] = await deps.db
 		.update(subscribers)
-		.set({ consents: revokeAllConsents(existing.consents, now), updatedAt: now })
+		.set({
+			consents: revokeAllConsents(existing.consents, now),
+			confirmedAt: null,
+			updatedAt: now
+		})
 		.where(eq(subscribers.id, existing.id))
 		.returning();
 	return updated;

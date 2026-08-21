@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
 import { createEmailSender, type EmailSender } from '../email/service.ts';
 import { emailLog } from '../email/schema.ts';
+import { isMailable } from '../nurture/service.ts';
 import { hasConsent } from './consent.ts';
 import { subscribers } from './schema.ts';
 import {
@@ -180,6 +181,41 @@ describe('unsubscribe', () => {
 
 	it('an unknown token unsubscribes nobody', async () => {
 		expect(await unsubscribeByToken(deps, 'no-such-token')).toBeNull();
+	});
+
+	it('unsubscribe revokes confirmation: a third-party re-capture starts a FRESH double opt-in (review H-2)', async () => {
+		// Victim signs up and confirms.
+		const email = 'victima@example.ro';
+		const signup = await requestNewsletterSignup(signupDeps, { email, source: 'footer' });
+		if (!signup.ok) throw new Error('signup failed');
+		const logs = await db.select().from(emailLog).where(eq(emailLog.toEmail, email));
+		const token = (logs[0].data as { confirmUrl: string }).confirmUrl.split(
+			'/newsletter/confirm/'
+		)[1];
+		const confirmed = await confirmSubscriber(deps, SECRET, token);
+		expect(confirmed.ok).toBe(true);
+
+		// Victim unsubscribes: confirmation must NOT survive the withdrawal.
+		const withdrawn = await unsubscribeByToken(deps, signup.subscriber.unsubscribeToken);
+		expect(withdrawn!.confirmedAt).toBeNull();
+		expect(isMailable(withdrawn!, 'newsletter')).toBe(false);
+
+		// A third party types the victim's address into a public form again.
+		// Pre-fix this hit the `already-confirmed` fast path — consent silently
+		// re-granted, no confirm email, mail resumed. Now it is a fresh opt-in:
+		// a NEW confirm email goes out and nothing is mailable until it's clicked.
+		const recapture = await requestNewsletterSignup(signupDeps, {
+			email,
+			source: 'quiz:arhetip-somn'
+		});
+		expect(recapture.ok && recapture.confirm).toBe('dryrun');
+		if (!recapture.ok) return;
+		expect(recapture.subscriber.confirmedAt).toBeNull();
+		expect(isMailable(recapture.subscriber, 'newsletter')).toBe(false);
+		const confirms = (await db.select().from(emailLog).where(eq(emailLog.toEmail, email))).filter(
+			(l) => l.template === 'newsletter-confirm'
+		);
+		expect(confirms).toHaveLength(2);
 	});
 });
 
