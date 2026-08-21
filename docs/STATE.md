@@ -1,4 +1,159 @@
-# STATE — betterSleep after BS-9 correctness & data integrity (2026-08-21)
+# STATE — betterSleep after BS-10 hygiene batch (2026-08-21)
+
+## BS-10 — hygiene batch: the review loop closes (2026-08-21)
+
+Executes the remaining accepted findings of `docs/REVIEW-2026-08-21.md`
+(M-9…M-15 minus the ones BS-9 already closed, plus the whole L list). With
+this phase every finding in the review is disposed of — table below. Root
+gate green (105 files / 955 passed / 4 skipped — the neon-parity suite,
+now loudly announced), Playwright e2e green (53 passed / 1 pre-existing
+skip), formcomp unit (41) + e2e (19) green.
+
+### Disposition table (review 2026-08-21, closing BS-7…BS-10)
+
+| Finding | Phase | Disposition |
+| --- | --- | --- |
+| C-1 mock checkout in prod | BS-7 | FIXED — preflight + runtime guard |
+| H-1 jsonb scrambles dimensions | BS-9 | FIXED — ordered array; BS-10 adds the tied-answers e2e |
+| H-2 unsubscribe not sticky | BS-8 | FIXED — confirmedAt cleared |
+| H-3 global budget drain | BS-8 | FIXED — per-IP first |
+| H-4 proxy client addresses | BS-8 | FIXED — ADDRESS_HEADER required live |
+| H-5 no security headers | BS-7 | FIXED — handleHeaders hook |
+| H-6 unthrottled quiz submit | BS-8 | FIXED — throttle + retention sweep |
+| H-7 mock chat/courier in prod | BS-7 | FIXED — preflight rules |
+| H-8 prod_mock ids persist | BS-7 | FIXED — sync skips/heals |
+| H-9 demo content live | BS-7 | FIXED — draft seeds, status survives |
+| H-10 VAT rate | BS-7 | HUMAN DECISION flagged (admin hint + checklist) |
+| M-1 claim-action guards | BS-8 | FIXED |
+| M-2 hostile submissions | BS-8 | FIXED |
+| M-3 qty vs stock | BS-9 | FIXED |
+| M-4 async payments | BS-9 | FIXED |
+| M-5 night-map drift | BS-9 | FIXED |
+| M-6 product SEO layer | BS-9 | FIXED |
+| M-7 import identity | BS-9 | FIXED |
+| M-8 updated_at churn | BS-9 | FIXED |
+| M-9 sweep can eat hand-authored bundles | BS-10 | FIXED — manifest-owned sweep, tmp+rename, README ownership |
+| M-10 no SAR export | BS-10 | FIXED — `pnpm subscriber:export -- --email …` |
+| M-11 consent wording unproven | BS-10 | FIXED — `copy: v<N>:sha256:<hash>` per grant |
+| M-12 DEPLOYMENT.md two-site residue | BS-10 | FIXED — single-site rewrite, §10 appendix |
+| M-13 sitemap misses quizzes | BS-10 | FIXED — found still open at BS-10 close-out; published site-pillar quizzes now listed, spec-pinned |
+| M-14 silent pattern-copy lookup | BS-10 | FIXED — literal-union-typed map (compile error on rename) |
+| M-15 landing copy ~40% pinned | BS-10 | FIXED — full namespace pin + per-block render spec |
+| L-1 formcomp warnings | BS-10 | FIXED — src annotated/`$derived`, rebuilt; 0 warnings |
+| L-2 honeypot semantics | BS-10 | FIXED — only filled ⇒ bot; success copy server-only |
+| L-3 dry-run rows terminal | BS-10 | FIXED — live send supersedes dryrun rows; documented |
+| L-4 unpublish 404s results | BS-10 | FIXED — results render; only taking gated |
+| L-5 form state in `$derived` | BS-10 | FIXED — QuizForm child created once (no direct unit pin — covered by check + quiz e2e) |
+| L-6 missing shipping row | BS-10 | FIXED — success page + order email |
+| L-7 zero-priced purchasable | BS-10 | FIXED — `isPurchasable` gates every buy path |
+| L-8 blog soft-404 | BS-10 | FIXED — 404 past the archive |
+| L-9 dofollow supplier links | BS-10 | FIXED — Sursă-preț rendered unlinked |
+| L-10 landing polish list | BS-10 | FIXED — all items (details below) |
+| L-11 demo publishedAt tie | BS-7 | FIXED |
+| L-12 exact-match leak guards | BS-10 | FIXED — sentence-level stopword heuristic |
+| L-13 curation order / copy triplication / winner link | BS-10 | FIXED |
+| L-14 money string surgery + PROMPT.md path | BS-10 | FIXED — `centsToDecimal`; PROMPT.md corrected |
+| L-15 no test CI, silent neon skip | BS-10 | FIXED — ci.yml (gate + neon jobs); skip prints to stderr |
+| L-16 named test gaps | BS-8/9/10 | FIXED — BS-10 adds real-corpus pagination + tied-answers e2e |
+
+### What BS-10 changed, by group
+
+- **Content pipeline (M-9, L-12)**: the regeneration scripts delete ONLY
+  files recorded in the committed `content/sleep/.generated-manifest` (their
+  own previous output) — a hand-authored bundle exported into the directory
+  is never swept, whatever its filename. Bundle + manifest writes are
+  tmp+rename (`scripts/atomic-write.ts`). Ownership + regeneration commands
+  documented in `content/README.md`. `findEnglishSentence`
+  (`modules/content/english-leak.ts`, spec'd) backstops the exact-match
+  guards in both scripts' fail paths: ≥3 distinct unambiguous English
+  stopwords in one sentence fails the run (corpus verified clean; the word
+  regex counts Romanian diacritics as letters so "sforăit" cannot shed a
+  fake "it").
+- **GDPR/CRM (M-10, M-11)**: `pnpm subscriber:export -- --email …` prints a
+  consistent JSON snapshot (one read transaction) of everything held for an
+  address — subscriber, linked quiz results, nurture enrollments, orders,
+  invoices (retained under accounting law), email log — the read-side twin
+  of `subscriber:delete`, same tables (`modules/gdpr/export.ts`, spec'd).
+  Every consent grant now records `copy: 'v1:sha256:<16hex>'` — hash of the
+  exact wording shown (`modules/crm/consent-copy.ts`); bump
+  `CONSENT_COPY_VERSION` when the consent's MEANING changes, the hash tracks
+  text edits by itself. Revocations record no copy. `profile_emails` has no
+  public grant surface, hence no wording registered yet.
+- **Docs (M-12, L-14)**: DEPLOYMENT.md is single-site betterSleep;
+  "adding a second site" is an appendix that starts with "create the site
+  config file first". PROMPT.md's money path corrected to
+  `apps/web/src/lib/util/money.ts`; the two admin `formatCents(...).split`
+  call sites now use `centsToDecimal(value, ',')` (same rendered strings).
+- **Landing (M-14, M-15, L-10)**: the pattern copy map is
+  `Record<PatternSlug, …>` where `PatternSlug` is the literal union off
+  `SLEEP_PATTERNS` (`as const satisfies`) — a slug rename fails `pnpm
+  check`. Card titles moved to Paraglide (`home_pattern_*_title`, mixed
+  case + CSS `uppercase`); `SleepPattern.title` is GONE.
+  `landing-copy.pinned.json` pins all 90 `home_*` messages
+  (regenerate it deliberately when copy changes);
+  `landing-render.spec.ts` server-renders all ten blocks and asserts each
+  block's own strings in place (patterns sliced per card, reframe/steps/
+  nightmap/proof/objections checked lead-before-body). Polish: eyebrows
+  numbered by render position (…07, 08, 09); hero `100svh`; reveal CSS
+  behind `@media screen and (prefers-reduced-motion: no-preference)`;
+  `reveal()` skips hiding elements already in-viewport at mount; hero trust
+  list keyed by index; dead `color-night-raised` and the `text-scale` meta
+  removed; `BezelCard.svelte` replaces four copy-pasted double-bezel blocks
+  (objections keeps its inline variant — there the white face is the
+  `<summary>`); `--ease-glide` theme token replaces every inline
+  cubic-bezier; the two font subsets (latin + latin-ext) are preloaded and a
+  metric-tuned `Plus Jakarta Sans Fallback` (`size-adjust` over local Arial,
+  approximate values derived from the fonts' metrics) shrinks the swap/CLS
+  window. **Deck block-3 images: CUT, recorded here** — the deck specifies
+  card images for the four patterns; none shipped in BS-5 and none ship now
+  (no usable vendored art; cards carry title/symptom/mechanism/archetype
+  chips). Revisit together with the product/article image launch item.
+- **Quiz/blog/shop (L-2, L-4…L-9, L-13)**: honeypot is a bot signal only
+  when FILLED (a privacy extension stripping the field no longer swallows a
+  human's signup) and the delivery-success copy renders only from a real
+  server `form.sent`; result pages of unpublished quizzes render (only
+  taking is gated — the `?/email` action keeps its M-1 gates); the quiz page
+  creates form state + `x-quiz-attempt` token ONCE in a `QuizForm` child
+  remounted per slug by `{#key}`; paid shipping is its own row on the
+  success page and in the order-confirmation email (lines now sum to the
+  total); `isPurchasable` (price > 0 AND in stock) gates product page add,
+  cart availability and checkout; `/blog?page=N` past the archive 404s;
+  the Sursă-preț line is plain text (regenerated in all 33 product bundles
+  — provenance stays in `.initialData` and the import key);
+  `listPublishedBySlugs` returns CURATION order; the archetype dimension
+  labels derive from `ARCHETYPES` via `ARCHETYPE_TIEBREAK_ORDER` and a
+  drift spec pins `/tipuri` page copy to the scoring definitions; the
+  result page links the winner to `/tipuri/<slug>`
+  (`quiz_result_archetype_guide`); dead `flattenStepResponses` removed.
+- **Sitemap (M-13, caught at close-out)**: the review's disposition sweep
+  found M-13 still open — no phase had picked it up.
+  `listPublishedQuizzesForSitemap` (published + site-pillar, mirroring the
+  public quiz page's visibility) feeds the sitemap's `Promise.all`;
+  sitemap.spec pins published-in / draft-out / foreign-pillar-out and that
+  no `/rezultat/` URL ever appears.
+- **Platform (L-1, L-3, L-15, L-16)**: formcomp emits ZERO
+  `state_referenced_locally` warnings (deliberate initial captures carry
+  `svelte-ignore` + rationale; `settings` is `$derived`; dist rebuilt);
+  `shouldSkipResend(status, { dryRun })` — a dryrun email_log row is final
+  only while the sender runs dry, so flipping `EMAIL_DRYRUN=false` needs no
+  cleanup and the first live send supersedes (CAS-guarded, once);
+  `.github/workflows/ci.yml` runs the root gate against compose
+  Postgres+MinIO plus a `test:neon` job through the wsproxy on every
+  push/PR; blog pagination is pinned against the real 40-article corpus
+  (5 disjoint pages); a new e2e submits an exact 10–10 ST/MN tie and
+  asserts Străjerul wins by declaration order, then follows the winner
+  link to `/tipuri/strajerul`.
+- **Key commands**: `pnpm subscriber:export -- --email x@y.ro` (SAR JSON on
+  stdout). CI: workflow `ci` (gate + neon). Everything else unchanged.
+- **Next phase must know**: `SLEEP_PATTERNS` entries no longer carry
+  `title`; use the `home_pattern_*` messages (type `PatternSlug` is the slug
+  union). `shouldSkipResend` takes `{ dryRun }`. `applyConsents` takes an
+  optional 5th `copyRefs` param; `ConsentRecord` gained optional `copy`.
+  `isOutOfStock` still exists but purchase gating goes through
+  `isPurchasable`. `content/sleep/.generated-manifest` must stay committed —
+  without it the sweep deletes nothing (safe) but stale generated bundles
+  linger. Editing any `home_*` message requires regenerating
+  `landing-copy.pinned.json` in the same commit.
 
 ## BS-9 — correctness & data integrity (2026-08-21)
 
