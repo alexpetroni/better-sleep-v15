@@ -72,6 +72,14 @@ export const ENV_MATRIX: readonly EnvVarSpec[] = [
 	// Not required at boot (only when STRIPE_SECRET_KEY is set — see boot.ts),
 	// but its committed dev value must still never reach a production env:
 	{ name: 'STRIPE_WEBHOOK_SECRET', devDefaults: ['whsec_dev_only_secret_change_me'] },
+	// Read by adapter-node at runtime, never at boot: which request header
+	// carries the real client IP behind the TLS proxy, and how many proxy hops
+	// are trusted. Without them every rate limit keys the proxy's socket IP
+	// (review H-4) — a LIVE node env requires ADDRESS_HEADER; the rule lives
+	// in launch-check.ts. Never needed on Vercel (platform-resolved) and
+	// dangerous if set wrong — DEPLOYMENT.md §3.
+	{ name: 'ADDRESS_HEADER' },
+	{ name: 'XFF_DEPTH' },
 	// Vercel extras: migrations need an unpooled connection past PgBouncer, and
 	// Vercel Cron authenticates against the retention route with the bearer
 	// secret (DEPLOYMENT.md §12).

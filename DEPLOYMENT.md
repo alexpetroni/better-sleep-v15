@@ -130,11 +130,16 @@ node apps/web/build        # serves HTTP on PORT (default 3000)
 
 ### Client IPs behind the proxy (rate limiting)
 
-Login, chat and public-email rate limits key on the client IP. Out of the box
-the app uses the **socket address** — behind a proxy that is the proxy's own
-IP, so all visitors share one bucket: a burst from anyone rate-limits
-everyone, and per-IP caps do nothing against a single abuser. Configure
-adapter-node's trust explicitly (env vars, read at runtime):
+Login, chat, quiz-submit and public-email rate limits key on the client IP.
+Out of the box the app uses the **socket address** — behind a proxy that is
+the proxy's own IP, so all visitors share one bucket: a burst from anyone
+rate-limits everyone, and per-IP caps do nothing against a single abuser.
+**Until `ADDRESS_HEADER` is configured, none of the per-IP throttles are
+load-bearing on this target** — which is why `pnpm launch:check` treats a
+missing `ADDRESS_HEADER` as a launch problem in a live env
+(`EMAIL_DRYRUN=false`) on the node target (Vercel resolves the client
+address itself; nothing to configure there). Configure adapter-node's trust
+explicitly (env vars, read at runtime):
 
 - **One proxy you control (Caddy/nginx → app):**
   `ADDRESS_HEADER=x-forwarded-for` and `XFF_DEPTH=1` (the rightmost XFF entry
@@ -144,9 +149,12 @@ adapter-node's trust explicitly (env vars, read at runtime):
   (set by Cloudflare itself, can't be spoofed as long as the origin only
   accepts Cloudflare traffic), or keep `x-forwarded-for` with `XFF_DEPTH=2`
   (two trusted hops: Cloudflare + your proxy).
-- **No proxy (direct exposure):** set neither. NEVER set `ADDRESS_HEADER`
-  to a header your edge does not strip/overwrite from client requests —
-  that turns the rate limiter keys client-spoofable.
+- **No proxy (direct exposure):** set neither — but note this is outside
+  the documented topology (§3 always terminates TLS at a proxy), so
+  `launch:check` will still flag the missing `ADDRESS_HEADER`; waive that
+  one line consciously. NEVER set `ADDRESS_HEADER` to a header your edge
+  does not strip/overwrite from client requests — that turns the rate
+  limiter keys client-spoofable.
 
 Health: `GET /api/health` returns `200 {status:'ok'}` when the database and
 the bucket are reachable, `503` otherwise — point your uptime checks and load

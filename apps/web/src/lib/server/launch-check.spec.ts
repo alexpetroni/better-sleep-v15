@@ -52,7 +52,11 @@ function liveEnv(): Record<string, string | undefined> {
 		STRIPE_WEBHOOK_SECRET: 'whsec_live_real',
 		CHAT_PROVIDER: 'anthropic',
 		ANTHROPIC_API_KEY: 'sk-ant-live',
-		COURIER_PROVIDER: 'sameday'
+		COURIER_PROVIDER: 'sameday',
+		// BS-8 (review H-4): a live NODE deploy sits behind a TLS proxy and
+		// must name the trusted client-address header.
+		ADDRESS_HEADER: 'x-forwarded-for',
+		XFF_DEPTH: '1'
 	};
 }
 
@@ -250,6 +254,30 @@ const CASES: Array<{
 		mutate: (env) => delete env.COURIER_PROVIDER,
 		message: /COURIER_PROVIDER is unset in a live env/
 	},
+	// BS-8 (review H-4): pre-phase, nothing anywhere required the trusted
+	// client-address header — behind a proxy the per-IP throttles silently
+	// keyed everyone to the proxy's socket IP.
+	{
+		name: 'a live node env without ADDRESS_HEADER',
+		base: liveEnv,
+		mutate: (env) => {
+			delete env.ADDRESS_HEADER;
+			delete env.XFF_DEPTH;
+		},
+		message: /ADDRESS_HEADER is not set in a live env .* not load-bearing/
+	},
+	{
+		name: 'x-forwarded-for without a trusted hop depth',
+		base: liveEnv,
+		mutate: (env) => delete env.XFF_DEPTH,
+		message: /ADDRESS_HEADER=x-forwarded-for needs XFF_DEPTH/
+	},
+	{
+		name: 'x-forwarded-for with a non-numeric hop depth',
+		base: liveEnv,
+		mutate: (env) => (env.XFF_DEPTH = 'toate'),
+		message: /ADDRESS_HEADER=x-forwarded-for needs XFF_DEPTH/
+	},
 	{
 		name: 'EMAIL_DRYRUN=false without a Resend key',
 		mutate: (env) => (env.EMAIL_DRYRUN = 'false'),
@@ -291,6 +319,24 @@ describe('launch:check rules', () => {
 	// rules exist to catch mocks, not to make live unlaunchable.
 	it('passes a fully live env (sk_live_ + anthropic + sameday)', () => {
 		expect(launchCheckProblems(liveEnv(), { target: 'node' })).toEqual([]);
+	});
+
+	// BS-8 (review H-4): Vercel resolves the client address itself — the
+	// ADDRESS_HEADER rule is node-only, and a cf-connecting-ip setup needs no
+	// hop depth.
+	it('a live VERCEL env needs no ADDRESS_HEADER', () => {
+		const env = { ...vercelEnv(), ...liveEnv() };
+		env.DIRECT_DATABASE_URL = vercelEnv().DIRECT_DATABASE_URL;
+		env.CRON_SECRET = vercelEnv().CRON_SECRET;
+		delete env.ADDRESS_HEADER;
+		delete env.XFF_DEPTH;
+		expect(launchCheckProblems(env, { target: 'vercel' })).toEqual([]);
+	});
+
+	it('accepts a Cloudflare-set header without XFF_DEPTH on node', () => {
+		const env = { ...liveEnv(), ADDRESS_HEADER: 'cf-connecting-ip' };
+		delete env.XFF_DEPTH;
+		expect(launchCheckProblems(env, { target: 'node' })).toEqual([]);
 	});
 
 	// BS-7: like the other conditional requirements, the live-provider rules

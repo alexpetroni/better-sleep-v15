@@ -99,6 +99,26 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 				`COURIER_PROVIDER is ${env.COURIER_PROVIDER ? `"${env.COURIER_PROVIDER}"` : 'unset'} in a live env (EMAIL_DRYRUN=false) — the mock issues FAKE AWBs to real customers; set COURIER_PROVIDER=sameday (+ SAMEDAY_* credentials)`
 			);
 		}
+		// Review H-4: login/chat/public-email/quiz throttles key on
+		// getClientAddress(). The documented node topology always terminates
+		// TLS at a proxy (DEPLOYMENT.md §3), so without adapter-node's trusted
+		// address header every visitor collapses into the proxy's own socket
+		// IP — the per-IP throttles are NOT load-bearing. Vercel resolves the
+		// client address itself; no configuration exists or is needed there.
+		if (opts.target === 'node') {
+			if (!env.ADDRESS_HEADER) {
+				problems.push(
+					'ADDRESS_HEADER is not set in a live env (EMAIL_DRYRUN=false) on the node target — behind the TLS proxy all visitors share one rate-limit bucket and the per-IP throttles are not load-bearing; configure it per DEPLOYMENT.md §3'
+				);
+			} else if (env.ADDRESS_HEADER.toLowerCase() === 'x-forwarded-for') {
+				const depth = Number(env.XFF_DEPTH);
+				if (!Number.isInteger(depth) || depth < 1) {
+					problems.push(
+						'ADDRESS_HEADER=x-forwarded-for needs XFF_DEPTH set to the number of trusted proxy hops, or the header stays client-spoofable — see DEPLOYMENT.md §3'
+					);
+				}
+			}
+		}
 	}
 
 	if (opts.dev) return problems;
