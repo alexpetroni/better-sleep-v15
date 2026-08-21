@@ -10,7 +10,8 @@ export const load: LayoutServerLoad = () => {
 			nav: site.nav,
 			footerLinks: site.footerLinks,
 			theme: site.theme,
-			chatWidget: site.chatWidget
+			chatWidget: site.chatWidget,
+			ogImage: site.ogImage
 		}
 	};
 };

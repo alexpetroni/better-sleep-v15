@@ -39,6 +39,9 @@ export const sleepSite: SiteConfig = {
 	],
 	chatPersonaKey: 'sleep-coach',
 	chatWidget: true,
+	// Committed branded card (static/, regenerate with
+	// scripts/og-default-image.sh) — the site-wide og:image fallback (M-6).
+	ogImage: '/og-default.png',
 	email: {
 		from: 'salut@bettersleep.ro',
 		replyTo: 'salut@bettersleep.ro'

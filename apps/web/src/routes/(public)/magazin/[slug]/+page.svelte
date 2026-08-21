@@ -10,9 +10,12 @@
 
 <Seo
 	title={`${data.product.name} · ${data.site.name}`}
-	description={m.shop_tagline()}
+	description={data.metaDescription || m.shop_tagline()}
 	canonical={data.canonical}
 	siteName={data.site.name}
+	ogImage={data.ogImage}
+	ogImageAlt={data.ogImageAlt}
+	jsonLd={data.jsonLd}
 />
 
 <article data-testid="product-page" class="grid gap-8 md:grid-cols-2">

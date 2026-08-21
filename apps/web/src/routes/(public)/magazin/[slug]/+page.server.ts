@@ -2,8 +2,8 @@ import { error, redirect } from '@sveltejs/kit';
 import { getDb } from '$lib/db';
 import { renderArticleHtml } from '$lib/modules/blog/server';
 import type { ImageSources } from '$lib/modules/media';
-import { getImageProvider, imgSources } from '$lib/modules/media/server';
-import { addToCart } from '$lib/modules/shop';
+import { getImageProvider, imgSources, imgUrl } from '$lib/modules/media/server';
+import { addToCart, productJsonLd, productMetaDescription } from '$lib/modules/shop';
 import { getProductBySlug, isOutOfStock } from '$lib/modules/shop/server';
 import { canonicalUrl } from '$lib/seo';
 import { readCart, writeCart } from '$lib/server/cart';
@@ -22,6 +22,19 @@ export const load: PageServerLoad = async ({ params }) => {
 		.filter((row) => row.key)
 		.map((row) => imgSources(row, { w: 768 }));
 
+	const canonical = canonicalUrl(`/magazin/${product.slug}`);
+	const outOfStock = isOutOfStock(product);
+	// M-6: per-product search snippet from the description (Sursă-preț line
+	// excluded); '' when the description is empty — the page falls back to the
+	// shared shop tagline.
+	const metaDescription = productMetaDescription(product.descriptionMd);
+	// Fixed-size social card through imgproxy, like articles. All catalogue
+	// bundles ship coverMediaId null today — Seo.svelte then falls back to the
+	// site-wide branded card.
+	const ogImage = cover?.key
+		? imgUrl(cover.key, { w: 1200, h: 630, fit: 'fill', format: 'jpg' })
+		: null;
+
 	return {
 		product: {
 			id: product.id,
@@ -29,7 +42,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			name: product.name,
 			priceCents: product.priceCents,
 			currency: product.currency,
-			outOfStock: isOutOfStock(product)
+			outOfStock
 		},
 		cover: cover?.key ? imgSources(cover, { w: 768 }) : null,
 		gallery,
@@ -39,7 +52,19 @@ export const load: PageServerLoad = async ({ params }) => {
 			getImageProvider(),
 			product.descriptionMd
 		),
-		canonical: canonicalUrl(`/magazin/${product.slug}`)
+		canonical,
+		metaDescription,
+		ogImage,
+		ogImageAlt: cover?.alt ?? '',
+		jsonLd: productJsonLd({
+			name: product.name,
+			description: metaDescription,
+			url: canonical,
+			priceCents: product.priceCents,
+			currency: product.currency,
+			outOfStock,
+			image: ogImage
+		})
 	};
 };
 

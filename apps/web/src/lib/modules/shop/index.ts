@@ -21,6 +21,11 @@ export {
 	type FulfillmentStatus
 } from './fulfillment.ts';
 export {
+	PRODUCT_META_DESCRIPTION_MAX,
+	productJsonLd,
+	productMetaDescription
+} from './product-seo.ts';
+export {
 	filterNightMapSkus,
 	NIGHT_MAP_SKUS,
 	NIGHT_SEGMENT_KEYS,

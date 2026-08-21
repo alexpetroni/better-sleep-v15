@@ -20,6 +20,12 @@ export interface SiteConfig {
 	chatPersonaKey: string;
 	/** Whether the floating chat widget is rendered on public pages. */
 	chatWidget: boolean;
+	/**
+	 * Root-relative path (or absolute URL) of the branded fallback social
+	 * card (M-6): pages that supply no og:image of their own emit this one
+	 * via Seo.svelte.
+	 */
+	ogImage: string;
 	email: {
 		from: string;
 		replyTo: string;
