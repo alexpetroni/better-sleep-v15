@@ -42,23 +42,41 @@ export interface NurtureDrainDeps {
 }
 
 /**
- * The subscriber's own latest result for the sequence's trigger quiz —
- * resolves a RESULT_URL_TOKEN cta at send time. Null when the trigger is not
- * quiz-completed or no linked result exists (erased since enrollment): the
- * cta is then dropped and the email still goes out.
+ * The result behind a RESULT_URL_TOKEN cta, resolved at send time: the exact
+ * result stored ON the enrollment when it exists and still belongs to the
+ * subscriber (review M-1 — a retake between enrollment and send must not
+ * redirect the email to a different result). Fallback for pre-BS-8
+ * enrollments or an erased originating result: the subscriber's latest
+ * linked result for the trigger quiz. Null when the trigger is not
+ * quiz-completed or nothing is linked: the cta is then dropped and the email
+ * still goes out.
  */
 async function resolveResultUrl(
 	db: Db,
+	enrollment: { resultId: string | null; subscriberId: string },
 	trigger: SequenceTrigger,
-	subscriberId: string,
 	baseUrl: string
 ): Promise<string | null> {
 	if (trigger.kind !== 'quiz-completed') return null;
+	if (enrollment.resultId) {
+		const [origin] = await db
+			.select({ id: quizResults.id })
+			.from(quizResults)
+			.where(
+				and(
+					eq(quizResults.id, enrollment.resultId),
+					eq(quizResults.subscriberId, enrollment.subscriberId)
+				)
+			);
+		if (origin) return `${baseUrl}/quiz/${trigger.quizSlug}/rezultat/${origin.id}`;
+	}
 	const [row] = await db
 		.select({ id: quizResults.id })
 		.from(quizResults)
 		.innerJoin(quizzes, eq(quizResults.quizId, quizzes.id))
-		.where(and(eq(quizResults.subscriberId, subscriberId), eq(quizzes.slug, trigger.quizSlug)))
+		.where(
+			and(eq(quizResults.subscriberId, enrollment.subscriberId), eq(quizzes.slug, trigger.quizSlug))
+		)
 		.orderBy(desc(quizResults.createdAt))
 		.limit(1);
 	return row ? `${baseUrl}/quiz/${trigger.quizSlug}/rezultat/${row.id}` : null;
@@ -176,8 +194,8 @@ export async function drainNurtureSends(
 		if (step.cta?.url === RESULT_URL_TOKEN) {
 			const resultUrl = await resolveResultUrl(
 				deps.db,
+				{ resultId: row.enrollment.resultId, subscriberId: row.subscriber.id },
 				row.sequence.trigger,
-				row.subscriber.id,
 				deps.baseUrl
 			);
 			cta = resultUrl ? { label: step.cta.label, url: resultUrl } : undefined;

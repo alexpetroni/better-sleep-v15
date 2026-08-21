@@ -9,6 +9,7 @@ import {
 	uniqueIndex
 } from 'drizzle-orm/pg-core';
 import { subscribers } from '../crm/schema.ts';
+import { quizResults } from '../quiz/schema.ts';
 import type { SequenceStep, SequenceTrigger } from './definition.ts';
 
 /**
@@ -46,6 +47,14 @@ export const nurtureEnrollments = pgTable(
 		status: text('status', { enum: ['active', 'completed', 'cancelled'] })
 			.notNull()
 			.default('active'),
+		/**
+		 * The quiz result that TRIGGERED a quiz-completed enrollment (review
+		 * M-1): `{{resultUrl}}` resolves to this exact result, not whatever the
+		 * subscriber's latest retake happens to be. Null for non-quiz triggers,
+		 * for pre-BS-8 enrollments, and after the result is erased (the drain
+		 * then falls back to the latest linked result).
+		 */
+		resultId: text('result_id').references(() => quizResults.id, { onDelete: 'set null' }),
 		enrolledAt: timestamp('enrolled_at', { withTimezone: true }).notNull().defaultNow(),
 		/** Stamped on completed AND cancelled — the retention cutoff. */
 		closedAt: timestamp('closed_at', { withTimezone: true })

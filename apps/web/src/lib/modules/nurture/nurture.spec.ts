@@ -223,7 +223,7 @@ describe('quiz and order triggers', () => {
 		const otherBand = await makeSequence({
 			trigger: { kind: 'quiz-completed', quizSlug: slug, bands: ['scazut'] }
 		});
-		expect(await enrollFromQuizResult({ db }, result.id, NOW)).toBe(1);
+		expect(await enrollFromQuizResult({ db }, result.id, confirmed.id, NOW)).toBe(1);
 		const enrollments = await enrollmentsOf(confirmed.id);
 		expect(enrollments.map((e) => e.sequenceId)).toEqual([matching.id]);
 		expect(enrollments.map((e) => e.sequenceId)).not.toContain(otherBand.id);
@@ -235,7 +235,7 @@ describe('quiz and order triggers', () => {
 		const secondSeq = await makeSequence({
 			trigger: { kind: 'quiz-completed', quizSlug: second.slug }
 		});
-		expect(await enrollFromQuizResult({ db }, second.result.id, NOW)).toBe(0);
+		expect(await enrollFromQuizResult({ db }, second.result.id, pending.id, NOW)).toBe(0);
 		await db.update(subscribers).set({ confirmedAt: NOW }).where(eq(subscribers.id, pending.id));
 		expect(await enrollOnConsentConfirmed({ db }, pending.id, NOW)).toBe(1);
 		expect((await enrollmentsOf(pending.id)).map((e) => e.sequenceId)).toEqual([secondSeq.id]);
@@ -244,7 +244,7 @@ describe('quiz and order triggers', () => {
 	it('an unclaimed quiz result (no linked subscriber) enrolls nobody', async () => {
 		const { result, slug } = await makeQuizResult(null, 'ridicat');
 		await makeSequence({ trigger: { kind: 'quiz-completed', quizSlug: slug } });
-		expect(await enrollFromQuizResult({ db }, result.id, NOW)).toBe(0);
+		expect(await enrollFromQuizResult({ db }, result.id, 'nur-nobody', NOW)).toBe(0);
 	});
 
 	it('resolves a {{resultUrl}} cta to the SUBSCRIBER OWN result page at send time', async () => {
@@ -262,7 +262,7 @@ describe('quiz and order triggers', () => {
 				}
 			]
 		});
-		expect(await enrollFromQuizResult({ db }, result.id, NOW)).toBe(1);
+		expect(await enrollFromQuizResult({ db }, result.id, subscriber.id, NOW)).toBe(1);
 		expect((await drainNurtureSends(drainDeps(), { now: NOW })).sent).toBe(1);
 		const [logged] = await emailLogTo(subscriber.email);
 		expect((logged.data as { cta: { url: string } }).cta.url).toBe(
@@ -285,11 +285,65 @@ describe('quiz and order triggers', () => {
 				}
 			]
 		});
-		await enrollFromQuizResult({ db }, result.id, NOW);
+		await enrollFromQuizResult({ db }, result.id, subscriber.id, NOW);
 		await db.delete(quizResults).where(eq(quizResults.id, result.id));
 		expect((await drainNurtureSends(drainDeps(), { now: NOW })).sent).toBe(1);
 		const [logged] = await emailLogTo(subscriber.email);
 		expect((logged.data as { cta?: unknown }).cta).toBeUndefined();
+	});
+
+	it('a claim naming a DIFFERENT subscriber than the row owner enrolls nobody (review M-1)', async () => {
+		const owner = await makeSubscriber();
+		const attacker = await makeSubscriber();
+		const { slug, result } = await makeQuizResult(owner.id, 'ridicat');
+		await makeSequence({ trigger: { kind: 'quiz-completed', quizSlug: slug } });
+		// A racing/cross claim: the caller believes it claimed for `attacker`,
+		// but the row belongs to `owner` — neither may be enrolled off this call.
+		expect(await enrollFromQuizResult({ db }, result.id, attacker.id, NOW)).toBe(0);
+		expect(await enrollmentsOf(attacker.id)).toEqual([]);
+		expect(await enrollmentsOf(owner.id)).toEqual([]);
+	});
+
+	it('{{resultUrl}} targets the ORIGINATING result, not a later retake (review M-1)', async () => {
+		const subscriber = await makeSubscriber();
+		const { slug, result } = await makeQuizResult(subscriber.id, 'ridicat');
+		await makeSequence({
+			trigger: { kind: 'quiz-completed', quizSlug: slug },
+			steps: [
+				{
+					offsetDays: 0,
+					templateKey: 'nurture',
+					subject: 'Protocolul tău',
+					paragraphs: ['Pas.'],
+					cta: { label: 'Vezi rezultatul', url: RESULT_URL_TOKEN }
+				}
+			]
+		});
+		expect(await enrollFromQuizResult({ db }, result.id, subscriber.id, NOW)).toBe(1);
+		const [enrollment] = await enrollmentsOf(subscriber.id);
+		expect(enrollment.resultId).toBe(result.id);
+
+		// The subscriber retakes the quiz between enrollment and send: the
+		// email must still deep-link the result that triggered it (pre-fix the
+		// drain resolved the LATEST linked result).
+		await db.insert(quizResults).values({
+			id: `${result.id}-retake`,
+			quizId: result.quizId,
+			subscriberId: subscriber.id,
+			score: 1,
+			profile: {
+				score: 1,
+				maxScore: 10,
+				band: { key: 'scazut', min: 0, label: 'Bandă', advice: 'Sfat' },
+				dimensions: []
+			},
+			createdAt: new Date(NOW.getTime() + 60_000)
+		});
+		expect((await drainNurtureSends(drainDeps(), { now: NOW })).sent).toBe(1);
+		const [logged] = await emailLogTo(subscriber.email);
+		expect((logged.data as { cta: { url: string } }).cta.url).toBe(
+			`https://example.ro/quiz/${slug}/rezultat/${result.id}`
+		);
 	});
 
 	it('order-paid enrolls the (mailable) subscriber once; later orders are no-ops', async () => {

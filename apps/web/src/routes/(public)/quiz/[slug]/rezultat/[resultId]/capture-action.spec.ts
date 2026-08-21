@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { isActionFailure } from '@sveltejs/kit';
 import { sleepSite } from '../../../../../../lib/config/sites/sleep.ts';
 import { createDb, type Db } from '../../../../../../lib/db/client.ts';
-import { seedArchetypeQuiz, seedPillars } from '../../../../../../lib/db/seed.ts';
+import { seedArchetypeQuiz, seedDemoQuiz, seedPillars } from '../../../../../../lib/db/seed.ts';
 import { subscribers } from '../../../../../../lib/modules/crm/schema.ts';
 import { emailLog } from '../../../../../../lib/modules/email/schema.ts';
 import {
@@ -50,7 +50,8 @@ let emailAction: (event: EmailActionEvent) => Promise<unknown>;
 function captureEvent(
 	email: string,
 	ip: string,
-	overrides: Record<string, string | null> = {}
+	overrides: Record<string, string | null> = {},
+	route: { slug?: string; resultId?: string } = {}
 ): EmailActionEvent {
 	const fields: Record<string, string | null> = {
 		email,
@@ -62,14 +63,33 @@ function captureEvent(
 	for (const [key, value] of Object.entries(fields)) {
 		if (value !== null) body.set(key, value);
 	}
+	const slug = route.slug ?? 'arhetip-somn';
 	return {
-		request: new Request('http://localhost/quiz/arhetip-somn/rezultat/x', {
+		request: new Request(`http://localhost/quiz/${slug}/rezultat/x`, {
 			method: 'POST',
 			body
 		}),
-		params: { slug: 'arhetip-somn', resultId },
+		params: { slug, resultId: route.resultId ?? resultId },
 		getClientAddress: () => ip
 	};
+}
+
+/** A fresh stored result of the given quiz (first-claim-wins → one per claiming test). */
+async function makeResult(quizSlug = 'arhetip-somn'): Promise<string> {
+	const [quiz] = await db.select().from(quizzes).where(eq(quizzes.slug, quizSlug));
+	const id = crypto.randomUUID();
+	await db.insert(quizResults).values({
+		id,
+		quizId: quiz.id,
+		score: 12,
+		profile: {
+			score: 12,
+			maxScore: 27,
+			band: { key: 'arhetip', min: 0, label: 'Tiparul tău de somn', advice: 'Vezi pagina.' },
+			dimensions: []
+		}
+	});
+	return id;
 }
 
 async function subscriberRows(email: string) {
@@ -189,11 +209,17 @@ describe('the capture action re-checks everything server-side', () => {
 			confirmedAt: new Date(),
 			unsubscribeToken: crypto.randomUUID()
 		});
+		// Its own result: the shared one is already claimed (first claim wins).
+		const own = await makeResult();
 
-		expect(await emailAction(captureEvent(email, '203.0.113.14'))).toEqual({ sent: true });
+		expect(await emailAction(captureEvent(email, '203.0.113.14', {}, { resultId: own }))).toEqual({
+			sent: true
+		});
 		expect(await subscriberRows(email)).toHaveLength(1);
 		const enrollments = await enrollmentsOf(subscriberId);
 		expect(enrollments).toHaveLength(1);
+		// The enrollment records the originating result for {{resultUrl}}.
+		expect(enrollments[0].resultId).toBe(own);
 		const [sequence] = await db
 			.select()
 			.from(nurtureSequences)
@@ -202,7 +228,9 @@ describe('the capture action re-checks everything server-side', () => {
 
 		// Resubmitting the same email: unique enrollment is the rule, and the
 		// keyed result email never goes out twice for the same (result, address).
-		expect(await emailAction(captureEvent(email, '203.0.113.14'))).toEqual({ sent: true });
+		expect(await emailAction(captureEvent(email, '203.0.113.14', {}, { resultId: own }))).toEqual({
+			sent: true
+		});
 		expect(await subscriberRows(email)).toHaveLength(1);
 		expect(await enrollmentsOf(subscriberId)).toHaveLength(1);
 		const logs = await emailLogTo(email);
@@ -229,5 +257,66 @@ describe('the capture action re-checks everything server-side', () => {
 		expect(blocked.data).toEqual({ error: 'rate-limited' });
 		expect(await subscriberRows(email)).toEqual([]);
 		expect(await emailLogTo(email)).toEqual([]);
+	});
+});
+
+describe('the action re-runs the load gates and never oracles result ids (review M-1)', () => {
+	it('an unknown result id gets the SAME success shape as a real send, nothing written', async () => {
+		// Pre-fix this was a 404 — an existence oracle over result ids.
+		const email = 'sondor@example.com';
+		const result = await emailAction(
+			captureEvent(email, '198.51.100.30', {}, { resultId: crypto.randomUUID() })
+		);
+		expect(result).toEqual({ sent: true });
+		expect(await subscriberRows(email)).toEqual([]);
+		expect(await emailLogTo(email)).toEqual([]);
+	});
+
+	it("a result of quiz A cannot be claimed through quiz B's URL", async () => {
+		await seedDemoQuiz(db, { status: 'published' });
+		const demoResult = await makeResult('evaluare-somn');
+		const email = 'alt-chestionar@example.com';
+		// Direct POST: demo-quiz result under the archetype quiz's slug.
+		const result = await emailAction(
+			captureEvent(email, '198.51.100.31', {}, { slug: 'arhetip-somn', resultId: demoResult })
+		);
+		expect(result).toEqual({ sent: true });
+		expect(await subscriberRows(email)).toEqual([]);
+		expect(await emailLogTo(email)).toEqual([]);
+	});
+
+	it('an unpublished quiz cannot be claimed through its own URL either', async () => {
+		const demoResult = await makeResult('evaluare-somn');
+		await db.update(quizzes).set({ status: 'draft' }).where(eq(quizzes.slug, 'evaluare-somn'));
+		const email = 'nepublicat@example.com';
+		const result = await emailAction(
+			captureEvent(email, '198.51.100.32', {}, { slug: 'evaluare-somn', resultId: demoResult })
+		);
+		expect(result).toEqual({ sent: true });
+		expect(await subscriberRows(email)).toEqual([]);
+	});
+
+	it("a claim on someone else's result: silent success, link intact, no email to the second address", async () => {
+		// The previous test spent nothing, but the earlier throttle test filled
+		// the global quiz-email budget — clear it so THIS claim reaches the funnel.
+		await db.delete(rateLimits).where(eq(rateLimits.key, 'quiz-email:global'));
+		const own = await makeResult();
+		expect(
+			await emailAction(captureEvent('primul@example.com', '198.51.100.33', {}, { resultId: own }))
+		).toEqual({ sent: true });
+		const [owner] = await subscriberRows('primul@example.com');
+
+		// Pre-fix the second claim overwrote subscriberId and mailed the
+		// victim's profile to the attacker's address.
+		const attacker = 'al-doilea@example.com';
+		expect(
+			await emailAction(captureEvent(attacker, '198.51.100.34', {}, { resultId: own }))
+		).toEqual({
+			sent: true
+		});
+		expect(await subscriberRows(attacker)).toEqual([]);
+		expect(await emailLogTo(attacker)).toEqual([]);
+		const [row] = await db.select().from(quizResults).where(eq(quizResults.id, own));
+		expect(row.subscriberId).toBe(owner.id);
 	});
 });

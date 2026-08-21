@@ -1,11 +1,13 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import {
 	sendNewsletterConfirmEmail,
 	upsertSubscriber,
 	type NewsletterSignupDeps
 } from '$lib/modules/crm/server';
+import { normalizeEmail } from '../../util/email.ts';
 import type { ConsentChanges } from '../crm/consent.ts';
+import { subscribers } from '../crm/schema.ts';
 import type { EmailSender, SendEmailOutcome } from '../email/service.ts';
 import { quizResults } from './schema.ts';
 import { getResultWithQuiz } from './service.ts';
@@ -53,7 +55,7 @@ export type ClaimQuizResultOutcome =
 			resultEmail: SendEmailOutcome['status'];
 			newsletterConfirm: SendEmailOutcome['status'] | 'already-confirmed' | 'not-requested';
 	  }
-	| { ok: false; error: 'not-found' | 'invalid-email' };
+	| { ok: false; error: 'not-found' | 'invalid-email' | 'already-claimed' };
 
 export async function claimQuizResult(
 	deps: QuizFunnelDeps,
@@ -62,6 +64,21 @@ export async function claimQuizResult(
 	const found = await getResultWithQuiz({ db: deps.db }, input.resultId);
 	if (!found) return { ok: false, error: 'not-found' };
 	const { result, quiz } = found;
+
+	// First claim wins (review M-1): once a subscriber owns this result, only
+	// the SAME address may re-claim (the retry/typo-resubmit path). Anyone
+	// else holding the shared URL is refused BEFORE any consent is granted or
+	// email sent — a claim must never attach a second person to someone
+	// else's result, or mail them its profile.
+	if (result.subscriberId) {
+		const email = normalizeEmail(input.email);
+		if (!email) return { ok: false, error: 'invalid-email' };
+		const [owner] = await deps.db
+			.select({ email: subscribers.email })
+			.from(subscribers)
+			.where(eq(subscribers.id, result.subscriberId));
+		if (owner && owner.email !== email) return { ok: false, error: 'already-claimed' };
+	}
 
 	// GDPR: only ticked boxes become grants; an unticked box is a no-op.
 	const grants: ConsentChanges = {};
@@ -78,10 +95,19 @@ export async function claimQuizResult(
 	if (!upserted.ok) return upserted;
 	const subscriber = upserted.value;
 
-	await deps.db
+	// Conditional write: guards the race two concurrent first-claims can't
+	// both win — the row only links while unclaimed or already ours.
+	const linked = await deps.db
 		.update(quizResults)
 		.set({ subscriberId: subscriber.id })
-		.where(eq(quizResults.id, result.id));
+		.where(
+			and(
+				eq(quizResults.id, result.id),
+				or(isNull(quizResults.subscriberId), eq(quizResults.subscriberId, subscriber.id))
+			)
+		)
+		.returning({ id: quizResults.id });
+	if (linked.length === 0) return { ok: false, error: 'already-claimed' };
 
 	const resultEmail = await deps.email.send({
 		to: subscriber.email,
@@ -97,7 +123,8 @@ export async function claimQuizResult(
 			advice: result.profile.band.advice,
 			resultUrl: `${deps.baseUrl}/quiz/${quiz.slug}/rezultat/${result.id}`
 		},
-		// Includes the address: a retry never re-sends, a corrected typo does.
+		// Includes the address: a retry never re-sends. (A different address
+		// can only reach here while the result is unclaimed — first claim wins.)
 		idempotencyKey: `quiz-result:${result.id}:${subscriber.email}`
 	});
 

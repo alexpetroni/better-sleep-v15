@@ -9,10 +9,7 @@ import type { Db } from '../db/client.ts';
 import { loginAttempts } from '../modules/auth/schema.ts';
 import { CHAT_RETENTION_DAYS, pruneChatSessions } from '../modules/chat/service.ts';
 import { NURTURE_RETENTION_DAYS, pruneNurtureEnrollments } from '../modules/nurture/service.ts';
-import {
-	pruneUnclaimedQuizResults,
-	QUIZ_RESULTS_RETENTION_DAYS
-} from '../modules/quiz/service.ts';
+import { pruneUnclaimedQuizResults, QUIZ_RESULTS_RETENTION_DAYS } from '../modules/quiz/service.ts';
 import { PROCESSED_EVENTS_RETENTION_DAYS, pruneProcessedEvents } from './event-ledger/core.ts';
 import { pruneStaleRateLimits } from './rate-limit/core.ts';
 import { rateLimits } from './rate-limit/schema.ts';

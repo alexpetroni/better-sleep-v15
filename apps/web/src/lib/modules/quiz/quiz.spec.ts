@@ -464,24 +464,47 @@ describe('the email funnel', () => {
 		expect(hasConsent(subscriber.consents, 'newsletter')).toBe(false);
 	});
 
-	it('a corrected email address still receives its result email', async () => {
-		const quiz = await makePublishedQuiz('Typo');
+	it('the FIRST claim wins: a different address on a claimed result is refused with no side effects (review M-1)', async () => {
+		const quiz = await makePublishedQuiz('Prima revendicare');
 		const submitted = await submitQuiz(deps, { quizId: quiz.id, answers: ANSWERS });
 		if (!submitted.ok) throw new Error('submit failed');
 
-		await claimQuizResult(funnelDeps, {
+		const first = await claimQuizResult(funnelDeps, {
 			resultId: submitted.value.id,
-			email: 'typo@example.ro',
+			email: 'proprietar@example.ro',
 			newsletter: false,
 			profileEmails: false
 		});
-		const corrected = await claimQuizResult(funnelDeps, {
+		expect(first.ok).toBe(true);
+
+		// Anyone else holding the shared URL (or a mistyped correction): no
+		// subscriber row, no consent, no email, and the link stays untouched.
+		// Pre-fix this overwrote subscriberId and mailed the second address.
+		const second = await claimQuizResult(funnelDeps, {
 			resultId: submitted.value.id,
-			email: 'corect@example.ro',
+			email: 'atacator@example.ro',
+			newsletter: true,
+			profileEmails: false
+		});
+		expect(second).toEqual({ ok: false, error: 'already-claimed' });
+		expect(
+			await db.select().from(subscribers).where(eq(subscribers.email, 'atacator@example.ro'))
+		).toEqual([]);
+		expect(
+			await db.select().from(emailLog).where(eq(emailLog.toEmail, 'atacator@example.ro'))
+		).toEqual([]);
+		const [row] = await db.select().from(quizResults).where(eq(quizResults.id, submitted.value.id));
+		expect(first.ok && row.subscriberId === first.subscriberId).toBe(true);
+
+		// The SAME address re-claiming (retry, page reload) still succeeds —
+		// the keyed emails make it a no-op.
+		const retry = await claimQuizResult(funnelDeps, {
+			resultId: submitted.value.id,
+			email: 'proprietar@example.ro',
 			newsletter: false,
 			profileEmails: false
 		});
-		expect(corrected.ok && corrected.resultEmail).toBe('dryrun');
+		expect(retry.ok && retry.resultEmail).toBe('skipped');
 	});
 
 	it('unsubscribing after the quiz funnel flips consent off', async () => {

@@ -50,7 +50,9 @@ async function enrollInSequence(
 	db: Db,
 	sequence: NurtureSequenceRow,
 	subscriber: SubscriberRow,
-	now: Date
+	now: Date,
+	/** The quiz result that triggered a quiz-completed enrollment (review M-1). */
+	resultId: string | null = null
 ): Promise<boolean> {
 	if (!sequence.active) return false;
 	if (!isMailable(subscriber, sequence.consentKey as ConsentKey)) return false;
@@ -61,6 +63,7 @@ async function enrollInSequence(
 				id: crypto.randomUUID(),
 				sequenceId: sequence.id,
 				subscriberId: subscriber.id,
+				resultId,
 				enrolledAt: now
 			})
 			.onConflictDoNothing({
@@ -90,14 +93,15 @@ function quizTriggerMatches(
 	return trigger.bands === undefined || trigger.bands.includes(bandKey);
 }
 
-/** Quiz results already linked to the subscriber, as (slug, band) facts. */
+/** Quiz results already linked to the subscriber, newest first, as (id, slug, band) facts. */
 async function linkedQuizFacts(db: Db, subscriberId: string) {
 	const rows = await db
-		.select({ slug: quizzes.slug, profile: quizResults.profile })
+		.select({ id: quizResults.id, slug: quizzes.slug, profile: quizResults.profile })
 		.from(quizResults)
 		.innerJoin(quizzes, eq(quizResults.quizId, quizzes.id))
-		.where(eq(quizResults.subscriberId, subscriberId));
-	return rows.map((row) => ({ slug: row.slug, bandKey: row.profile.band.key }));
+		.where(eq(quizResults.subscriberId, subscriberId))
+		.orderBy(desc(quizResults.createdAt), desc(quizResults.id));
+	return rows.map((row) => ({ id: row.id, slug: row.slug, bandKey: row.profile.band.key }));
 }
 
 /**
@@ -126,22 +130,28 @@ export async function enrollOnConsentConfirmed(
 	if (quizSequences.length > 0) {
 		const facts = await linkedQuizFacts(deps.db, subscriber.id);
 		for (const sequence of quizSequences) {
-			if (!facts.some((f) => quizTriggerMatches(sequence, f.slug, f.bandKey))) continue;
-			if (await enrollInSequence(deps.db, sequence, subscriber, now)) enrolled += 1;
+			// Newest matching linked result — the one {{resultUrl}} should target.
+			const fact = facts.find((f) => quizTriggerMatches(sequence, f.slug, f.bandKey));
+			if (!fact) continue;
+			if (await enrollInSequence(deps.db, sequence, subscriber, now, fact.id)) enrolled += 1;
 		}
 	}
 	return enrolled;
 }
 
 /**
- * A quiz result was claimed with an email: enroll the linked subscriber into
- * matching `quiz-completed` sequences (band-filtered). No-op unless the
- * subscriber is already mailable — the unconfirmed case is picked up by
- * `enrollOnConsentConfirmed` when the confirm link is clicked.
+ * A quiz result was claimed with an email: enroll the CLAIMED subscriber into
+ * matching `quiz-completed` sequences (band-filtered). The caller passes the
+ * subscriber it just claimed for explicitly (review M-1): if the row
+ * meanwhile links a DIFFERENT subscriber (racing claims), nothing is
+ * enrolled — the row's owner was or will be enrolled by their own claim.
+ * No-op unless the subscriber is already mailable — the unconfirmed case is
+ * picked up by `enrollOnConsentConfirmed` when the confirm link is clicked.
  */
 export async function enrollFromQuizResult(
 	deps: NurtureDeps,
 	resultId: string,
+	claimedSubscriberId: string,
 	now = new Date()
 ): Promise<number> {
 	const [found] = await deps.db
@@ -153,7 +163,7 @@ export async function enrollFromQuizResult(
 		.from(quizResults)
 		.innerJoin(quizzes, eq(quizResults.quizId, quizzes.id))
 		.where(eq(quizResults.id, resultId));
-	if (!found?.subscriberId) return 0;
+	if (!found?.subscriberId || found.subscriberId !== claimedSubscriberId) return 0;
 	const [subscriber] = await deps.db
 		.select()
 		.from(subscribers)
@@ -162,7 +172,7 @@ export async function enrollFromQuizResult(
 	let enrolled = 0;
 	for (const sequence of await activeSequences(deps.db)) {
 		if (!quizTriggerMatches(sequence, found.slug, found.profile.band.key)) continue;
-		if (await enrollInSequence(deps.db, sequence, subscriber, now)) enrolled += 1;
+		if (await enrollInSequence(deps.db, sequence, subscriber, now, resultId)) enrolled += 1;
 	}
 	return enrolled;
 }

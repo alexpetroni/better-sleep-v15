@@ -2,7 +2,12 @@ import { error, fail } from '@sveltejs/kit';
 import { HONEYPOT_FIELD } from 'formcomp';
 import { getDb } from '$lib/db';
 import { enrollFromQuizResult } from '$lib/modules/nurture/server';
-import { claimQuizResult, getQuizFunnelDeps, getResultWithQuiz } from '$lib/modules/quiz/server';
+import {
+	claimQuizResult,
+	getQuizBySlug,
+	getQuizFunnelDeps,
+	getResultWithQuiz
+} from '$lib/modules/quiz/server';
 import { consumePublicEmailBudget } from '$lib/server/rate-limit';
 import { getSite } from '$lib/server/site';
 import type { Actions, PageServerLoad } from './$types';
@@ -33,10 +38,22 @@ export const actions: Actions = {
 		// GDPR: the capture is a newsletter signup ("îți trimitem protocolul") —
 		// no ticked consent box, no capture.
 		if (form.get('newsletter_consent') !== 'yes') return fail(400, { error: 'consent' as const });
+		// The gates the page load and submit endpoint enforce, re-run here
+		// (review M-1): a direct POST can name any resultId under any slug.
+		// Every refusal returns the SAME shape as a real send — the action must
+		// not be an existence oracle over result ids, and a probing bot learns
+		// nothing.
+		const db = getDb();
+		const quiz = await getQuizBySlug({ db }, params.slug); // published only
+		if (!quiz || !quiz.pillarSlug || !getSite().pillars.includes(quiz.pillarSlug)) {
+			return { sent: true };
+		}
+		const found = await getResultWithQuiz({ db }, params.resultId);
+		if (!found || found.result.quizId !== quiz.quiz.id) return { sent: true };
 		// This action emails a visitor-supplied address: throttle per IP and
 		// globally before doing anything (a CAPTCHA check would slot in here —
 		// see $lib/server/rate-limit/public-email.ts).
-		const budget = await consumePublicEmailBudget(getDb(), 'quiz-email', getClientAddress());
+		const budget = await consumePublicEmailBudget(db, 'quiz-email', getClientAddress());
 		if (budget.limited) return fail(429, { error: 'rate-limited' as const });
 		const outcome = await claimQuizResult(getQuizFunnelDeps(), {
 			resultId: params.resultId,
@@ -48,13 +65,15 @@ export const actions: Actions = {
 			profileEmails: false
 		});
 		if (!outcome.ok) {
-			if (outcome.error === 'not-found') error(404);
-			return fail(400, { error: 'invalid-email' as const });
+			if (outcome.error === 'invalid-email') return fail(400, { error: 'invalid-email' as const });
+			// not-found / already-claimed: first claim won; silent uniform shape.
+			return { sent: true };
 		}
-		// Quiz-completed nurture trigger (band-filtered). The consent gate
-		// inside refuses unconfirmed subscribers — those enroll when the
-		// double-opt-in confirm link is clicked. Idempotent.
-		await enrollFromQuizResult({ db: getDb() }, params.resultId);
+		// Quiz-completed nurture trigger (band-filtered), for the subscriber
+		// THIS claim attached — a racing claim by someone else enrolls nobody
+		// here. The consent gate inside refuses unconfirmed subscribers — those
+		// enroll when the double-opt-in confirm link is clicked. Idempotent.
+		await enrollFromQuizResult({ db }, params.resultId, outcome.subscriberId);
 		return { sent: true };
 	}
 };

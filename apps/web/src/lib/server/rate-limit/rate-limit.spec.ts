@@ -148,7 +148,10 @@ describe('consumePublicEmailBudget', () => {
 			expect(r.limited).toBe(false);
 		}
 		const globalCount = async () => {
-			const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, 'newsletter:global'));
+			const [row] = await db
+				.select()
+				.from(rateLimits)
+				.where(eq(rateLimits.key, 'newsletter:global'));
 			return row.count;
 		};
 		const before = await globalCount();
