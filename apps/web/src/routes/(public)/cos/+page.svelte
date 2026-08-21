@@ -180,7 +180,7 @@
 			<button
 				type="submit"
 				data-testid="cart-checkout"
-				disabled={hasUnavailable}
+				disabled={hasUnavailable || data.checkoutBlocked}
 				class="rounded bg-(--color-brand) px-6 py-2 font-semibold text-white hover:opacity-90
 					disabled:cursor-not-allowed disabled:opacity-40"
 			>
@@ -188,7 +188,9 @@
 			</button>
 		</div>
 	</form>
-	<p class="mt-2 text-right text-sm text-(--color-ink)/70">{m.cart_checkout_note()}</p>
+	<p class="mt-2 text-right text-sm text-(--color-ink)/70">
+		{data.checkoutBlocked ? m.cart_payments_disabled() : m.cart_checkout_note()}
+	</p>
 
 	{#if form?.checkoutError}
 		<p data-testid="cart-checkout-error" class="mt-4 rounded bg-red-50 p-3 text-sm text-red-700">
@@ -202,6 +204,8 @@
 				{m.cart_err_company_cui()}
 			{:else if form.checkoutError === 'invalid-shipping'}
 				{m.cart_err_shipping()}
+			{:else if form.checkoutError === 'payments-disabled'}
+				{m.cart_payments_disabled()}
 			{:else}
 				{m.cart_err_gateway()}
 			{/if}

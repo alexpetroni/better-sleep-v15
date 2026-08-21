@@ -279,6 +279,7 @@
 	"cart_unavailable": "Nu mai este disponibil — șterge-l din coș pentru a continua.",
 	"cart_checkout": "Plătește cu Stripe",
 	"cart_checkout_note": "Plata și adresa de livrare se completează securizat la Stripe.",
+	"cart_payments_disabled": "Magazinul nu acceptă încă plăți online. Revino în curând.",
 	"cart_err_empty": "Coșul este gol.",
 	"cart_err_unavailable": "Unele produse nu mai sunt disponibile: {names}",
 	"cart_err_gateway": "Plata nu a putut fi inițiată. Încearcă din nou.",

@@ -48,6 +48,7 @@ export {
 	type CreatedShipment,
 	type ShipmentRequest
 } from './courier.ts';
+export { isLiveEnv, mockAwbBlocked, mockCheckoutBlocked } from './live-guard.ts';
 export { productsMediaReferenceCheck } from './media-ref.ts';
 export {
 	createMockCourierProvider,

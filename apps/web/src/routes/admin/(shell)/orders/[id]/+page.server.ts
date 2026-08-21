@@ -1,4 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import { getDb } from '$lib/db';
 import { getEmailSender } from '$lib/modules/email/server';
@@ -15,6 +16,7 @@ import {
 	getOrderWithItems,
 	getShipmentForOrder,
 	listOrderEvents,
+	mockAwbBlocked,
 	orderLookupUrl,
 	transitionFulfillment
 } from '$lib/modules/shop/server';
@@ -89,6 +91,15 @@ export const actions: Actions = {
 	 */
 	generateAwb: async ({ params, locals }) => {
 		if (locals.user?.role !== 'admin') error(403);
+
+		// Review H-7: a live env on the mock courier would register a FAKE AWB
+		// and email the customer a dead tracking link — refuse instead.
+		if (mockAwbBlocked(env)) {
+			return fail(400, {
+				awbError: 'courier-mock-live',
+				awbDetail: 'COURIER_PROVIDER=mock într-un mediu live — configurează Sameday (DEPLOYMENT.md §7)'
+			});
+		}
 
 		const result = await createShipmentForOrder(
 			{

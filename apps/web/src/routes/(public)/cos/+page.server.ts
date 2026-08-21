@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { env as privateEnv } from '$env/dynamic/private';
 import { env } from '$env/dynamic/public';
 import { getDb } from '$lib/db';
 import type { ImageSources } from '$lib/modules/media';
@@ -8,6 +9,7 @@ import {
 	createCheckoutFromCart,
 	getStripeGateway,
 	loadCartDetails,
+	mockCheckoutBlocked,
 	parseBuyerCompanyForm
 } from '$lib/modules/shop/server';
 import { readCart, writeCart } from '$lib/server/cart';
@@ -65,7 +67,10 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		currency: details.currency,
 		// Settings-driven delivery choice, priced for THIS cart's goods total.
 		shippingOptions: shippingOptionsForCart(settings, details.totalCents),
-		shippingNote: settings['shop.shippingNote']
+		shippingNote: settings['shop.shippingNote'],
+		// Live env on the mock gateway (review C-1): the page disables the
+		// checkout button; the action below refuses even a direct POST.
+		checkoutBlocked: mockCheckoutBlocked(privateEnv)
 	};
 };
 
@@ -88,6 +93,13 @@ export const actions: Actions = {
 	},
 
 	checkout: async ({ request, cookies, locals }) => {
+		// Review C-1: with the mock gateway in a live env, a redirect would land
+		// real customers on a dead checkout.stripe.com URL — refuse instead.
+		if (mockCheckoutBlocked(privateEnv)) {
+			// `as const`: a widened `string` here would collapse the ActionData
+			// union and erase `companyValues` from the page's form type.
+			return fail(400, { checkoutError: 'payments-disabled' as const, detail: '' });
+		}
 		const site = getSite();
 		// Optional B2B fields for the invoice; empty inputs mean a consumer sale.
 		const form = await request.formData();
