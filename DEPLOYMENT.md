@@ -1,9 +1,12 @@
-# Deploying better-base
+# Deploying betterSleep
 
-One codebase, one schema, N deployments. A deployment is selected by `SITE_ID`
-(`sleep` for better-sleep, later `life` for better-life) and gets its **own**
-database and media bucket. Nothing else differs between sites — no code
-changes, no per-site branches.
+This repository deploys **one site**: betterSleep at `bettersleep.ro`, with
+`SITE_ID=sleep`, its own database (`better_sleep`) and its own media bucket.
+`SITE_ID` selects the site config at boot
+(`apps/web/src/lib/config/sites/sleep.ts` — the only config that exists; any
+other value refuses to boot). The platform underneath could host more sites —
+see §10, an appendix, if that day comes — but everything below describes the
+single betterSleep deployment.
 
 This document assumes a Linux host (or PaaS) that can run a Node 24+ process,
 plus Postgres 16, an S3-compatible object store and an image provider (§6 —
@@ -24,7 +27,6 @@ codebase and the same env matrix with three variables changed.
                                  ▼
               media.bettersleep.ro ──▶ bettersleep.ro/cdn-cgi/image/<opts>/<src>
                                           Cloudflare transforms + caches at the edge
-   betterlife.ro  ─▶ second deployment: SITE_ID=life, db better_life, bucket betterlife-media
 ```
 
 - The app itself **never serves image bytes** — HTML embeds URLs the selected
@@ -37,20 +39,20 @@ codebase and the same env matrix with three variables changed.
 ## 2. Environment matrix
 
 All configuration is environment variables (see `.env.example` for the
-documented dev values). Per-site values:
+documented dev values). Site identity:
 
-| Variable | better-sleep | better-life | Notes |
-| --- | --- | --- | --- |
-| `SITE_ID` | `sleep` | `life` | Selects the site config at boot. |
-| `DATABASE_URL` | `postgres://…/better_sleep` | `postgres://…/better_life` | One database per site, identical schema. |
-| `PUBLIC_SITE_URL` | `https://bettersleep.ro` | `https://betterlife.ro` | Canonical origin: links in emails, sitemap, OG tags, Stripe redirect URLs. Must be https in prod (session cookies derive `Secure` from it). |
-| `S3_BUCKET` | e.g. `bettersleep-media` | e.g. `betterlife-media` | One bucket per site. |
-| `BETTER_AUTH_SECRET` | unique 32+ random bytes | unique 32+ random bytes | `openssl rand -base64 32`. Signs staff sessions only. Rotating it logs staff out. |
-| `TOKEN_SECRET` | unique 32+ random bytes | unique 32+ random bytes | `openssl rand -base64 32`. Signs newsletter confirm links, chat session cookies and upload-confirm tickets. MUST differ from `BETTER_AUTH_SECRET` (boot refuses otherwise). Rotating it invalidates outstanding confirm links and chat sessions (users just start a fresh conversation). |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | per-site Stripe account or shared account | 〃 | See §6. |
-| `RESEND_API_KEY` + `EMAIL_DRYRUN=false` | per-site sending domain | 〃 | See §7. |
+| Variable | Value | Notes |
+| --- | --- | --- |
+| `SITE_ID` | `sleep` | Selects the site config at boot; the only valid value in this repo. |
+| `DATABASE_URL` | `postgres://…/better_sleep` | The site's own database. |
+| `PUBLIC_SITE_URL` | `https://bettersleep.ro` | Canonical origin: links in emails, sitemap, OG tags, Stripe redirect URLs. Must be https in prod (session cookies derive `Secure` from it). |
+| `S3_BUCKET` | e.g. `bettersleep-media` | The site's own bucket. |
+| `BETTER_AUTH_SECRET` | unique 32+ random bytes | `openssl rand -base64 32`. Signs staff sessions only. Rotating it logs staff out. |
+| `TOKEN_SECRET` | unique 32+ random bytes | `openssl rand -base64 32`. Signs newsletter confirm links, chat session cookies and upload-confirm tickets. MUST differ from `BETTER_AUTH_SECRET` (boot refuses otherwise). Rotating it invalidates outstanding confirm links and chat sessions (users just start a fresh conversation). |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | the shop's Stripe account | See §6. |
+| `RESEND_API_KEY` + `EMAIL_DRYRUN=false` | the site's sending domain | See §7. |
 
-Shared (may be identical on both sites):
+Service configuration:
 
 | Variable | Value | Notes |
 | --- | --- | --- |
@@ -164,7 +166,7 @@ line (`ts`, `level`, `errorId`, `status`, `method`, `path`, `message`,
 
 ## 4. Database: create, migrate, seed
 
-Per site, on the shared or per-site Postgres 16 server:
+On the Postgres 16 server:
 
 ```bash
 createdb better_sleep      # (or CREATE DATABASE in psql; owner = app user)
@@ -196,7 +198,7 @@ Notes:
 
 ## 5. Cloudflare R2 (media storage)
 
-1. Create one bucket per site (e.g. `bettersleep-media`).
+1. Create the site's bucket (e.g. `bettersleep-media`).
 2. Create an R2 API token with Object Read & Write on that bucket.
 3. Set `S3_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com`,
    `S3_ACCESS_KEY`/`S3_SECRET_KEY` from the token, `S3_REGION=auto`,
@@ -308,8 +310,7 @@ the old URL), while uncached old URLs start returning 403.
 
 **Cloudflare cache note:** imgproxy re-transforms on every request. Put the
 imgproxy hostname behind Cloudflare (orange cloud) with a cache rule
-"Cache Everything" + long edge TTL. One shared imgproxy instance can serve
-both sites' buckets.
+"Cache Everything" + long edge TTL.
 
 ### SVGs
 
@@ -331,9 +332,6 @@ rather than faked, so what you see locally is honest about what it is.
 originals; `pnpm media:blurhash` refuses to run on this provider.
 
 ## 7. Stripe (shop)
-
-Per site (separate Stripe accounts recommended so payouts/branding stay per
-brand — a shared account also works):
 
 1. Set `STRIPE_SECRET_KEY` (test key first: `sk_test_…`).
 2. Dashboard → Developers → Webhooks → Add endpoint:
@@ -450,22 +448,31 @@ orders + email log); `pnpm media:blurhash` to backfill image placeholders for
 media rows that predate confirm-time encoding (content imports, upgrades —
 idempotent and resumable: only null rows are touched, failures are reported
 and retried on the next run); and `pnpm content export/import` to copy an
-article, quiz or product between sites:
+article, quiz or product between environments (e.g. staging → prod, or a
+future second site — §10):
 
 ```bash
-# on/with site A's env:
+# on/with the source environment's env:
 pnpm content export --type article --slug melatonina-si-lumina-albastra --out a.json
-# with site B's env (its DATABASE_URL + S3_BUCKET):
-pnpm content import a.json      # idempotent by slug; re-uploads media to B's bucket
+# with the target environment's env (its DATABASE_URL + S3_BUCKET):
+pnpm content import a.json      # idempotent by slug; re-uploads media to the target bucket
 ```
 
-## 10. Deploying the second site (better-life)
+## 10. Appendix: adding a second site (not part of the betterSleep launch)
 
-Repeat §3–§9 with `SITE_ID=life`, `DATABASE_URL=…/better_life`, its own
-bucket, domain, Stripe account and Resend domain. The same build output can
-be reused — `SITE_ID` is read at runtime, so two processes from one artifact
-work (that is exactly how the e2e suite runs both sites from one build).
-Content shared between sites travels via `pnpm content export/import` (§9).
+The platform can host more sites from one codebase, but **no second site
+exists today** — `sleep` is the only `SITE_ID` that boots; anything else
+throws "Unknown SITE_ID" at startup, by design. If a second brand is ever
+built:
+
+1. First, **create its site config** in code:
+   `apps/web/src/lib/config/sites/<id>.ts`, registered in
+   `apps/web/src/lib/config/site.ts` — without this file no env value can
+   make the site exist.
+2. Then repeat §3–§9 with `SITE_ID=<id>`, its own database, bucket, domain,
+   Stripe account and Resend domain. The same build output can be reused —
+   `SITE_ID` is read at runtime.
+3. Content is copied between sites via `pnpm content export/import` (§9).
 
 ## 11. Post-deploy verification
 

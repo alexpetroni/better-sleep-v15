@@ -38,7 +38,7 @@ never trade correctness for speed.
   but do not rewrite it.
 - Admin is part of the app at `/admin`. No external CMS.
 - No `any` escapes, no `@ts-ignore` without a one-line justification comment.
-- Money is integer bani (cents); `modules/shop/money.ts` is the only place amounts meet strings.
+- Money is integer bani (cents); `apps/web/src/lib/util/money.ts` is the only place amounts meet strings.
 
 ## Content sources — vendored, never live
 

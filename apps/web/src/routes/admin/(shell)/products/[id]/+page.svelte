@@ -4,7 +4,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { slugify } from '$lib/util/slug';
 	import { Img, type ImageSources } from '$lib/modules/media';
-	import { formatCents } from '$lib/util/money';
+	import { centsToDecimal } from '$lib/util/money';
 	import CoverField from '$lib/components/CoverField.svelte';
 	import MediaPicker, { type LibraryImage } from '$lib/components/MediaPicker.svelte';
 	import PillarChecklist from '$lib/components/PillarChecklist.svelte';
@@ -22,7 +22,7 @@
 		name: data.product.name,
 		slug: data.product.slug,
 		// Editable "49,90" string; parsed server-side into integer bani.
-		price: formatCents(data.product.priceCents).split(' ')[0],
+		price: centsToDecimal(data.product.priceCents, ','),
 		stock: data.product.stock === null ? '' : String(data.product.stock),
 		status: data.product.status,
 		descriptionMd: data.product.descriptionMd,

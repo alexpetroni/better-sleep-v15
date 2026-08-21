@@ -1,8 +1,7 @@
 # better-sleep launch checklist
 
 Every box below needs a HUMAN — none of this can be automated away. Work top
-to bottom; `DEPLOYMENT.md` has the technical details for each step. The same
-list applies later to better-life (with its own domain/accounts).
+to bottom; `DEPLOYMENT.md` has the technical details for each step.
 
 ## Accounts & access
 

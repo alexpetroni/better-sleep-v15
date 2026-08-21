@@ -13,7 +13,7 @@ import {
 } from '$lib/modules/settings';
 import { loadSettingsForAdmin, saveSettings } from '$lib/modules/settings/server';
 import { failResult, formStr } from '$lib/server/forms';
-import { formatCents } from '$lib/util/money';
+import { centsToDecimal } from '$lib/util/money';
 import type { Actions, PageServerLoad } from './$types';
 
 /** The form's input string for a stored value (checkboxes stay boolean). */
@@ -21,8 +21,8 @@ function displayValue(key: SettingKey, value: string | number | boolean): string
 	const kind = SETTINGS_REGISTRY[key].kind;
 	if (kind === 'boolean') return value as boolean;
 	if (kind === 'bani' || kind === 'percentBp') {
-		// 4990 bani → "49,90"; 2100 bp → "21,00" — drop the " lei" display unit.
-		return formatCents(value as number).split(' ')[0];
+		// 4990 bani → "49,90"; 2100 bp → "21,00" — unitless decimal (L-14).
+		return centsToDecimal(value as number, ',');
 	}
 	return String(value);
 }
