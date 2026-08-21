@@ -126,6 +126,8 @@ async function sendOrderConfirmation(
 		id: string;
 		email: string;
 		amountTotalCents: number;
+		shippingCents: number;
+		shippingName: string;
 		currency: string;
 		stripeSessionId: string | null;
 	},
@@ -155,6 +157,9 @@ async function sendOrderConfirmation(
 			siteName: deps.siteName,
 			orderId: order.id,
 			items: items.map(({ name, qty, priceCents }) => ({ name, qty, priceCents })),
+			// Paid shipping renders as its own row (L-6) — lines must sum to total.
+			shippingCents: order.shippingCents,
+			shippingName: order.shippingName || undefined,
 			totalCents: order.amountTotalCents,
 			currency: order.currency,
 			invoiceNumber: invoiceInfo?.displayNumber,

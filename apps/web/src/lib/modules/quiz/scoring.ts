@@ -117,13 +117,6 @@ export interface QuizProfile {
 /** Flat answers keyed by question id — what the engine consumes. */
 export type QuizAnswers = Record<string, unknown>;
 
-/** Flatten formcomp's `onFormComplete` shape (responses keyed by step, then question). */
-export function flattenStepResponses(byStep: Record<string, Record<string, unknown>>): QuizAnswers {
-	const flat: QuizAnswers = {};
-	for (const stepResponses of Object.values(byStep)) Object.assign(flat, stepResponses);
-	return flat;
-}
-
 /** Flatten a formcomp submit payload's answers array. */
 export function answersFromSubmitAnswers(
 	answers: Array<{ questionId: string; value: unknown }>

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { FormConfig } from 'formcomp';
 import {
 	answersFromSubmitAnswers,
-	flattenStepResponses,
 	pickBand,
 	scoreQuiz,
 	validateScoringConfig,
@@ -450,13 +449,6 @@ describe('validateScoringConfig — archetype mode', () => {
 });
 
 describe('answer flattening', () => {
-	it('flattens formcomp step responses to a questionId map', () => {
-		expect(flattenStepResponses({ noapte: { adormire: 'sub-15' }, zi: { oboseala: 2 } })).toEqual({
-			adormire: 'sub-15',
-			oboseala: 2
-		});
-	});
-
 	it('maps a formcomp submit payload answers array by questionId', () => {
 		expect(
 			answersFromSubmitAnswers([

@@ -46,6 +46,18 @@
 			{#each data.profile.winner.advice.split('\n\n') as paragraph, i (i)}
 				<p class="mb-4">{paragraph}</p>
 			{/each}
+			{#if data.winnerPageSlug}
+				<!-- The winner's full /tipuri guide — the natural next click (L-13). -->
+				<p>
+					<a
+						href={resolve('/(public)/tipuri/[archetype]', { archetype: data.winnerPageSlug })}
+						data-testid="result-archetype-link"
+						class="font-semibold text-(--color-brand) hover:underline"
+					>
+						{m.quiz_result_archetype_guide({ name: data.profile.winner.label })}
+					</a>
+				</p>
+			{/if}
 		</section>
 
 		{#if data.profile.runnerUp}

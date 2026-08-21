@@ -40,20 +40,14 @@
 	let honeypot = $state('');
 	let attempted = $state(false);
 	let submitting = $state(false);
-	let botDropped = $state(false);
 
 	const emailStatus = $derived(questionStatus(emailQuestion, email));
 	const consentStatus = $derived(questionStatus(consentQuestion, consent));
 
 	function handleSubmit(event: SubmitEvent) {
-		// A filled honeypot means a bot: show the normal success flow WITHOUT
-		// POSTing — the same silent drop formcomp's MultiStepForm performs.
-		// (A bot that posts natively instead is refused by the server check.)
-		if (honeypot.trim() !== '') {
-			event.preventDefault();
-			botDropped = true;
-			return;
-		}
+		// A filled honeypot POSTs normally and the SERVER silently drops it
+		// (fake success) — delivery copy must only ever come from a real server
+		// response (L-2), never from a client-side guess.
 		if (emailStatus !== 'ok' || consentStatus !== 'ok') {
 			event.preventDefault();
 			attempted = true;
@@ -67,7 +61,7 @@
 <svelte:window onpageshow={() => (submitting = false)} />
 
 <section class="rounded-xl border border-(--color-brand-soft) p-6">
-	{#if form?.sent || botDropped}
+	{#if form?.sent}
 		<p data-testid="result-email-sent" class="font-medium text-green-700">
 			{m.quiz_capture_sent()}
 		</p>

@@ -90,6 +90,7 @@ export {
 	getProduct,
 	getProductBySlug,
 	isOutOfStock,
+	isPurchasable,
 	listProducts,
 	listVisibleProducts,
 	updateProduct,

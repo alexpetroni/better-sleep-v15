@@ -4,7 +4,6 @@
 export type { QuizResultRow, QuizRow, QuizStatus, StoredAnswer } from './schema.ts';
 export {
 	answersFromSubmitAnswers,
-	flattenStepResponses,
 	pickBand,
 	scoreQuiz,
 	validateScoringConfig,

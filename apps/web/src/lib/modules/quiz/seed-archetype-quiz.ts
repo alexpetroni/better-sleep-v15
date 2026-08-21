@@ -375,6 +375,19 @@ const ARCHETYPES: Record<ArchetypeId, ArchetypeDefinition> = {
  * +1. The closing key-phrase question is the strongest single signal (+3),
  * which keeps every archetype reachable by an honest answer set.
  */
+/** Tie-break priority (H-1): equal scores resolve to the EARLIER entry. */
+const ARCHETYPE_TIEBREAK_ORDER: readonly ArchetypeId[] = [
+	'ST',
+	'MN',
+	'RU',
+	'VU',
+	'SA',
+	'PE',
+	'AN',
+	'FU',
+	'EP'
+];
+
 export const ARCHETYPE_QUIZ_SCORING: ScoringConfig = {
 	resultMode: 'archetype',
 	questions: {
@@ -498,17 +511,8 @@ export const ARCHETYPE_QUIZ_SCORING: ScoringConfig = {
 	// — equal scores resolve to the earlier entry — and only an array keeps its
 	// order through the jsonb `scoring` column (H-1). A record shape shipped
 	// AN, EP, FU, … in production and made "Antena" win every sparse tie.
-	dimensions: [
-		{ key: 'ST', label: 'Străjerul' },
-		{ key: 'MN', label: 'Managerul' },
-		{ key: 'RU', label: 'Ruminatorul' },
-		{ key: 'VU', label: 'Vulcanul' },
-		{ key: 'SA', label: 'Salvatorul' },
-		{ key: 'PE', label: 'Perfecționistul' },
-		{ key: 'AN', label: 'Antena' },
-		{ key: 'FU', label: 'Fugarul' },
-		{ key: 'EP', label: 'Epuizatul' }
-	],
+	// Labels DERIVE from `ARCHETYPES` (L-13): one in-file source, no drift.
+	dimensions: ARCHETYPE_TIEBREAK_ORDER.map((key) => ({ key, label: ARCHETYPES[key].label })),
 	archetypes: ARCHETYPES,
 	// Archetype mode still carries one catch-all band: it feeds band consumers
 	// (the transactional result email, admin listings) a sensible fallback.

@@ -61,6 +61,9 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			state: 'order' as const,
 			email: found.order.email,
 			totalCents: found.order.amountTotalCents,
+			// Paid shipping gets its own row (L-6) — the lines must sum to the total.
+			shippingCents: found.order.shippingCents,
+			shippingName: found.order.shippingName,
 			currency: found.order.currency,
 			items: found.items.map((item): SuccessItem => ({
 				name: item.name,
@@ -80,6 +83,8 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		state: 'processing' as const,
 		email: session.email,
 		totalCents: session.amountTotalCents,
+		shippingCents: 0,
+		shippingName: '',
 		currency: session.currency ?? 'ron',
 		items: [] as SuccessItem[]
 	};

@@ -186,7 +186,7 @@ describe('pillar visibility follows the site config', () => {
 });
 
 describe('listPublishedBySlugs', () => {
-	it('returns only the published subset of the requested slugs, newest first', async () => {
+	it('returns only the published subset, in CURATION order — not recency (L-13)', async () => {
 		const pub1 = await makeArticle('Lista curatoriată unu', ['somn']);
 		const pub2 = await makeArticle('Lista curatoriată doi', ['somn']);
 		const draft = await makeArticle('Lista curatoriată draft', ['somn']);
@@ -195,19 +195,19 @@ describe('listPublishedBySlugs', () => {
 			if (!r.ok) throw new Error(r.error);
 		}
 
+		// pub2 was created (and published) after pub1 — a recency sort would
+		// put it first even when the curator ranked it second.
 		const rows = await listPublishedBySlugs(deps, [
-			pub2.slug,
-			draft.slug,
 			pub1.slug,
+			draft.slug,
+			pub2.slug,
 			'slug-inexistent'
 		]);
-		const slugs = rows.map((r) => r.article.slug);
-		expect(slugs).toHaveLength(2);
-		expect(slugs).toContain(pub1.slug);
-		expect(slugs).toContain(pub2.slug);
-		// Newest publishedAt first (both stamped now → tie-broken by id desc).
-		const dates = rows.map((r) => r.article.publishedAt?.getTime() ?? 0);
-		expect(dates).toEqual([...dates].toSorted((a, b) => b - a));
+		expect(rows.map((r) => r.article.slug)).toEqual([pub1.slug, pub2.slug]);
+
+		// And the reverse curation flips the result — the input list decides.
+		const reversed = await listPublishedBySlugs(deps, [pub2.slug, pub1.slug]);
+		expect(reversed.map((r) => r.article.slug)).toEqual([pub2.slug, pub1.slug]);
 	});
 
 	it('returns nothing for an empty slug list', async () => {

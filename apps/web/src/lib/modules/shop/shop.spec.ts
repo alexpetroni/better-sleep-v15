@@ -336,6 +336,26 @@ describe('cart details and checkout session', () => {
 		expect(details.totalCents).toBe(22530);
 	});
 
+	it('a zero-priced (unpriced) product is never purchasable (L-7)', async () => {
+		// priceCents 0 is the admin default before a price is set; pre-fix it
+		// listed at "0,00 lei" and only failed at Stripe's minimum charge.
+		const unpriced = await makeProduct({ name: 'Fără preț activ', priceCents: 0 });
+		const details = await loadCartDetails({ db }, [{ productId: unpriced.id, qty: 1 }], SLEEP_PILLARS);
+		expect(details.lines[0].available).toBe(false);
+		expect(details.totalCents).toBe(0);
+
+		const refused = await createCheckoutFromCart(
+			{ db, gateway, baseUrl: 'https://example.ro' },
+			{
+				items: [{ productId: unpriced.id, qty: 1 }],
+				sitePillarSlugs: SLEEP_PILLARS,
+				shippingSettings: settingsDefaults(),
+				shippingOptionId: 'standard'
+			}
+		);
+		expect(!refused.ok && refused.error).toBe('unavailable');
+	});
+
 	it('creates a checkout session with the paid snapshot in metadata', async () => {
 		const a = await makeProduct({ name: 'Checkout A', priceCents: 4990 });
 		const b = await makeProduct({ name: 'Checkout B', priceCents: 12550 });

@@ -30,6 +30,10 @@ export interface TemplateData {
 		orderId: string;
 		/** Snapshots as sold; prices are unit prices in integer cents. */
 		items: Array<{ name: string; qty: number; priceCents: number }>;
+		/** Paid shipping gets its own row (L-6) — the lines must sum to the total. */
+		shippingCents?: number;
+		/** Delivery option chosen at checkout, e.g. `Livrare standard`. */
+		shippingName?: string;
 		totalCents: number;
 		currency: string;
 		/** Set when the fiscal invoice was issued — its PDF rides along. */
@@ -180,15 +184,27 @@ function invoiceTextBlock(
 
 function renderOrderConfirmation(data: TemplateData['order-confirmation']): RenderedEmail {
 	const subject = `Comanda ta la ${data.siteName} a fost înregistrată`;
-	const rows = data.items
-		.map(
-			(item) => `<tr>
+	// Paid shipping is a line of its own (L-6): without it the item rows do
+	// not sum to the total and the gap is unexplained. Free shipping needs no row.
+	const shippingLabel = data.shippingName ? `Livrare (${data.shippingName})` : 'Livrare';
+	const shippingRow =
+		data.shippingCents && data.shippingCents > 0
+			? `\n<tr>
+<td style="padding:4px 8px 4px 0;">${escapeHtml(shippingLabel)}</td>
+<td style="padding:4px 8px;"></td>
+<td style="padding:4px 0;text-align:right;">${escapeHtml(formatCents(data.shippingCents, data.currency))}</td>
+</tr>`
+			: '';
+	const rows =
+		data.items
+			.map(
+				(item) => `<tr>
 <td style="padding:4px 8px 4px 0;">${escapeHtml(item.name)}</td>
 <td style="padding:4px 8px;text-align:center;">×${item.qty}</td>
 <td style="padding:4px 0;text-align:right;">${escapeHtml(formatCents(item.priceCents * item.qty, data.currency))}</td>
 </tr>`
-		)
-		.join('\n');
+			)
+			.join('\n') + shippingRow;
 	const html = htmlShell(
 		data.siteName,
 		`<h1 style="font-size:20px;margin:0 0 16px;">Îți mulțumim pentru comandă!</h1>
@@ -212,6 +228,9 @@ ${invoiceHtmlBlock(data)}`
 			(item) =>
 				`${item.name} ×${item.qty} — ${formatCents(item.priceCents * item.qty, data.currency)}`
 		),
+		...(data.shippingCents && data.shippingCents > 0
+			? [`${shippingLabel} — ${formatCents(data.shippingCents, data.currency)}`]
+			: []),
 		'',
 		`Total: ${formatCents(data.totalCents, data.currency)}`,
 		'',

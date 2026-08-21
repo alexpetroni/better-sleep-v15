@@ -113,7 +113,10 @@ capture.products.forEach((product, index) => {
 	const english = findEnglishSentence(description);
 	if (english) fail(`"${slug}": description contains an English sentence: "${english}"`);
 
-	const descriptionMd = `${description}\n\nSursă preț: [zenyth.ro](${product.url}), ${capture.capturedAt}\n`;
+	// UNLINKED source line (L-9): a rendered `<a>` was 33 dofollow backlinks
+	// pointing shoppers at the supplier's own store. The per-product URL stays
+	// vendored in .initialData/zenyth-products.json (and in the importKey).
+	const descriptionMd = `${description}\n\nSursă preț: zenyth.ro, ${capture.capturedAt}\n`;
 
 	bundles.push({
 		filename: `${NUMBER_BASE + index * 10}-${slug}.json`,

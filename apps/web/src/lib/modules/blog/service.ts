@@ -241,20 +241,26 @@ export async function listPublished(
 
 /**
  * Published articles from an explicit slug list (e.g. an archetype page's
- * curated reading list), newest first. Unknown or unpublished slugs are
- * silently absent — the caller renders whatever is actually live.
+ * curated reading list), in the ORDER the list gives them (L-13): a curated
+ * list is an editorial ranking — "start here" first — not a recency feed.
+ * Unknown or unpublished slugs are silently absent — the caller renders
+ * whatever is actually live.
  */
 export async function listPublishedBySlugs(
 	deps: BlogDeps,
 	slugs: readonly string[]
 ): Promise<Array<{ article: ArticleRow; cover: MediaRow | null }>> {
 	if (slugs.length === 0) return [];
-	return deps.db
+	const rows = await deps.db
 		.select({ article: articles, cover: media })
 		.from(articles)
 		.leftJoin(media, eq(articles.coverMediaId, media.id))
-		.where(and(eq(articles.status, 'published'), inArray(articles.slug, [...slugs])))
-		.orderBy(desc(articles.publishedAt), desc(articles.id));
+		.where(and(eq(articles.status, 'published'), inArray(articles.slug, [...slugs])));
+	const position = new Map(slugs.map((slug, index) => [slug, index]));
+	return rows.toSorted(
+		(a, b) =>
+			(position.get(a.article.slug) ?? slugs.length) - (position.get(b.article.slug) ?? slugs.length)
+	);
 }
 
 /** Admin listing: optional status filter and case-insensitive title/slug search. */

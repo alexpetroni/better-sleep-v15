@@ -51,6 +51,16 @@ export function isOutOfStock(product: Pick<ProductRow, 'stock'>): boolean {
 	return product.stock !== null && product.stock <= 0;
 }
 
+/**
+ * The single purchase gate (L-7): a zero-priced product is unpriced — the
+ * admin default before a price is set — never a free purchase; it would list
+ * at "0,00 lei" and die at Stripe's minimum charge. Every buy path (product
+ * page, cart, checkout) must gate on this, not on stock alone.
+ */
+export function isPurchasable(product: Pick<ProductRow, 'stock' | 'priceCents'>): boolean {
+	return product.priceCents > 0 && !isOutOfStock(product);
+}
+
 const PRODUCT_SLUGS = { table: products, id: products.id, slug: products.slug };
 
 const PRODUCT_PILLARS: PillarJoin<typeof productPillars> = {

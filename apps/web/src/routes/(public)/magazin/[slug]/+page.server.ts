@@ -4,7 +4,7 @@ import { renderArticleHtml } from '$lib/modules/blog/server';
 import type { ImageSources } from '$lib/modules/media';
 import { getImageProvider, imgSources, imgUrl } from '$lib/modules/media/server';
 import { addToCart, productJsonLd, productMetaDescription } from '$lib/modules/shop';
-import { getProductBySlug, isOutOfStock } from '$lib/modules/shop/server';
+import { getProductBySlug, isPurchasable } from '$lib/modules/shop/server';
 import { canonicalUrl } from '$lib/seo';
 import { readCart, writeCart } from '$lib/server/cart';
 import { getSite } from '$lib/server/site';
@@ -23,7 +23,8 @@ export const load: PageServerLoad = async ({ params }) => {
 		.map((row) => imgSources(row, { w: 768 }));
 
 	const canonical = canonicalUrl(`/magazin/${product.slug}`);
-	const outOfStock = isOutOfStock(product);
+	// Zero-priced counts as unavailable too (L-7) — same disabled-button UI.
+	const outOfStock = !isPurchasable(product);
 	// M-6: per-product search snippet from the description (Sursă-preț line
 	// excluded); '' when the description is empty — the page falls back to the
 	// shared shop tagline.
@@ -74,7 +75,7 @@ export const actions: Actions = {
 		const found = await getProductBySlug({ db: getDb() }, params.slug, {
 			sitePillarSlugs: site.pillars
 		});
-		if (!found || isOutOfStock(found.product)) error(400, 'Product unavailable');
+		if (!found || !isPurchasable(found.product)) error(400, 'Product unavailable');
 
 		const form = await request.formData();
 		const qty = Math.max(1, Number(form.get('qty')) || 1);

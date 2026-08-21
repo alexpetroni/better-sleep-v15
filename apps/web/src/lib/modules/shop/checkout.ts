@@ -5,7 +5,7 @@ import { CUI_PATTERN } from '../../util/cui.ts';
 import { cartTotalCents, type CartItem } from './cart.ts';
 import type { StripeGateway } from './gateway.ts';
 import { productPillars, products, type BuyerCompany, type ProductRow } from './schema.ts';
-import { isOutOfStock } from './service.ts';
+import { isPurchasable } from './service.ts';
 import {
 	buildShippingMetadata,
 	findShippingOption,
@@ -181,7 +181,7 @@ export async function loadCartDetails(
 			product,
 			qty,
 			lineTotalCents: product.priceCents * qty,
-			available: product.status === 'active' && tagged && !isOutOfStock(product),
+			available: product.status === 'active' && tagged && isPurchasable(product),
 			stockLimited
 		});
 	}

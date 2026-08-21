@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { ARCHETYPE_PAGES } from './archetype-pages.ts';
 import { ARCHETYPE_IDS, SLEEP_PATTERNS, type ArchetypeId } from './patterns.ts';
-import { scoreQuiz, type QuizAnswers } from './scoring.ts';
+import { dimensionList, scoreQuiz, type QuizAnswers } from './scoring.ts';
 import { ARCHETYPE_QUIZ_FORM, ARCHETYPE_QUIZ_SCORING } from './seed-archetype-quiz.ts';
 import { countQuestions, validateForPublish } from './validate.ts';
 
@@ -72,6 +73,26 @@ describe('seeded archetype quiz', () => {
 			expect(profile.winner!.advice.length).toBeGreaterThan(100);
 		}
 	);
+
+	it('archetype copy cannot drift: /tipuri pages and the scoring config agree (L-13)', () => {
+		// label/essence exist in two shapes (the seed's ArchetypeDefinitions —
+		// which also feed the dimension labels — and the /tipuri page data). No
+		// derivation crosses the files, so equality is pinned here instead.
+		const definitions = ARCHETYPE_QUIZ_SCORING.archetypes;
+		expect(definitions).toBeDefined();
+		expect(ARCHETYPE_PAGES).toHaveLength(ARCHETYPE_IDS.length);
+		for (const page of ARCHETYPE_PAGES) {
+			expect(definitions?.[page.id]?.label, page.id).toBe(page.name);
+			expect(definitions?.[page.id]?.essence, page.id).toBe(page.essence);
+		}
+		// Dimension labels derive from the definitions — pinned so a refactor
+		// back to a hand-maintained list cannot silently diverge.
+		const dims = dimensionList(ARCHETYPE_QUIZ_SCORING.dimensions);
+		expect(dims).toHaveLength(ARCHETYPE_IDS.length);
+		for (const dim of dims) {
+			expect(dim.label, dim.key).toBe(definitions?.[dim.key as ArchetypeId]?.label);
+		}
+	});
 
 	it('the four deck patterns map onto valid archetype ids and cover all nine', () => {
 		const covered = new Set<ArchetypeId>();

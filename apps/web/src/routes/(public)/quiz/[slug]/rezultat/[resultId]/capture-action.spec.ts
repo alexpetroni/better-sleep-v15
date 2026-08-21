@@ -162,20 +162,27 @@ describe('the capture action re-checks everything server-side', () => {
 		expect(await emailLogTo(email)).toEqual([]);
 	});
 
-	it('filled (or missing) honeypot → silently dropped: success shape, no subscriber row', async () => {
+	it('ONLY a filled honeypot is a bot: silent success shape, no subscriber row (L-2)', async () => {
 		const email = 'bot@example.com';
 		const filled = await emailAction(
 			captureEvent(email, '203.0.113.11', { website: 'https://spam.example' })
 		);
 		// The bot sees the normal success flow — it cannot tell it was refused.
 		expect(filled).toEqual({ sent: true });
-		// A post without the field at all is just as much a bot (the form always
-		// sends it empty).
-		expect(await emailAction(captureEvent(email, '203.0.113.11', { website: null }))).toEqual({
-			sent: true
-		});
 		expect(await subscriberRows(email)).toEqual([]);
 		expect(await emailLogTo(email)).toEqual([]);
+	});
+
+	it('a STRIPPED honeypot field is a human, not a bot — the submission goes through (L-2)', async () => {
+		// Privacy extensions/form rewriters drop off-screen inputs; pre-fix the
+		// missing field was treated as a bot and the human's signup silently
+		// swallowed behind a green "sent".
+		const email = 'extensie-privacy@example.com';
+		const own = await makeResult();
+		expect(
+			await emailAction(captureEvent(email, '203.0.113.31', { website: null }, { resultId: own }))
+		).toEqual({ sent: true });
+		expect(await subscriberRows(email)).toHaveLength(1);
 	});
 
 	it('invalid email → 400 invalid-email, nothing written', async () => {
@@ -318,5 +325,22 @@ describe('the action re-runs the load gates and never oracles result ids (review
 		expect(await emailLogTo(attacker)).toEqual([]);
 		const [row] = await db.select().from(quizResults).where(eq(quizResults.id, own));
 		expect(row.subscriberId).toBe(owner.id);
+	});
+});
+
+describe('result links survive unpublishing (L-4)', () => {
+	it('the LOAD renders a stored result of an unpublished quiz — only taking is gated', async () => {
+		// Result emails embed permanent-looking URLs; pre-fix this load 404'd
+		// every one of them the moment the quiz left `published`.
+		const own = await makeResult('evaluare-somn');
+		await db.update(quizzes).set({ status: 'draft' }).where(eq(quizzes.slug, 'evaluare-somn'));
+		const route = await import('./+page.server.ts');
+		const data = await (
+			route.load as unknown as (event: {
+				params: { slug: string; resultId: string };
+			}) => Promise<{ profile: { score: number }; quizSlug: string }>
+		)({ params: { slug: 'evaluare-somn', resultId: own } });
+		expect(data.quizSlug).toBe('evaluare-somn');
+		expect(data.profile.score).toBe(12);
 	});
 });

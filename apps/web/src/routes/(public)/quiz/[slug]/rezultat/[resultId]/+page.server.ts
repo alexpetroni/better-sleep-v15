@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { HONEYPOT_FIELD } from 'formcomp';
 import { getDb } from '$lib/db';
 import { enrollFromQuizResult } from '$lib/modules/nurture/server';
+import { ARCHETYPE_PAGES } from '$lib/modules/quiz';
 import {
 	claimQuizResult,
 	getQuizBySlug,
@@ -13,12 +14,21 @@ import { getSite } from '$lib/server/site';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
+	// Deliberately NO `published` gate here (L-4): result emails and nurture
+	// CTAs embed permanent-looking URLs, and the profile is fully snapshotted —
+	// unpublishing a quiz gates TAKING it (../+page.server.ts), never results
+	// already delivered. The `?/email` action below keeps its stricter gates.
 	const found = await getResultWithQuiz({ db: getDb() }, params.resultId);
-	if (!found || found.quiz.slug !== params.slug || found.quiz.status !== 'published') error(404);
+	if (!found || found.quiz.slug !== params.slug) error(404);
+	// The winner's /tipuri page — the most natural next click (L-13). Null for
+	// band-mode results and for winner keys without a page.
+	const winnerKey = found.result.profile.winner?.key;
+	const winnerPage = winnerKey ? ARCHETYPE_PAGES.find((p) => p.id === winnerKey) : undefined;
 	return {
 		quizTitle: found.quiz.title,
 		quizSlug: found.quiz.slug,
 		profile: found.result.profile,
+		winnerPageSlug: winnerPage?.slug ?? null,
 		// The visitor may already have left an email for this result (reload).
 		claimed: found.result.subscriberId !== null
 	};
@@ -30,11 +40,13 @@ export const actions: Actions = {
 	// the browser (mirrors the newsletter action): every check runs again here.
 	email: async ({ params, request, getClientAddress }) => {
 		const form = await request.formData();
-		// Honeypot first: the capture form always posts the (empty) field, so a
-		// missing or non-empty value means a bot. Mimic the normal success shape
-		// without doing anything — the same silent drop formcomp performs
-		// client-side, so the bot can't tell it was refused.
-		if (form.get(HONEYPOT_FIELD) !== '') return { sent: true };
+		// Honeypot first: only a FILLED field means a bot (L-2) — privacy
+		// extensions and form rewriters can strip the off-screen input entirely,
+		// and a missing field must not swallow a real human's submission. Bots
+		// get the normal success shape without anything happening, so they can't
+		// tell they were refused.
+		const honeypot = form.get(HONEYPOT_FIELD);
+		if (typeof honeypot === 'string' && honeypot.trim() !== '') return { sent: true };
 		// GDPR: the capture is a newsletter signup ("îți trimitem protocolul") —
 		// no ticked consent box, no capture.
 		if (form.get('newsletter_consent') !== 'yes') return fail(400, { error: 'consent' as const });

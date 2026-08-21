@@ -138,11 +138,12 @@ describe('the committed content/sleep article bundles', () => {
 			expect(row.coverMediaId, row.slug).toBeNull();
 			expect(row.gallery, row.slug).toEqual([]);
 			// Fresh Romanian description with the price-source line; the captured
-			// blurb (partly auto-translated English) never ships.
+			// blurb (partly auto-translated English) never ships. The line is
+			// UNLINKED (L-9): no product page grants the supplier a dofollow
+			// backlink or a clickable path to buy direct.
 			expect(row.descriptionMd, row.slug).toMatch(/[ăâîșț]/);
-			expect(row.descriptionMd, row.slug).toContain(
-				`Sursă preț: [zenyth.ro](${captured!.url}), ${zenyth.capturedAt}`
-			);
+			expect(row.descriptionMd, row.slug).toContain(`Sursă preț: zenyth.ro, ${zenyth.capturedAt}`);
+			expect(row.descriptionMd, row.slug).not.toContain('](https://zenyth.ro');
 			if (captured!.blurb.trim()) {
 				expect(row.descriptionMd.includes(captured!.blurb.trim()), row.slug).toBe(false);
 			}

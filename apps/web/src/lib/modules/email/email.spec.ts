@@ -93,6 +93,27 @@ describe('email templates', () => {
 		expect(rendered.text).toContain('34,50 lei');
 		expect(rendered.html).not.toContain('<b>de somn</b>');
 		expect(rendered.html).toContain('Mască &lt;b&gt;de somn&lt;/b&gt;');
+		// No paid shipping → no shipping row (free shipping needs no explanation).
+		expect(rendered.html).not.toContain('Livrare');
+		expect(rendered.text).not.toContain('Livrare');
+	});
+
+	it('paid shipping gets its own row, so the lines sum to the total (L-6)', () => {
+		// The review case: 265,00 in goods + 19,99 shipping = 284,99 — pre-fix
+		// nothing explained the gap between the item rows and the total.
+		const rendered = renderEmailTemplate('order-confirmation', {
+			siteName: 'Better Sleep',
+			orderId: 'order-2',
+			items: [{ name: 'Magneziu', qty: 2, priceCents: 13250 }],
+			shippingCents: 1999,
+			shippingName: 'Livrare standard',
+			totalCents: 28499,
+			currency: 'ron'
+		});
+		expect(rendered.html).toContain('Livrare (Livrare standard)');
+		expect(rendered.html).toContain('19,99 lei');
+		expect(rendered.html).toContain('284,99 lei');
+		expect(rendered.text).toContain('Livrare (Livrare standard) — 19,99 lei');
 	});
 });
 
