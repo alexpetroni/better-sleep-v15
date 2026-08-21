@@ -1,4 +1,73 @@
-# STATE — betterSleep after BS-6 products (2026-08-20)
+# STATE — betterSleep after BS-7 launch safety (2026-08-21)
+
+## BS-7 — launch safety: no mock ever faces a customer (2026-08-21)
+
+Closes the review's mock-in-prod family (`docs/REVIEW-2026-08-21.md` C-1,
+H-5, H-7, H-8, H-9, H-10, L-11). One live signal everywhere:
+`EMAIL_DRYRUN === 'false'` means "this env is live" — dev, vitest and e2e all
+run dry, so every mock stays fully usable there.
+
+- **Preflight** (`launchCheckProblems`, `src/lib/server/launch-check.ts`): in
+  a live env it now REQUIRES a present `sk_live_` `STRIPE_SECRET_KEY`
+  (missing / `sk_test_` / other-shaped each get their own message),
+  `CHAT_PROVIDER=anthropic` and `COURIER_PROVIDER=sameday`. The rules sit
+  BEFORE the `--dev` early-return (they are conditional requirements like
+  `RESEND_API_KEY`), so `EMAIL_DRYRUN=false pnpm launch:check --dev` shows
+  them. `STRIPE_SECRET_KEY` is in `env-matrix.ts` now.
+- **Runtime guards** (`modules/shop/live-guard.ts`, pure + spec'd; exported
+  via the shop server barrel): `mockCheckoutBlocked` — the cart `?/checkout`
+  action fails 400 with `cart_payments_disabled` Romanian copy and the page
+  disables the button (load returns `checkoutBlocked`) instead of 303ing to
+  the mock's dead checkout.stripe.com URL; `mockAwbBlocked` — the admin
+  `?/generateAwb` action refuses (`awbError: 'courier-mock-live'`);
+  `stripeSyncEnabled` — see next bullet.
+- **Stripe sync heals** (`modules/shop/sync.ts`): admin product saves skip
+  the Stripe mirror entirely when keyless (both `/admin/products` create and
+  `[id]` save gate on `stripeSyncEnabled`), so `prod_mock_N` ids can no
+  longer persist. Both gateways throw a typed `GatewayResourceMissingError`
+  (`gateway.ts`); sync treats it on update as "create fresh" and on the
+  old-price archive as already-archived — an account/mode switch or mock
+  residue now self-heals on the next save. The MOCK gateway also throws it
+  for unknown update/archive ids (Stripe parity).
+- **Demo content is draft by default** (`src/lib/db/seed.ts`): demo
+  articles/products/quiz seed as `draft`; `status` was dropped from EVERY
+  seed conflict-update set (quizzes included), so operator archive/unpublish
+  decisions survive any re-seed. The archetype quiz still inserts
+  `published` — it is launch content. The e2e global-setup opts back into
+  active/published explicitly and force-resets quiz status (quiz rows
+  persist across runs; everything else it deletes). `pnpm launch:check`'s
+  database pass (skipped on `--dev`/`--no-probe`) now also runs
+  `seededDemoLaunchProblems` — any live `seed-*` demo row is a launch
+  problem; proven on a scratch DB: fresh migrate+seed → exactly 33 active
+  products, demo trio draft. Demo article `cicluri-somn` moved to 07:45Z
+  (L-11 tie with bundle 0010).
+- **Security headers** (`src/lib/server/headers.ts` + `handleHeaders` first
+  in the hooks sequence): `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
+  DENY`, CSP `frame-ancestors 'none'`, HSTS only when `PUBLIC_SITE_URL` is
+  https, and a REPORT-ONLY `default-src 'self'` CSP (the path toward an
+  enforced policy backstopping the sanitized `{@html}` routes). Unit spec +
+  `e2e/headers.e2e.ts` (public `/` and `/admin/login`). Note: responses that
+  THROW out of inner handles (hook-level redirects/403s) bypass the outer
+  handle, so the guarantee is for resolved responses — both tested pages
+  resolve normally.
+- **VAT stays a human decision** (H-10): rate unchanged. The admin settings
+  screen renders a hint under `invoice.vatRateBp` (new `fieldHints` seam in
+  `settings/+page.svelte`, `admin_settings_invoice_vat_rate_hint`):
+  supplements are commonly at the reduced RO rate — confirm with the
+  accountant. LAUNCH-CHECKLIST carries the decision. LIMITATION (documented,
+  deliberate): ONE site-wide VAT rate applies to all products AND shipping;
+  per-product `vatRateBp` was not built — it would ripple through invoice
+  lines/e-Factura/shipping and is only needed the day two rates coexist.
+- **Key commands**: `EMAIL_DRYRUN=false pnpm launch:check --dev --no-probe`
+  demonstrates the new provider rules against a dev env; `pnpm db:seed` on a
+  fresh DB yields /magazin = 33 real SKUs.
+- **Next phase must know**: e2e and dev DBs are the same `better_sleep` —
+  global-setup owns demo-row statuses there. The cart page's new
+  `payments-disabled` form error uses `as const` on `checkoutError` (a
+  widened string collapses the ActionData union and erases `companyValues`
+  from the form type). LAUNCH-CHECKLIST's provider/Stripe/demo lines were
+  rewritten to reflect enforcement; DEPLOYMENT.md was NOT touched this phase.
 
 ## BS-6 — the real Zenyth catalogue + night-map SKUs (2026-08-20)
 
