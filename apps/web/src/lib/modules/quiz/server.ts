@@ -21,6 +21,7 @@ export {
 	getResultWithQuiz,
 	latestResults,
 	latestResultsWithEmail,
+	listPublishedQuizzesForSitemap,
 	listQuizzes,
 	publishQuiz,
 	sanitizeSubmittedAnswers,

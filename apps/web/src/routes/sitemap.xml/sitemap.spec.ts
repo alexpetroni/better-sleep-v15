@@ -85,4 +85,43 @@ describe('sitemap.xml', () => {
 			expect(body).toContain(`/tipuri/${archetype.slug}</loc>`);
 		}
 	});
+
+	it('lists published site-pillar quizzes — the funnel CTA is crawler-discoverable (M-13)', async () => {
+		const { pillars } = await import('../../lib/db/schema/core.ts');
+		const { quizzes } = await import('../../lib/modules/quiz/schema.ts');
+		const { eq } = await import('drizzle-orm');
+		const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
+		await db.insert(quizzes).values([
+			{
+				id: 'sitemap-quiz-pub',
+				slug: 'sitemap-quiz-publicat',
+				title: 'Q publicat',
+				status: 'published',
+				pillarId: somn.id
+			},
+			{
+				id: 'sitemap-quiz-draft',
+				slug: 'sitemap-quiz-ciorna',
+				title: 'Q ciornă',
+				status: 'draft',
+				pillarId: somn.id
+			},
+			// Published but tagged to a pillar the sleep site does not run.
+			{
+				id: 'sitemap-quiz-foreign',
+				slug: 'sitemap-quiz-strain',
+				title: 'Q străin',
+				status: 'published'
+			}
+		]);
+
+		const { GET } = await import('./+server.ts');
+		const body = await (await GET({} as never)).text();
+
+		expect(body).toMatch(/\/quiz\/sitemap-quiz-publicat<\/loc><lastmod>\d{4}-/);
+		expect(body).not.toContain('/quiz/sitemap-quiz-ciorna</loc>');
+		expect(body).not.toContain('/quiz/sitemap-quiz-strain</loc>');
+		// Result pages are personal (noindex) — never in the sitemap.
+		expect(body).not.toContain('/rezultat/');
+	});
 });
