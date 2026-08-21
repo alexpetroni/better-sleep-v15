@@ -63,7 +63,11 @@ describe('applyConsents', () => {
 			source: 'unsubscribe'
 		});
 		const noRef = applyConsents({}, { profile_emails: true }, 'quiz:x', NOW, refs);
-		expect(noRef.profile_emails).toEqual({ granted: true, at: NOW.toISOString(), source: 'quiz:x' });
+		expect(noRef.profile_emails).toEqual({
+			granted: true,
+			at: NOW.toISOString(),
+			source: 'quiz:x'
+		});
 	});
 
 	it('does not mutate the input object', () => {

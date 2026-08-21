@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import BezelCard from './BezelCard.svelte';
 	import Eyebrow from './Eyebrow.svelte';
 	import { reveal } from './reveal.ts';
 
@@ -27,13 +28,8 @@
 
 		<ol class="mt-14 grid gap-6 md:grid-cols-3">
 			{#each steps as step, i (step.number)}
-				<li
-					use:reveal={{ delay: i * 110 }}
-					class="rounded-[2rem] bg-black/5 p-1.5 ring-1 ring-black/5"
-				>
-					<div
-						class="h-full rounded-[calc(2rem-0.375rem)] bg-white p-7 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)] sm:p-8"
-					>
+				<li use:reveal={{ delay: i * 110 }}>
+					<BezelCard class="h-full" innerClass="h-full bg-white p-7 sm:p-8">
 						<span
 							aria-hidden="true"
 							class="text-sm font-bold tracking-[0.2em] text-(--color-brand) tabular-nums"
@@ -42,7 +38,7 @@
 						</span>
 						<h3 class="mt-3 text-xl font-bold">{step.title}</h3>
 						<p class="mt-3 text-sm leading-relaxed text-(--color-ink)/70">{step.body}</p>
-					</div>
+					</BezelCard>
 				</li>
 			{/each}
 		</ol>

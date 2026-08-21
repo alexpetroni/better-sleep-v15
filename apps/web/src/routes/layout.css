@@ -8,15 +8,37 @@
    which Romanian diacritics need. */
 @import '@fontsource-variable/plus-jakarta-sans';
 
+/* Metric-tuned fallback (L-10): the variable font loads with
+   `font-display: swap`, so text first paints in the fallback. Overriding the
+   fallback's metrics toward Plus Jakarta Sans shrinks the reflow when the
+   real font swaps in — a CLS window the perf gate cannot see. Values derived
+   from the two fonts' vertical metrics and average glyph widths (Plus Jakarta
+   Sans: 1000 upm, ascent 1050, descent 300 vs Arial); approximate on purpose
+   — any tuned override beats untuned Arial. */
+@font-face {
+	font-family: 'Plus Jakarta Sans Fallback';
+	src: local('Arial');
+	size-adjust: 105.2%;
+	ascent-override: 99.8%;
+	descent-override: 28.5%;
+	line-gap-override: 0%;
+}
+
 @theme {
-	--font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-sans:
+		'Plus Jakarta Sans Variable', 'Plus Jakarta Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+	/* The landing's single motion curve (L-10) — use `ease-glide`, never an
+	   inline cubic-bezier literal. */
+	--ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Scroll-driven entry reveals (landing): the `reveal` action adds
    `reveal-hidden` on mount and `reveal-shown` on intersection. All rules sit
-   behind prefers-reduced-motion, so reduced-motion users (and no-JS visitors,
-   for whom the action never runs) always see static, fully visible content. */
-@media (prefers-reduced-motion: no-preference) {
+   behind prefers-reduced-motion AND `screen` (L-10: printing a landing page
+   mid-scroll must not yield blank pages), so reduced-motion users, print and
+   no-JS visitors (for whom the action never runs) always see static, fully
+   visible content. */
+@media screen and (prefers-reduced-motion: no-preference) {
 	html {
 		scroll-behavior: smooth;
 	}
@@ -24,8 +46,8 @@
 		opacity: 0;
 		transform: translateY(2.5rem);
 		transition:
-			opacity 800ms cubic-bezier(0.32, 0.72, 0, 1),
-			transform 800ms cubic-bezier(0.32, 0.72, 0, 1);
+			opacity 800ms var(--ease-glide),
+			transform 800ms var(--ease-glide);
 		transition-delay: var(--reveal-delay, 0ms);
 	}
 	.reveal-hidden.reveal-shown {

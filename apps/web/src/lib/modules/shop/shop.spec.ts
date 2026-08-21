@@ -340,7 +340,11 @@ describe('cart details and checkout session', () => {
 		// priceCents 0 is the admin default before a price is set; pre-fix it
 		// listed at "0,00 lei" and only failed at Stripe's minimum charge.
 		const unpriced = await makeProduct({ name: 'Fără preț activ', priceCents: 0 });
-		const details = await loadCartDetails({ db }, [{ productId: unpriced.id, qty: 1 }], SLEEP_PILLARS);
+		const details = await loadCartDetails(
+			{ db },
+			[{ productId: unpriced.id, qty: 1 }],
+			SLEEP_PILLARS
+		);
 		expect(details.lines[0].available).toBe(false);
 		expect(details.totalCents).toBe(0);
 

@@ -24,18 +24,22 @@ export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
 
 export interface SleepPattern {
 	slug: string;
-	/** Deck-verbatim card title. */
-	title: string;
 	/** Archetypes whose mechanism produces this lived pattern. */
 	archetypeIds: readonly ArchetypeId[];
 }
 
-export const SLEEP_PATTERNS: readonly SleepPattern[] = [
+/**
+ * Card copy (title/symptom/mechanism) lives in Paraglide (`home_pattern_*`),
+ * not here (L-10) — this list is the slug + archetype mapping only.
+ * `satisfies` keeps the slugs as LITERAL types so `PatternSlug` below is a
+ * union: a copy map keyed on it fails to COMPILE when a slug is renamed
+ * (review M-14), instead of shipping a half-empty card.
+ */
+export const SLEEP_PATTERNS = [
 	{
 		// "Corpul e obosit, capul nu se oprește" — evening activation:
 		// guard up (ST), running lists (MN), replays (RU), self-evaluation (PE).
 		slug: 'adormitul-imposibil',
-		title: 'ADORMITUL IMPOSIBIL',
 		archetypeIds: ['ST', 'MN', 'RU', 'PE']
 	},
 	{
@@ -43,21 +47,21 @@ export const SLEEP_PATTERNS: readonly SleepPattern[] = [
 		// tension (VU), a dysregulated HPA axis (EP), or a mind that reopens
 		// the day's files the moment it surfaces (RU).
 		slug: 'trezirea-de-la-3',
-		title: 'TREZIREA DE LA 3',
 		archetypeIds: ['RU', 'VU', 'EP']
 	},
 	{
 		// Non-restorative sleep — depth: fragmentation by stimuli (AN), a body
 		// that never got permission to stop (SA), exhausted reserves (EP).
 		slug: 'somnul-care-nu-odihneste',
-		title: 'SOMNUL CARE NU ODIHNEȘTE',
 		archetypeIds: ['AN', 'SA', 'EP']
 	},
 	{
 		// Displaced circadian clock — synchronisation: late-night stimulation
 		// (FU) and "just one more task" evenings that push the whole schedule (MN).
 		slug: 'ritmul-dat-peste-cap',
-		title: 'RITMUL DAT PESTE CAP',
 		archetypeIds: ['FU', 'MN']
 	}
-] as const;
+] as const satisfies readonly SleepPattern[];
+
+/** The four pattern slugs as a literal union — see SLEEP_PATTERNS. */
+export type PatternSlug = (typeof SLEEP_PATTERNS)[number]['slug'];

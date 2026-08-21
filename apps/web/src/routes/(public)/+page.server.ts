@@ -18,8 +18,9 @@ const ARCHETYPES_BY_ID = new Map(ARCHETYPE_PAGES.map((page) => [page.id, page]))
 export const load: PageServerLoad = async () => ({
 	nightMapSkus: await activeNightMapSkus({ db: getDb() }, getSite().pillars),
 	patterns: SLEEP_PATTERNS.map((pattern) => ({
+		// Card copy (incl. the title) is Paraglide keyed on this literal slug —
+		// see LandingPatterns' compile-checked copy map (M-14).
 		slug: pattern.slug,
-		title: pattern.title,
 		archetypes: pattern.archetypeIds.map((id) => {
 			const archetype = ARCHETYPES_BY_ID.get(id);
 			if (!archetype) throw new Error(`No archetype page for id "${id}"`);

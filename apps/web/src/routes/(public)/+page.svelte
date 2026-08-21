@@ -48,7 +48,7 @@
 						<a
 							href={resolve('/(public)/magazin/[slug]', { slug: sku.slug })}
 							data-testid="nightmap-sku-link"
-							class="inline-flex rounded-full border border-white/15 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-(--color-night-ink) transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:scale-[1.04] hover:border-(--color-moon)/40 active:scale-[0.97]"
+							class="inline-flex rounded-full border border-white/15 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-(--color-night-ink) transition-transform duration-500 ease-glide hover:scale-[1.04] hover:border-(--color-moon)/40 active:scale-[0.97]"
 						>
 							{sku.label}
 						</a>

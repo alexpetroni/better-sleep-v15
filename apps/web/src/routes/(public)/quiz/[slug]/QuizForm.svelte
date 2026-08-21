@@ -34,12 +34,8 @@
 			headers: { 'x-quiz-attempt': crypto.randomUUID() }
 		}
 	};
-	const state = createFormState(config, {
-		// svelte-ignore state_referenced_locally
-		storageKey: `quiz-${quiz.slug}`,
-		// svelte-ignore state_referenced_locally
-		version: quiz.version
-	});
+	// svelte-ignore state_referenced_locally
+	const state = createFormState(config, { storageKey: `quiz-${quiz.slug}`, version: quiz.version });
 </script>
 
 <div class="formcomp">

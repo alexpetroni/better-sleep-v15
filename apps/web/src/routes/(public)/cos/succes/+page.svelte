@@ -29,9 +29,14 @@
 			{/each}
 			{#if data.shippingCents > 0}
 				<!-- Paid shipping is a line of its own (L-6): the rows must sum to the total. -->
-				<li class="flex items-center justify-between gap-4 px-4 py-3" data-testid="success-shipping">
+				<li
+					class="flex items-center justify-between gap-4 px-4 py-3"
+					data-testid="success-shipping"
+				>
 					<span>
-						{m.success_shipping()}{#if data.shippingName}{' '}({data.shippingName}){/if}
+						{data.shippingName
+							? `${m.success_shipping()} (${data.shippingName})`
+							: m.success_shipping()}
 					</span>
 					<span class="font-semibold">{formatCents(data.shippingCents, data.currency)}</span>
 				</li>

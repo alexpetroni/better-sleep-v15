@@ -259,7 +259,8 @@ export async function listPublishedBySlugs(
 	const position = new Map(slugs.map((slug, index) => [slug, index]));
 	return rows.toSorted(
 		(a, b) =>
-			(position.get(a.article.slug) ?? slugs.length) - (position.get(b.article.slug) ?? slugs.length)
+			(position.get(a.article.slug) ?? slugs.length) -
+			(position.get(b.article.slug) ?? slugs.length)
 	);
 }
 

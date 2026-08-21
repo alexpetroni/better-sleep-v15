@@ -19,7 +19,7 @@
 	{href}
 	data-testid={testid}
 	class={[
-		'group inline-flex items-center gap-3 rounded-full py-3 pr-2 pl-7 text-base font-semibold transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:scale-[1.02] active:scale-[0.98]',
+		'group inline-flex items-center gap-3 rounded-full py-3 pr-2 pl-7 text-base font-semibold transition-transform duration-500 ease-glide hover:scale-[1.02] active:scale-[0.98]',
 		variant === 'moon' ? 'bg-(--color-moon) text-(--color-night)' : 'bg-(--color-brand) text-white'
 	]}
 >
@@ -27,7 +27,7 @@
 	<span
 		aria-hidden="true"
 		class={[
-			'flex h-9 w-9 items-center justify-center rounded-full transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-1 group-hover:-translate-y-px group-hover:scale-105',
+			'flex h-9 w-9 items-center justify-center rounded-full transition-transform duration-500 ease-glide group-hover:translate-x-1 group-hover:-translate-y-px group-hover:scale-105',
 			variant === 'moon' ? 'bg-(--color-night)/10' : 'bg-white/15'
 		]}
 	>

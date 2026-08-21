@@ -17,7 +17,9 @@
 	<div class="mx-auto max-w-6xl px-5 sm:px-8">
 		<div class="mx-auto max-w-2xl">
 			<div use:reveal aria-hidden="true">
-				<Eyebrow label="09" />
+				<!-- Numbered by render position (L-10): deck blocks 8/10 don't ship,
+				     so the visible sequence must not skip. -->
+				<Eyebrow label="08" />
 			</div>
 			<h2
 				use:reveal={{ delay: 90 }}
@@ -39,7 +41,7 @@
 								<span class="text-base font-bold">„{objection.question}”</span>
 								<span
 									aria-hidden="true"
-									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-open:rotate-45"
+									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 transition-transform duration-500 ease-glide group-open:rotate-45"
 								>
 									<svg
 										viewBox="0 0 24 24"

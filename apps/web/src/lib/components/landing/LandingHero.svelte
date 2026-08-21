@@ -14,7 +14,7 @@
 
 <section
 	data-testid="landing-hero"
-	class="relative flex min-h-[100dvh] items-center overflow-hidden bg-(--color-night) text-(--color-night-ink)"
+	class="relative flex min-h-[100svh] items-center overflow-hidden bg-(--color-night) text-(--color-night-ink)"
 >
 	<!-- Night sky: radial brand/moon glows + a moon disc, gradients only (no blur filters). -->
 	<div aria-hidden="true" class="pointer-events-none absolute inset-0">
@@ -57,7 +57,7 @@
 				<a
 					href="#cum-functioneaza"
 					data-testid="hero-cta-secondary"
-					class="inline-flex items-center rounded-full px-6 py-3 text-base font-semibold text-(--color-night-ink) ring-1 ring-white/15 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:scale-[1.02] active:scale-[0.98]"
+					class="inline-flex items-center rounded-full px-6 py-3 text-base font-semibold text-(--color-night-ink) ring-1 ring-white/15 transition-transform duration-500 ease-glide hover:scale-[1.02] active:scale-[0.98]"
 				>
 					{m.home_hero_cta_secondary()}
 				</a>
@@ -66,7 +66,8 @@
 				use:reveal={{ delay: 360 }}
 				class="mt-12 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-(--color-night-muted)"
 			>
-				{#each trust as item, i (item)}
+				<!-- Keyed by index (L-10): keying by translated string crashes dev on duplicates. -->
+				{#each trust as item, i (i)}
 					{#if i > 0}
 						<li aria-hidden="true" class="text-(--color-night-muted)/50">·</li>
 					{/if}

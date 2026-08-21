@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import messages from '../../../messages/ro.json';
+import pinnedLandingCopy from './landing-copy.pinned.json';
 import { ARCHETYPE_PAGES, SLEEP_PATTERNS } from '../../lib/modules/quiz/index.ts';
 import {
 	filterNightMapSkus,
@@ -34,8 +35,9 @@ const data = (await load({} as never)) as {
 
 describe('landing +page.server load', () => {
 	it('supplies the four deck patterns in deck order', () => {
+		// Card copy is Paraglide keyed on these literal slugs (M-14) — render
+		// coverage lives in landing-render.spec.ts.
 		expect(data.patterns.map((p) => p.slug)).toEqual(SLEEP_PATTERNS.map((p) => p.slug));
-		expect(data.patterns.map((p) => p.title)).toEqual(SLEEP_PATTERNS.map((p) => p.title));
 	});
 
 	it('links every pattern to real archetype pages, covering all nine', () => {
@@ -78,6 +80,20 @@ describe('landing +page.server load', () => {
 	});
 });
 
+describe('the full home_* namespace is pinned (M-15)', () => {
+	it('every landing message matches the checked-in extraction of the deck', () => {
+		// landing-copy.pinned.json is the committed deck extraction (verified
+		// against .initialData/somnium-landing-copy-deck.md at BS-5/BS-10): ANY
+		// edit to a home_* message — or a new/removed key — fails here until
+		// the pin is consciously regenerated alongside the copy change.
+		// Per-block RENDER coverage lives in landing-render.spec.ts.
+		const home = Object.fromEntries(
+			Object.entries(messages as Record<string, string>).filter(([key]) => key.startsWith('home_'))
+		);
+		expect(home).toEqual(pinnedLandingCopy);
+	});
+});
+
 describe('landing copy is deck-verbatim', () => {
 	// The copy deck (.initialData/somnium-landing-copy-deck.md) is the spec:
 	// these strings must ship exactly as written there. A "helpful" rewording
@@ -109,6 +125,13 @@ describe('landing copy is deck-verbatim', () => {
 	});
 
 	it('pattern cards (block 3)', () => {
+		// Deck titles are ALL-CAPS as presentation; the messages hold mixed
+		// case and the card uppercases via CSS (L-10 — screen readers must not
+		// spell out baked capitals; the night map already did it this way).
+		expect(messages.home_pattern_adormitul_imposibil_title).toBe('Adormitul imposibil');
+		expect(messages.home_pattern_trezirea_de_la_3_title).toBe('Trezirea de la 3');
+		expect(messages.home_pattern_somnul_care_nu_odihneste_title).toBe('Somnul care nu odihnește');
+		expect(messages.home_pattern_ritmul_dat_peste_cap_title).toBe('Ritmul dat peste cap');
 		expect(messages.home_pattern_adormitul_imposibil_mechanism).toBe(
 			'Cortizol seara. Problema e activarea, nu lipsa de somn.'
 		);

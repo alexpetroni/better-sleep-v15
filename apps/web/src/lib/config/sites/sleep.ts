@@ -19,7 +19,6 @@ export const sleepSite: SiteConfig = {
 		// final CTA): the brand indigo dropped to night lightness. "moon" is the
 		// warm highlight that carries CTAs and time marks on dark ground.
 		'color-night': 'oklch(0.16 0.04 278)',
-		'color-night-raised': 'oklch(0.21 0.05 278)',
 		'color-night-ink': 'oklch(0.94 0.015 278)',
 		'color-night-muted': 'oklch(0.78 0.03 278)',
 		'color-moon': 'oklch(0.87 0.09 85)'

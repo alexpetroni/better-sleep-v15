@@ -1,8 +1,9 @@
 <script lang="ts" module>
+	import type { PatternSlug } from '$lib/modules/quiz';
+
 	/** What the landing load supplies per deck-block-3 card (BS-2 mapping). */
 	export interface PatternCard {
-		slug: string;
-		title: string;
+		slug: PatternSlug;
 		archetypes: { name: string; slug: string }[];
 	}
 </script>
@@ -11,26 +12,37 @@
 	import { resolve } from '$app/paths';
 	import { m } from '$lib/paraglide/messages';
 	import { ARCHETYPE_QUIZ_SLUG } from '$lib/modules/quiz';
+	import BezelCard from './BezelCard.svelte';
 	import Eyebrow from './Eyebrow.svelte';
 	import { reveal } from './reveal.ts';
 
 	let { patterns }: { patterns: PatternCard[] } = $props();
 
-	// Deck-verbatim card copy, keyed by the pattern slugs from `SLEEP_PATTERNS`.
-	const copy: Record<string, { symptom: () => string; mechanism: () => string }> = {
+	// Deck-verbatim card copy. Keyed on the LITERAL slug union (M-14): renaming
+	// a slug in SLEEP_PATTERNS is a compile error here, never a silently
+	// half-empty card. Titles render mixed-case with CSS uppercase (L-10) so
+	// screen readers don't spell out baked ALL-CAPS.
+	const copy: Record<
+		PatternSlug,
+		{ title: () => string; symptom: () => string; mechanism: () => string }
+	> = {
 		'adormitul-imposibil': {
+			title: m.home_pattern_adormitul_imposibil_title,
 			symptom: m.home_pattern_adormitul_imposibil_symptom,
 			mechanism: m.home_pattern_adormitul_imposibil_mechanism
 		},
 		'trezirea-de-la-3': {
+			title: m.home_pattern_trezirea_de_la_3_title,
 			symptom: m.home_pattern_trezirea_de_la_3_symptom,
 			mechanism: m.home_pattern_trezirea_de_la_3_mechanism
 		},
 		'somnul-care-nu-odihneste': {
+			title: m.home_pattern_somnul_care_nu_odihneste_title,
 			symptom: m.home_pattern_somnul_care_nu_odihneste_symptom,
 			mechanism: m.home_pattern_somnul_care_nu_odihneste_mechanism
 		},
 		'ritmul-dat-peste-cap': {
+			title: m.home_pattern_ritmul_dat_peste_cap_title,
 			symptom: m.home_pattern_ritmul_dat_peste_cap_symptom,
 			mechanism: m.home_pattern_ritmul_dat_peste_cap_mechanism
 		}
@@ -58,21 +70,16 @@
 					use:reveal={{ delay: (i % 2) * 100 }}
 					data-testid="pattern-card"
 					data-pattern={pattern.slug}
-					class="rounded-[2rem] bg-black/5 p-1.5 ring-1 ring-black/5"
 				>
-					<div
-						class="flex h-full flex-col rounded-[calc(2rem-0.375rem)] bg-white p-7 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)] sm:p-8"
-					>
-						<h3 class="text-lg font-extrabold tracking-[0.08em] text-(--color-brand)">
-							{pattern.title}
+					<BezelCard class="h-full" innerClass="flex h-full flex-col bg-white p-7 sm:p-8">
+						<h3 class="text-lg font-extrabold tracking-[0.08em] text-(--color-brand) uppercase">
+							{c.title()}
 						</h3>
-						{#if c}
-							<p class="mt-3 text-base leading-relaxed">{c.symptom()}</p>
-							<p class="mt-4 flex gap-2 text-sm leading-relaxed font-medium text-(--color-ink)/70">
-								<span aria-hidden="true" class="text-(--color-accent)">→</span>
-								{c.mechanism()}
-							</p>
-						{/if}
+						<p class="mt-3 text-base leading-relaxed">{c.symptom()}</p>
+						<p class="mt-4 flex gap-2 text-sm leading-relaxed font-medium text-(--color-ink)/70">
+							<span aria-hidden="true" class="text-(--color-accent)">→</span>
+							{c.mechanism()}
+						</p>
 						<div class="mt-6 border-t border-black/5 pt-5">
 							<p class="text-[11px] font-medium tracking-[0.14em] text-(--color-ink)/70 uppercase">
 								{m.home_patterns_archetypes_label()}
@@ -83,7 +90,7 @@
 										<a
 											href={resolve('/(public)/tipuri/[archetype]', { archetype: archetype.slug })}
 											data-testid="pattern-archetype-link"
-											class="inline-flex rounded-full bg-(--color-brand-soft)/50 px-3.5 py-1.5 text-sm font-semibold text-(--color-brand) ring-1 ring-black/5 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:scale-[1.04] active:scale-[0.97]"
+											class="inline-flex rounded-full bg-(--color-brand-soft)/50 px-3.5 py-1.5 text-sm font-semibold text-(--color-brand) ring-1 ring-black/5 transition-transform duration-500 ease-glide hover:scale-[1.04] active:scale-[0.97]"
 										>
 											{archetype.name}
 										</a>
@@ -91,7 +98,7 @@
 								{/each}
 							</ul>
 						</div>
-					</div>
+					</BezelCard>
 				</article>
 			{/each}
 		</div>

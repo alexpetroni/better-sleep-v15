@@ -61,5 +61,7 @@ export function updateGeneratedManifest(
 
 /** Serialized manifest file content (stable formatting for clean diffs). */
 export function serializeGeneratedManifest(manifest: GeneratedManifest): string {
-	return JSON.stringify({ article: manifest.article, product: manifest.product }, null, '\t') + '\n';
+	return (
+		JSON.stringify({ article: manifest.article, product: manifest.product }, null, '\t') + '\n'
+	);
 }
