@@ -64,6 +64,11 @@ export const ENV_MATRIX: readonly EnvVarSpec[] = [
 	// launch-check.ts and by the live signature probe, not by a value list.
 	{ name: 'IMGPROXY_KEY' },
 	{ name: 'IMGPROXY_SALT' },
+	// Not required at boot (unset selects the mock gateway for dev/tests), but
+	// a LIVE env (EMAIL_DRYRUN=false) requires a present sk_live_ key — the
+	// rule lives in launch-check.ts; it is listed here so the matrix stays the
+	// single declaration of every deploy-relevant variable.
+	{ name: 'STRIPE_SECRET_KEY' },
 	// Not required at boot (only when STRIPE_SECRET_KEY is set — see boot.ts),
 	// but its committed dev value must still never reach a production env:
 	{ name: 'STRIPE_WEBHOOK_SECRET', devDefaults: ['whsec_dev_only_secret_change_me'] },

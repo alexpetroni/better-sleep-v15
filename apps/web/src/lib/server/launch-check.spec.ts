@@ -38,6 +38,24 @@ function imgproxyProdEnv(): Record<string, string | undefined> {
 	};
 }
 
+/**
+ * A fully LIVE env (EMAIL_DRYRUN=false): every real provider selected. The
+ * BS-7 provider rules (review C-1/H-7) key on this signal, so their cases
+ * knock single values out of this base.
+ */
+function liveEnv(): Record<string, string | undefined> {
+	return {
+		...prodEnv(),
+		EMAIL_DRYRUN: 'false',
+		RESEND_API_KEY: 're_live_key',
+		STRIPE_SECRET_KEY: 'sk_live_real_key',
+		STRIPE_WEBHOOK_SECRET: 'whsec_live_real',
+		CHAT_PROVIDER: 'anthropic',
+		ANTHROPIC_API_KEY: 'sk-ant-live',
+		COURIER_PROVIDER: 'sameday'
+	};
+}
+
 function vercelEnv(): Record<string, string | undefined> {
 	return {
 		...prodEnv(),
@@ -184,6 +202,54 @@ const CASES: Array<{
 		},
 		message: /STRIPE_SECRET_KEY is a TEST key/
 	},
+	// BS-7 (review C-1): pre-phase, a live env with NO Stripe key at all passed
+	// clean — and the mock gateway redirected real customers to a dead
+	// checkout.stripe.com URL. These cases fail against that behavior.
+	{
+		name: 'a MISSING Stripe key in a live (EMAIL_DRYRUN=false) env',
+		base: liveEnv,
+		mutate: (env) => delete env.STRIPE_SECRET_KEY,
+		message: /STRIPE_SECRET_KEY is not set in a live env/
+	},
+	{
+		name: 'a non-secret-shaped Stripe key in a live env',
+		base: liveEnv,
+		mutate: (env) => (env.STRIPE_SECRET_KEY = 'rk_live_restricted'),
+		message: /STRIPE_SECRET_KEY does not look like a live secret key/
+	},
+	// BS-7 (review H-7): pre-phase, launch:check said nothing about the chat
+	// and courier providers — a live deploy shipped canned chat answers and
+	// fake AWBs with a green preflight.
+	{
+		name: 'the mock chat provider in a live env',
+		base: liveEnv,
+		mutate: (env) => {
+			env.CHAT_PROVIDER = 'mock';
+			delete env.ANTHROPIC_API_KEY;
+		},
+		message: /CHAT_PROVIDER is "mock" in a live env/
+	},
+	{
+		name: 'an unset chat provider in a live env',
+		base: liveEnv,
+		mutate: (env) => {
+			delete env.CHAT_PROVIDER;
+			delete env.ANTHROPIC_API_KEY;
+		},
+		message: /CHAT_PROVIDER is unset in a live env/
+	},
+	{
+		name: 'the mock courier in a live env',
+		base: liveEnv,
+		mutate: (env) => (env.COURIER_PROVIDER = 'mock'),
+		message: /COURIER_PROVIDER is "mock" in a live env .* FAKE AWBs/
+	},
+	{
+		name: 'an unset courier in a live env',
+		base: liveEnv,
+		mutate: (env) => delete env.COURIER_PROVIDER,
+		message: /COURIER_PROVIDER is unset in a live env/
+	},
 	{
 		name: 'EMAIL_DRYRUN=false without a Resend key',
 		mutate: (env) => (env.EMAIL_DRYRUN = 'false'),
@@ -219,6 +285,22 @@ describe('launch:check rules', () => {
 
 	it('passes a complete imgproxy (self-hosted) prod env too', () => {
 		expect(launchCheckProblems(imgproxyProdEnv(), { target: 'node' })).toEqual([]);
+	});
+
+	// BS-7: the live-provider rule family must accept a fully live env — the
+	// rules exist to catch mocks, not to make live unlaunchable.
+	it('passes a fully live env (sk_live_ + anthropic + sameday)', () => {
+		expect(launchCheckProblems(liveEnv(), { target: 'node' })).toEqual([]);
+	});
+
+	// BS-7: like the other conditional requirements, the live-provider rules
+	// hold even under --dev — EMAIL_DRYRUN=false is never a dev state.
+	it('--dev still enforces the live-provider rules when EMAIL_DRYRUN=false', () => {
+		const env = { ...devEnv(), EMAIL_DRYRUN: 'false', RESEND_API_KEY: 're_x' };
+		const problems = launchCheckProblems(env, { target: 'node', dev: true });
+		expect(problems.join('\n')).toMatch(/STRIPE_SECRET_KEY is not set in a live env/);
+		expect(problems.join('\n')).toMatch(/CHAT_PROVIDER is "mock" in a live env/);
+		expect(problems.join('\n')).toMatch(/COURIER_PROVIDER is unset in a live env/);
 	});
 
 	it.each(CASES)('flags $name', ({ target, base, mutate, message }) => {

@@ -68,6 +68,39 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 		problems.push(cause instanceof Error ? cause.message : String(cause));
 	}
 
+	// EMAIL_DRYRUN=false is the "this env is live" signal: real emails go out,
+	// so every mock-by-default provider must be its REAL implementation. These
+	// are conditional requirements (like RESEND_API_KEY above), so they hold
+	// even under --dev — a dev env is simply never EMAIL_DRYRUN=false.
+	// Without them a preflight-green deploy would redirect paying customers to
+	// a dead stripe.com URL (mock gateway), serve canned chat answers, and mail
+	// customers FAKE AWBs (review 2026-08-21 C-1/H-7).
+	if (env.EMAIL_DRYRUN === 'false') {
+		if (!env.STRIPE_SECRET_KEY) {
+			problems.push(
+				'STRIPE_SECRET_KEY is not set in a live env (EMAIL_DRYRUN=false) — the mock gateway would redirect customers to a dead checkout.stripe.com URL; set the sk_live_ key'
+			);
+		} else if (env.STRIPE_SECRET_KEY.startsWith('sk_test_')) {
+			problems.push(
+				'STRIPE_SECRET_KEY is a TEST key (sk_test_…) in a live env (EMAIL_DRYRUN=false) — set the live key, or keep EMAIL_DRYRUN=true until launch'
+			);
+		} else if (!env.STRIPE_SECRET_KEY.startsWith('sk_live_')) {
+			problems.push(
+				'STRIPE_SECRET_KEY does not look like a live secret key (sk_live_…) in a live env (EMAIL_DRYRUN=false)'
+			);
+		}
+		if (env.CHAT_PROVIDER !== 'anthropic') {
+			problems.push(
+				`CHAT_PROVIDER is ${env.CHAT_PROVIDER ? `"${env.CHAT_PROVIDER}"` : 'unset'} in a live env (EMAIL_DRYRUN=false) — the mock serves canned answers to real visitors; set CHAT_PROVIDER=anthropic (+ ANTHROPIC_API_KEY)`
+			);
+		}
+		if (env.COURIER_PROVIDER !== 'sameday') {
+			problems.push(
+				`COURIER_PROVIDER is ${env.COURIER_PROVIDER ? `"${env.COURIER_PROVIDER}"` : 'unset'} in a live env (EMAIL_DRYRUN=false) — the mock issues FAKE AWBs to real customers; set COURIER_PROVIDER=sameday (+ SAMEDAY_* credentials)`
+			);
+		}
+	}
+
 	if (opts.dev) return problems;
 
 	// --- production-only rules below ---------------------------------------
@@ -104,14 +137,6 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 	}
 
 	problems.push(...imageProviderProblems(env));
-
-	// EMAIL_DRYRUN=false is the "this env is live" signal: real emails go out,
-	// so a test-mode Stripe key is a mistake, not a stage.
-	if (env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && env.EMAIL_DRYRUN === 'false') {
-		problems.push(
-			'STRIPE_SECRET_KEY is a TEST key (sk_test_…) in a live env (EMAIL_DRYRUN=false) — set the live key, or keep EMAIL_DRYRUN=true until launch'
-		);
-	}
 
 	return problems;
 }
