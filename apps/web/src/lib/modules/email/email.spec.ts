@@ -118,14 +118,22 @@ describe('email templates', () => {
 });
 
 describe('shouldSkipResend', () => {
-	it('treats delivered, dry-run and in-flight rows as final', () => {
-		expect(shouldSkipResend('sent')).toBe(true);
-		expect(shouldSkipResend('dryrun')).toBe(true);
-		expect(shouldSkipResend('sending')).toBe(true);
+	it('treats delivered and in-flight rows as final in both modes', () => {
+		for (const dryRun of [true, false]) {
+			expect(shouldSkipResend('sent', { dryRun })).toBe(true);
+			expect(shouldSkipResend('sending', { dryRun })).toBe(true);
+		}
+	});
+
+	it('a dry-run row is final only while the sender still runs dry (L-3)', () => {
+		expect(shouldSkipResend('dryrun', { dryRun: true })).toBe(true);
+		// Live mode: the dry-run row delivered nothing — send for real.
+		expect(shouldSkipResend('dryrun', { dryRun: false })).toBe(false);
 	});
 
 	it('allows retrying failed rows', () => {
-		expect(shouldSkipResend('error')).toBe(false);
+		expect(shouldSkipResend('error', { dryRun: true })).toBe(false);
+		expect(shouldSkipResend('error', { dryRun: false })).toBe(false);
 	});
 });
 
@@ -211,6 +219,26 @@ describe('sendEmail idempotency (integration)', () => {
 		expect(outcomes.filter((o) => o.status === 'dryrun')).toHaveLength(1);
 		expect(outcomes.filter((o) => o.status === 'skipped')).toHaveLength(2);
 		expect(await rowsFor('race-1')).toHaveLength(1);
+	});
+
+	it('a live send supersedes an old dry-run row: delivered once, still one row (L-3)', async () => {
+		// The dry-run → live transition: the dry row recorded a send that never
+		// left the building. Pre-fix it satisfied idempotency forever and the
+		// first REAL send was silently suppressed.
+		const dry = createEmailSender({ db, dryRun: true, from: 'a@b.ro' });
+		expect((await dry.send(input('flip-1'))).status).toBe('dryrun');
+
+		const transport = fakeTransport();
+		const live = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		expect((await live.send(input('flip-1'))).status).toBe('sent');
+		expect(transport.send).toHaveBeenCalledTimes(1);
+
+		// Delivered — from here the key is final in both modes.
+		expect((await live.send(input('flip-1'))).status).toBe('skipped');
+		expect((await dry.send(input('flip-1'))).status).toBe('skipped');
+		const rows = await rowsFor('flip-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('sent');
 	});
 
 	it('real mode sends once through the transport, then skips', async () => {

@@ -427,6 +427,9 @@ real customer parcel.
 With `EMAIL_DRYRUN=true` (the default) every "send" is only recorded in the
 `email_log` table — that is the correct state until DNS is verified. All
 sends are idempotent (unique `idempotency_key`), so retries never double-send.
+Flipping to `EMAIL_DRYRUN=false` needs no cleanup: a dry-run log row recorded
+a send that never left the building, so a LIVE send with the same key
+supersedes it and delivers (once); only `sent` rows are final across modes.
 
 ## 9. Cron entries
 

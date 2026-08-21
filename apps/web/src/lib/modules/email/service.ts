@@ -59,11 +59,16 @@ export interface EmailSender {
 }
 
 /**
- * Idempotency decision for an already-logged key: only rows that failed may
- * be retried; delivered, dry-run and in-flight rows are final.
+ * Idempotency decision for an already-logged key: delivered and in-flight
+ * rows are always final; failed rows may be retried. A DRY-RUN row delivered
+ * nothing, so it is final only while the sender itself still runs dry (L-3):
+ * once the environment flips to `EMAIL_DRYRUN=false`, the same key may claim
+ * the row again and actually deliver — an old dry-run record can no longer
+ * silently suppress the first real send.
  */
-export function shouldSkipResend(status: EmailStatus): boolean {
-	return status === 'sent' || status === 'dryrun' || status === 'sending';
+export function shouldSkipResend(status: EmailStatus, opts: { dryRun: boolean }): boolean {
+	if (status === 'sent' || status === 'sending') return true;
+	return status === 'dryrun' && opts.dryRun;
 }
 
 export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
@@ -115,15 +120,16 @@ export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
 					.select()
 					.from(emailLog)
 					.where(eq(emailLog.idempotencyKey, input.idempotencyKey));
-				if (!existing || shouldSkipResend(existing.status)) {
+				if (!existing || shouldSkipResend(existing.status, { dryRun: cfg.dryRun })) {
 					return { status: 'skipped', logId: existing?.id ?? '' };
 				}
-				// A previous attempt failed — re-claim it. The status guard keeps
-				// concurrent retries from both winning.
+				// A previous attempt failed — or was a dry run and the sender is
+				// live now (L-3) — re-claim it. The status guard keeps concurrent
+				// retries from both winning.
 				const [reclaimed] = await cfg.db
 					.update(emailLog)
 					.set({ status: claimStatus, error: null, updatedAt: new Date() })
-					.where(and(eq(emailLog.id, existing.id), eq(emailLog.status, 'error')))
+					.where(and(eq(emailLog.id, existing.id), eq(emailLog.status, existing.status)))
 					.returning();
 				if (!reclaimed) return { status: 'skipped', logId: existing.id };
 				claimed = reclaimed;

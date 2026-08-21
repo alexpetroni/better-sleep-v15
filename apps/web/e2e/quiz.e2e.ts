@@ -202,6 +202,45 @@ test('visitor walks all 12 archetype questions to a rendered archetype result �
 	}
 });
 
+test('a TIED answer set resolves by declaration order: Străjerul beats Managerul at 10–10 (L-16)', async ({
+	page
+}) => {
+	// This answer set scores ST:10 MN:10 (next best 2) — an exact top-two tie.
+	// The contract (H-1): equal scores resolve to the EARLIER entry of the
+	// scoring config's ordered `dimensions` array, so Străjerul must win and
+	// Managerul must render as the runner-up. Pre-BS-9, jsonb key-sorting made
+	// this same submission elect Managerul in production.
+	await page.goto('/quiz/arhetip-somn');
+	await expect(page.getByRole('heading', { name: 'Testul de somn' })).toBeVisible();
+
+	await pick(page, 'seara_in_pat', 'telefon');
+	await pick(page, 'seara_corp', 'alerta');
+	await pick(page, 'seara_ganduri', 'sarcini');
+	await pick(page, 'seara_amanare', 'lucrez');
+	await page.getByRole('button', { name: 'Înainte' }).click();
+
+	await pick(page, 'noapte_treziri', 'zgomot');
+	await pick(page, 'noapte_cauza', 'alarma');
+	await pick(page, 'noapte_reactie', 'planuri');
+	await pick(page, 'dimineata', 'de-facut');
+	await page.getByRole('button', { name: 'Înainte' }).click();
+
+	await pick(page, 'zi_tipar', 'garda-zi');
+	await pick(page, 'zi_odihna', 'organizata');
+	await pick(page, 'semne_corp', 'niciuna');
+	await pick(page, 'fraza', 'st');
+	await page.getByRole('button', { name: 'Trimite răspunsurile' }).click();
+
+	await expect(page).toHaveURL(/\/quiz\/arhetip-somn\/rezultat\/[a-f0-9-]+$/);
+	await expect(page.getByTestId('result-archetype')).toHaveText('Străjerul');
+	await expect(page.getByTestId('result-runner-up')).toContainText('Managerul');
+
+	// The winner links to its /tipuri guide (L-13) — the natural next click.
+	await page.getByTestId('result-archetype-link').click();
+	await expect(page).toHaveURL(/\/tipuri\/strajerul$/);
+	await expect(page.getByRole('heading', { name: 'Străjerul' })).toBeVisible();
+});
+
 test('footer newsletter signup starts double opt-in from the blog', async ({ page }, testInfo) => {
 	const siteId = testInfo.project.name as keyof typeof SITE_DB_NAMES;
 	const email = `e2e-footer@example.com`;

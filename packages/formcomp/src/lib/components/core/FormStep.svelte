@@ -12,7 +12,9 @@
 
 	let { stepConfig, warningGroupId = null, warningMessage }: Props = $props();
 
-	// Set step ID context — this component is re-created via {#key} on step change
+	// Set step ID context — this component is re-created via {#key} on step
+	// change, so reading the initial prop here is the contract (L-1).
+	// svelte-ignore state_referenced_locally
 	setContext(STEP_ID_KEY, stepConfig.id);
 </script>
 

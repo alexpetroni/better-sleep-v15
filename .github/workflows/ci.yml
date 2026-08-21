@@ -1,0 +1,85 @@
+# Test CI (review L-15): every push/PR runs the SAME root quality gate the
+# repo's working rules require locally — `pnpm lint && pnpm check &&
+# pnpm test:unit` — against the compose Postgres + MinIO, plus the pg-vs-neon
+# driver-parity suite through the local Neon-protocol wsproxy (`pnpm
+# test:neon`), which `test:unit` deliberately skips when the proxy is absent.
+# Without this second job the driver production runs on (DB_DRIVER=neon over
+# WebSockets) would never be exercised by any automated run.
+#
+# Env: `.env.example`'s defaults are the working dev/CI configuration; only
+# the imgproxy key pair has no default (the compose file refuses interpolation
+# without one), so the workflow generates a throwaway pair. Email always runs
+# dry; Stripe/courier/chat stay mocks — no secret reaches this workflow.
+name: ci
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: root gate (lint + check + test:unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from packageManager in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Prepare env (.env.example defaults + throwaway imgproxy keys)
+        run: |
+          cp .env.example .env
+          sed -i "s/^IMGPROXY_KEY=.*/IMGPROXY_KEY=$(openssl rand -hex 32)/" .env
+          sed -i "s/^IMGPROXY_SALT=.*/IMGPROXY_SALT=$(openssl rand -hex 32)/" .env
+
+      - name: Start Postgres + MinIO
+        run: docker compose up -d --wait db minio
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Root gate
+        run: pnpm lint && pnpm check && pnpm test:unit
+
+  neon:
+    name: driver parity over the neon wsproxy (test:neon)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Prepare env (.env.example defaults + throwaway imgproxy keys)
+        run: |
+          cp .env.example .env
+          sed -i "s/^IMGPROXY_KEY=.*/IMGPROXY_KEY=$(openssl rand -hex 32)/" .env
+          sed -i "s/^IMGPROXY_SALT=.*/IMGPROXY_SALT=$(openssl rand -hex 32)/" .env
+
+      - name: Start Postgres + MinIO + neon wsproxy
+        run: docker compose --profile neon up -d --build --wait
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Full suite over the neon driver
+        run: pnpm test:neon

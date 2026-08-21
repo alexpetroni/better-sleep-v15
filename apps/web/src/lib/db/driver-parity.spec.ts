@@ -26,6 +26,16 @@ import { pillars } from './schema/core.ts';
 
 const PROXY = process.env.NEON_WS_PROXY;
 
+// Surface the skip LOUDLY (L-15): a green default run has NOT exercised the
+// driver production runs on — only `pnpm test:neon` (locally or the CI `neon`
+// job) does. Without this line the skip hides inside vitest's skip count.
+if (!PROXY) {
+	console.warn(
+		'[driver-parity] NEON_WS_PROXY unset — the pg-vs-neon behavior suite is SKIPPED this run. ' +
+			'Run `docker compose --profile neon up -d --build` then `pnpm test:neon` (CI runs it in the `neon` job).'
+	);
+}
+
 function testUrl(): string {
 	const url = process.env.TEST_DATABASE_URL;
 	if (!url) throw new Error('TEST_DATABASE_URL is not set — see .env.example');

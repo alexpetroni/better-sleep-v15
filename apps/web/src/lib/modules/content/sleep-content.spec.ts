@@ -6,6 +6,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
 import { seedPillars } from '../../db/seed.ts';
 import { articlePillars, articles } from '../blog/schema.ts';
+import { listPublished } from '../blog/service.ts';
 import { NIGHT_MAP_SKUS } from '../shop/night-map.ts';
 import { productPillars, products } from '../shop/schema.ts';
 import { formatCents } from '../../util/money.ts';
@@ -173,6 +174,24 @@ describe('the committed content/sleep article bundles', () => {
 			expect(row, slug).toBeDefined();
 			expect(row.status, slug).toBe('active');
 		}
+	});
+
+	it('paginates the REAL 40-article corpus: total 40, 5 disjoint pages (L-16)', async () => {
+		// The unit pagination tests are arithmetic-only and the e2e DB excludes
+		// article bundles — this is the one place pagination meets the corpus.
+		const seen: string[] = [];
+		for (let page = 1; page <= 5; page++) {
+			const list = await listPublished({ db }, { pillarSlugs: ['somn'], page });
+			expect(list.total, `page ${page}`).toBe(40);
+			expect(list.pageCount, `page ${page}`).toBe(5);
+			expect(list.items.length, `page ${page}`).toBe(page < 5 ? 9 : 4);
+			seen.push(...list.items.map((i) => i.article.slug));
+		}
+		// Disjoint and complete: every article appears on exactly one page.
+		expect(seen).toHaveLength(40);
+		expect(new Set(seen).size).toBe(40);
+		const beyond = await listPublished({ db }, { pillarSlugs: ['somn'], page: 6 });
+		expect(beyond.items).toEqual([]);
 	});
 
 	it('carries no English text from topics.json', async () => {
