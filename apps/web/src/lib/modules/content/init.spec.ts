@@ -41,7 +41,8 @@ function articleBundle(slug: string, title: string, pillarSlugs = ['somn']): Con
 			status: 'published',
 			publishedAt: '2026-06-01T08:00:00.000Z',
 			seoTitle: null,
-			seoDescription: null
+			seoDescription: null,
+			importKey: null
 		}
 	};
 }
@@ -78,7 +79,8 @@ function productBundle(slug: string, mediaId: string, key: string): ContentBundl
 			status: 'active',
 			coverMediaId: mediaId,
 			gallery: [],
-			stock: 5
+			stock: 5,
+			importKey: null
 		}
 	};
 }

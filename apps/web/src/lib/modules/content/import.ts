@@ -7,6 +7,7 @@ import { quizzes } from '../quiz/schema.ts';
 import { productPillars, products } from '../shop/schema.ts';
 import { remapMediaRefs, type ContentBundle, type MediaDescriptor } from './bundle.ts';
 import type { ContentDeps, ContentResult } from './export.ts';
+import { isRecord } from '../../util/object.ts';
 
 export interface ImportOptions {
 	/**
@@ -28,6 +29,43 @@ export interface ImportSummary {
 	pillarsTagged: string[];
 	/** Bundle pillars with no row in the target database (content stays untagged for them). */
 	pillarsSkipped: string[];
+}
+
+/**
+ * Deep value equality for the M-8 no-op check: Dates by timestamp, arrays by
+ * position, plain objects by keys (order-insensitive — jsonb re-sorts keys,
+ * so a stored quiz config must still compare equal to its authored bundle).
+ */
+function valueEquals(a: unknown, b: unknown): boolean {
+	if (Object.is(a, b)) return true;
+	if (a instanceof Date || b instanceof Date) {
+		return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+	}
+	if (Array.isArray(a) || Array.isArray(b)) {
+		return (
+			Array.isArray(a) &&
+			Array.isArray(b) &&
+			a.length === b.length &&
+			a.every((value, i) => valueEquals(value, b[i]))
+		);
+	}
+	if (isRecord(a) && isRecord(b)) {
+		const aKeys = Object.keys(a);
+		return (
+			aKeys.length === Object.keys(b).length &&
+			aKeys.every((key) => key in b && valueEquals(a[key], b[key]))
+		);
+	}
+	return false;
+}
+
+/**
+ * True when every mapped bundle field already matches the stored row — the
+ * UPDATE (and with it the `updated_at` bump that churns sitemap lastmod and
+ * JSON-LD dateModified on every re-seed, review M-8) can then be skipped.
+ */
+function rowUnchanged(existing: Record<string, unknown>, fields: Record<string, unknown>): boolean {
+	return Object.entries(fields).every(([key, value]) => valueEquals(value, existing[key]));
 }
 
 /** A free media primary key: the source id when unused in the target, else a fresh uuid. */
@@ -107,8 +145,10 @@ async function resolvePillars(
 
 /**
  * Import a bundle into the target database + bucket (both come from `deps`).
- * Idempotent by slug: an existing item is updated in place, a missing one is
- * created; re-importing the same bundle changes nothing and duplicates nothing.
+ * Idempotent: an existing item is matched by its stable `importKey` when the
+ * bundle carries one (slug renames update in place, review M-7) with slug as
+ * the legacy fallback, and updated in place — an unchanged bundle writes
+ * nothing at all, so `updated_at` survives re-seeds (review M-8).
  *
  * A bundle whose pillar slugs are ALL absent from the target database is
  * refused before anything is written (the item would be untagged → invisible
@@ -174,25 +214,37 @@ export async function importContent(
 		const a = bundle.article;
 		const cover = mapCover(a.coverMediaId);
 		if (!cover.ok) return cover;
+		// M-7: identity is the IMPORT KEY when the bundle carries one — a slug
+		// rename in the bundle then updates the same row instead of leaving the
+		// old slug behind as a second published article. Slug is the fallback
+		// for pre-key rows and admin exports; such a row adopts the key here.
+		let [existing] = a.importKey
+			? await db.select().from(articles).where(eq(articles.importKey, a.importKey))
+			: [];
+		if (!existing) [existing] = await db.select().from(articles).where(eq(articles.slug, a.slug));
 		// Spread the bundle content and override only the fields that need
 		// target-local translation — a new column travels without edits here.
-		// (slug stays: updates matched on it, so re-setting it is a no-op.)
 		const fields = {
 			...a,
 			bodyMd: remapMediaRefs(a.bodyMd, changed),
 			coverMediaId: cover.value,
-			publishedAt: a.publishedAt ? new Date(a.publishedAt) : null
+			publishedAt: a.publishedAt ? new Date(a.publishedAt) : null,
+			// A legacy bundle without a key must not erase one already stamped.
+			importKey: a.importKey ?? existing?.importKey ?? null
 		};
-		const [existing] = await db.select().from(articles).where(eq(articles.slug, a.slug));
 		let articleId: string;
 		let action: 'created' | 'updated';
 		if (existing) {
 			articleId = existing.id;
 			action = 'updated';
-			await db
-				.update(articles)
-				.set({ ...fields, updatedAt: new Date() })
-				.where(eq(articles.id, articleId));
+			// M-8: a byte-identical re-import skips the UPDATE entirely, so
+			// updated_at (sitemap lastmod, JSON-LD dateModified) stays put.
+			if (!rowUnchanged(existing, fields)) {
+				await db
+					.update(articles)
+					.set({ ...fields, updatedAt: new Date() })
+					.where(eq(articles.id, articleId));
+			}
 		} else {
 			articleId = crypto.randomUUID();
 			action = 'created';
@@ -216,10 +268,14 @@ export async function importContent(
 		};
 		const [existing] = await db.select().from(quizzes).where(eq(quizzes.slug, q.slug));
 		if (existing) {
-			await db
-				.update(quizzes)
-				.set({ ...fields, updatedAt: new Date() })
-				.where(eq(quizzes.id, existing.id));
+			// M-8: skip the no-op UPDATE (jsonb-stored configs compare via the
+			// key-order-insensitive valueEquals) so updated_at stays put.
+			if (!rowUnchanged(existing, fields)) {
+				await db
+					.update(quizzes)
+					.set({ ...fields, updatedAt: new Date() })
+					.where(eq(quizzes.id, existing.id));
+			}
 			return { ok: true, value: summary(q.slug, 'updated') };
 		}
 		const id = crypto.randomUUID();
@@ -242,13 +298,18 @@ export async function importContent(
 		}
 		gallery.push(target);
 	}
+	// M-7: same import-key-first identity as articles (see above).
+	let [existing] = p.importKey
+		? await db.select().from(products).where(eq(products.importKey, p.importKey))
+		: [];
+	if (!existing) [existing] = await db.select().from(products).where(eq(products.slug, p.slug));
 	const fields = {
 		...p,
 		descriptionMd: remapMediaRefs(p.descriptionMd, changed),
 		coverMediaId: cover.value,
-		gallery
+		gallery,
+		importKey: p.importKey ?? existing?.importKey ?? null
 	};
-	const [existing] = await db.select().from(products).where(eq(products.slug, p.slug));
 	let productId: string;
 	let action: 'created' | 'updated';
 	if (existing) {
@@ -257,10 +318,13 @@ export async function importContent(
 		// is unaffected either way: sessions snapshot prices from our rows.
 		productId = existing.id;
 		action = 'updated';
-		await db
-			.update(products)
-			.set({ ...fields, updatedAt: new Date() })
-			.where(eq(products.id, productId));
+		// M-8: a byte-identical re-import skips the UPDATE entirely.
+		if (!rowUnchanged(existing, fields)) {
+			await db
+				.update(products)
+				.set({ ...fields, updatedAt: new Date() })
+				.where(eq(products.id, productId));
+		}
 	} else {
 		productId = crypto.randomUUID();
 		action = 'created';

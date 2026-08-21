@@ -39,10 +39,18 @@ export const products = pgTable(
 		gallery: jsonb('gallery').$type<string[]>().notNull().default([]),
 		/** Units in stock; null = stock is not tracked (always purchasable). */
 		stock: integer('stock'),
+		/**
+		 * Stable external identity for the content-import upsert (review M-7):
+		 * generated bundles carry `zenyth-<url-segment>` from the captured
+		 * product URL, so a slug rename updates the SAME row instead of
+		 * orphaning the old one. Null for admin-authored rows.
+		 */
+		importKey: text('import_key'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(table) => [
+		uniqueIndex('products_import_key_uq').on(table.importKey),
 		index('products_status_idx').on(table.status),
 		index('products_cover_media_id_idx').on(table.coverMediaId)
 	]

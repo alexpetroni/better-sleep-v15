@@ -131,6 +131,9 @@ for (const topic of topics.toSorted((a, b) => a.id - b.id)) {
 			media: [],
 			article: {
 				slug: topic.slug,
+				// Stable import identity (M-7): a slug edit in topics.json then
+				// RENAMES the seeded row instead of orphaning the old slug.
+				importKey: `topic-${topic.id}`,
 				title,
 				excerpt: m.excerpt,
 				bodyMd,

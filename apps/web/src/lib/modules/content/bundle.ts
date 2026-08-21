@@ -95,7 +95,8 @@ export function articleToContent(row: ArticleRow): ArticleContent {
 		status: row.status,
 		publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
 		seoTitle: row.seoTitle,
-		seoDescription: row.seoDescription
+		seoDescription: row.seoDescription,
+		importKey: row.importKey
 	};
 }
 
@@ -121,7 +122,8 @@ export function productToContent(row: ProductRow): ProductContent {
 		status: row.status,
 		coverMediaId: row.coverMediaId,
 		gallery: row.gallery,
-		stock: row.stock
+		stock: row.stock,
+		importKey: row.importKey
 	};
 }
 
@@ -218,7 +220,9 @@ function validArticle(raw: unknown): raw is ArticleContent {
 		(raw.status === 'draft' || raw.status === 'published') &&
 		optionalString(raw.publishedAt) &&
 		optionalString(raw.seoTitle) &&
-		optionalString(raw.seoDescription)
+		optionalString(raw.seoDescription) &&
+		// Absent in pre-BS-9 bundles; import treats undefined as null.
+		(raw.importKey === undefined || optionalString(raw.importKey))
 	);
 }
 
@@ -248,7 +252,9 @@ function validProduct(raw: unknown): raw is ProductContent {
 		(raw.status === 'draft' || raw.status === 'active' || raw.status === 'archived') &&
 		optionalString(raw.coverMediaId) &&
 		isStringArray(raw.gallery) &&
-		optionalInt(raw.stock)
+		optionalInt(raw.stock) &&
+		// Absent in pre-BS-9 bundles; import treats undefined as null.
+		(raw.importKey === undefined || optionalString(raw.importKey))
 	);
 }
 

@@ -83,6 +83,7 @@ const ARTICLE_ROW = {
 	publishedAt: new Date('2026-07-01T00:00:00Z'),
 	seoTitle: 'SEO',
 	seoDescription: 'SEO desc',
+	importKey: 'topic-1',
 	createdBy: 'u-1',
 	createdAt: new Date('2026-06-01T00:00:00Z'),
 	updatedAt: new Date('2026-06-02T00:00:00Z')
@@ -116,6 +117,7 @@ const PRODUCT_ROW = {
 	coverMediaId: 'm-1',
 	gallery: ['m-1'],
 	stock: 5,
+	importKey: 'zenyth-un-produs',
 	createdAt: new Date('2026-06-01T00:00:00Z'),
 	updatedAt: new Date('2026-06-02T00:00:00Z')
 } satisfies typeof products.$inferSelect;

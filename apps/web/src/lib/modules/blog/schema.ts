@@ -1,4 +1,12 @@
-import { index, integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+	index,
+	integer,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	uniqueIndex
+} from 'drizzle-orm/pg-core';
 import { pillars } from '../../db/schema/core.ts';
 import { users } from '../auth/schema.ts';
 import { media } from '../media/schema.ts';
@@ -24,11 +32,19 @@ export const articles = pgTable(
 		publishedAt: timestamp('published_at', { withTimezone: true }),
 		seoTitle: text('seo_title'),
 		seoDescription: text('seo_description'),
+		/**
+		 * Stable external identity for the content-import upsert (review M-7):
+		 * generated bundles carry `topic-<id>` from topics.json, so a slug
+		 * rename updates the SAME row instead of orphaning the old one. Null
+		 * for admin-authored rows — those import/export by slug only.
+		 */
+		importKey: text('import_key'),
 		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(table) => [
+		uniqueIndex('articles_import_key_uq').on(table.importKey),
 		index('articles_status_published_at_idx').on(table.status, table.publishedAt),
 		index('articles_cover_media_id_idx').on(table.coverMediaId),
 		index('articles_created_by_idx').on(table.createdBy)

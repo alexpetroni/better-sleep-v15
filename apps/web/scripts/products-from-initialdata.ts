@@ -112,6 +112,9 @@ capture.products.forEach((product, index) => {
 			media: [],
 			product: {
 				slug,
+				// Stable import identity (M-7), pinned to the captured URL's last
+				// segment — survives a future editorial slug override.
+				importKey: `zenyth-${slug}`,
 				name: product.name,
 				descriptionMd,
 				// Integer bani; lowercase 'ron' is the schema default and what
