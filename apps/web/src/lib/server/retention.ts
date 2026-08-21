@@ -9,6 +9,10 @@ import type { Db } from '../db/client.ts';
 import { loginAttempts } from '../modules/auth/schema.ts';
 import { CHAT_RETENTION_DAYS, pruneChatSessions } from '../modules/chat/service.ts';
 import { NURTURE_RETENTION_DAYS, pruneNurtureEnrollments } from '../modules/nurture/service.ts';
+import {
+	pruneUnclaimedQuizResults,
+	QUIZ_RESULTS_RETENTION_DAYS
+} from '../modules/quiz/service.ts';
 import { PROCESSED_EVENTS_RETENTION_DAYS, pruneProcessedEvents } from './event-ledger/core.ts';
 import { pruneStaleRateLimits } from './rate-limit/core.ts';
 import { rateLimits } from './rate-limit/schema.ts';
@@ -24,9 +28,12 @@ export interface RetentionSweepResult {
 	processedEventRows: number;
 	/** Closed nurture enrollments (sends cascade) past their window. */
 	nurtureEnrollmentRows: number;
+	/** Unclaimed quiz results (no subscriber ever attached) past their window. */
+	quizResultRows: number;
 	retentionDays: number;
 	ledgerRetentionDays: number;
 	nurtureRetentionDays: number;
+	quizResultsRetentionDays: number;
 }
 
 /**
@@ -49,6 +56,11 @@ export async function runRetentionSweep(
 		now.getTime() - PROCESSED_EVENTS_RETENTION_DAYS * 24 * 60 * 60 * 1000
 	);
 	const nurtureCutoff = new Date(now.getTime() - NURTURE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+	// Unclaimed quiz results are attacker-insertable via the public submit
+	// endpoint (review H-6) — without a sweep the table only ever grows.
+	const quizResultsCutoff = new Date(
+		now.getTime() - QUIZ_RESULTS_RETENTION_DAYS * 24 * 60 * 60 * 1000
+	);
 	const chat = await pruneChatSessions(db, now);
 	return {
 		sessions: chat.sessions,
@@ -57,9 +69,11 @@ export async function runRetentionSweep(
 		loginRateLimitRows: await pruneStaleRateLimits(db, loginAttempts, cutoff),
 		processedEventRows: await pruneProcessedEvents(db, ledgerCutoff),
 		nurtureEnrollmentRows: await pruneNurtureEnrollments(db, nurtureCutoff),
+		quizResultRows: await pruneUnclaimedQuizResults(db, quizResultsCutoff),
 		retentionDays: CHAT_RETENTION_DAYS,
 		ledgerRetentionDays: PROCESSED_EVENTS_RETENTION_DAYS,
-		nurtureRetentionDays: NURTURE_RETENTION_DAYS
+		nurtureRetentionDays: NURTURE_RETENTION_DAYS,
+		quizResultsRetentionDays: QUIZ_RESULTS_RETENTION_DAYS
 	};
 }
 
@@ -70,6 +84,7 @@ export function formatRetentionSweep(r: RetentionSweepResult): string {
 		`${r.chatRateLimitRows} chat / ${r.publicEmailRateLimitRows} public-email / ` +
 		`${r.loginRateLimitRows} login rate-limit row(s), ` +
 		`${r.processedEventRows} processed-event row(s) older than ${r.ledgerRetentionDays} days, ` +
-		`${r.nurtureEnrollmentRows} closed nurture enrollment(s) older than ${r.nurtureRetentionDays} days`
+		`${r.nurtureEnrollmentRows} closed nurture enrollment(s) older than ${r.nurtureRetentionDays} days, ` +
+		`${r.quizResultRows} unclaimed quiz result(s) older than ${r.quizResultsRetentionDays} days`
 	);
 }

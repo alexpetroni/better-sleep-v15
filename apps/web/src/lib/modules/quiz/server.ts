@@ -27,6 +27,7 @@ export {
 	submitQuiz,
 	unpublishQuiz,
 	updateQuiz,
+	type SanitizedSubmission,
 	type QuizDeps,
 	type QuizError,
 	type QuizListItem,

@@ -126,7 +126,7 @@ node apps/web/build        # serves HTTP on PORT (default 3000)
   `X-Forwarded-*` headers.
 - adapter-node caps request bodies at 512 KiB by default (`BODY_SIZE_LIMIT`);
   keep that default — the app enforces tighter per-endpoint caps on top
-  (32 KiB chat, 256 KiB quiz submissions).
+  (32 KiB chat, 16 KiB quiz submissions).
 
 ### Client IPs behind the proxy (rate limiting)
 

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
-import type { FormConfig } from 'formcomp';
+import { and, desc, eq, ilike, isNull, lt, or, sql } from 'drizzle-orm';
+import type { FormConfig, Question } from 'formcomp';
 import type { Db } from '../../db/client.ts';
 import { pillars } from '../../db/schema/core.ts';
 import { ensureUniqueSlug } from '../../db/unique-slug.ts';
+import { isRecord } from '../../util/object.ts';
 import type { Result } from '../../util/result.ts';
 import { slugify } from '../../util/slug.ts';
 import { subscribers } from '../crm/schema.ts';
@@ -205,33 +206,143 @@ export async function listQuizzes(
 	return rows;
 }
 
+/** Free-text answers are bounded so a hostile payload can't balloon the row. */
+const MAX_TEXT_ANSWER_CHARS = 2000;
+
 /**
- * Keep only answers whose questionId exists in the form schema, with all
- * label-ish fields coerced to strings — the submit endpoint feeds this
- * untrusted JSON. Pure.
+ * Per-type value validation against the question declaration. Returns the
+ * (possibly normalized) value, or `undefined` when the shape is hostile or
+ * meaningless — the answer is then dropped, exactly like an unknown id.
  */
-export function sanitizeSubmittedAnswers(raw: unknown, form: FormConfig): StoredAnswer[] {
-	if (!Array.isArray(raw)) return [];
-	const knownIds = new Set(
-		form.steps.flatMap((s) => s.groups.flatMap((g) => g.questions.map((q) => q.id)))
-	);
-	const out: StoredAnswer[] = [];
-	for (const item of raw) {
-		if (typeof item !== 'object' || item === null) continue;
-		const answer = item as Record<string, unknown>;
-		const questionId = String(answer.questionId ?? '');
-		if (!knownIds.has(questionId)) continue;
-		out.push({
-			uuid: String(answer.uuid ?? questionId),
-			questionId,
-			stepId: String(answer.stepId ?? ''),
-			type: String(answer.type ?? ''),
-			label: String(answer.label ?? ''),
-			value: answer.value,
-			displayValue: String(answer.displayValue ?? '')
-		});
+function sanitizeAnswerValue(question: Question, value: unknown): unknown {
+	const optionValues = new Set((question.options ?? []).map((o) => o.value));
+	switch (question.type) {
+		case 'single-select':
+		case 'select':
+		case 'likert':
+			// A single string among the declared options — an ARRAY here would be
+			// scored like a multi-select with duplicates summed (review M-2).
+			return typeof value === 'string' && optionValues.has(value) ? value : undefined;
+		case 'multi-select': {
+			if (!Array.isArray(value)) return undefined;
+			const deduped = [
+				...new Set(value.filter((v): v is string => typeof v === 'string' && optionValues.has(v)))
+			];
+			return deduped.length > 0 ? deduped : undefined;
+		}
+		case 'number-input':
+		case 'scale': {
+			if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+			if (question.min !== undefined && value < question.min) return undefined;
+			if (question.max !== undefined && value > question.max) return undefined;
+			return value;
+		}
+		case 'range': {
+			if (!isRecord(value)) return undefined;
+			const { from, to } = value;
+			if (typeof from !== 'number' || !Number.isFinite(from)) return undefined;
+			if (typeof to !== 'number' || !Number.isFinite(to)) return undefined;
+			if (from > to) return undefined;
+			if (question.min !== undefined && from < question.min) return undefined;
+			if (question.max !== undefined && to > question.max) return undefined;
+			// Rebuilt object: extra keys in the payload never reach the DB.
+			return { from, to };
+		}
+		case 'consent':
+			// An unticked box reads as unanswered, mirroring formcomp.
+			return value === true ? true : undefined;
+		default: {
+			// text-input, textarea, time-input, date-input: a bounded string.
+			if (typeof value !== 'string') return undefined;
+			const trimmed = value.trim();
+			return trimmed ? trimmed.slice(0, MAX_TEXT_ANSWER_CHARS) : undefined;
+		}
 	}
-	return out;
+}
+
+/** Mirror of formcomp's `formatAnswer` for the sanitized value (labels are literal ro). */
+function displayValueFor(question: Question, value: unknown): string {
+	const optionLabel = (v: unknown) =>
+		question.options?.find((o) => o.value === v)?.label ?? String(v);
+	const unit = question.unit ? ` ${question.unit}` : '';
+	switch (question.type) {
+		case 'single-select':
+		case 'select':
+		case 'likert':
+			return optionLabel(value);
+		case 'multi-select':
+			return (value as string[]).map(optionLabel).join(', ');
+		case 'range': {
+			const range = value as { from: number; to: number };
+			return `${range.from} – ${range.to}${unit}`;
+		}
+		case 'number-input':
+		case 'scale':
+			return `${value}${unit}`;
+		case 'consent':
+			return 'Da';
+		default:
+			return String(value);
+	}
+}
+
+export interface SanitizedSubmission {
+	answers: StoredAnswer[];
+	/** Ids of required, unconditionally-visible questions left unanswered. */
+	missingRequired: string[];
+}
+
+/**
+ * Sanitize the submit endpoint's untrusted `answers` JSON against the form
+ * schema (review M-2). Pure. Everything stored derives from the SCHEMA, not
+ * the payload: unknown questionIds are dropped, duplicate questionIds keep
+ * only their first occurrence, values are validated per question type
+ * (declared option values only, deduped multi-selects, finite in-range
+ * numbers, bounded strings), and uuid/stepId/type/label/displayValue are
+ * rebuilt from the question declaration. Answers come out in schema order.
+ *
+ * `missingRequired` lists required questions with no valid answer, so the
+ * endpoint can refuse a submission that skipped them (`answers: []` used to
+ * bypass `required` and still store a winner). Questions gated by a
+ * `condition` — their own, their group's or their step's — are exempt: they
+ * can be legitimately hidden, and evaluating formcomp's visibility fixpoint
+ * server-side is not worth the coupling.
+ */
+export function sanitizeSubmittedAnswers(raw: unknown, form: FormConfig): SanitizedSubmission {
+	const submitted = new Map<string, unknown>();
+	if (Array.isArray(raw)) {
+		for (const item of raw) {
+			if (!isRecord(item)) continue;
+			const questionId = String(item.questionId ?? '');
+			if (!submitted.has(questionId)) submitted.set(questionId, item.value);
+		}
+	}
+	const answers: StoredAnswer[] = [];
+	const missingRequired: string[] = [];
+	for (const step of form.steps) {
+		for (const group of step.groups) {
+			for (const question of group.questions) {
+				const value = submitted.has(question.id)
+					? sanitizeAnswerValue(question, submitted.get(question.id))
+					: undefined;
+				if (value === undefined) {
+					const conditional = Boolean(question.condition ?? group.condition ?? step.condition);
+					if (question.required && !conditional) missingRequired.push(question.id);
+					continue;
+				}
+				answers.push({
+					uuid: question.uuid ?? question.id,
+					questionId: question.id,
+					stepId: step.id,
+					type: question.type,
+					label: question.label,
+					value,
+					displayValue: displayValueFor(question, value)
+				});
+			}
+		}
+	}
+	return { answers, missingRequired };
 }
 
 /**
@@ -313,6 +424,24 @@ export async function latestResultsWithEmail(
 		.where(eq(quizResults.quizId, quizId))
 		.orderBy(desc(quizResults.createdAt), desc(quizResults.id))
 		.limit(limit);
+}
+
+/**
+ * Unclaimed results (no subscriber ever attached) expire after this. Claimed
+ * results are the subscriber's — they live until the subscriber is erased.
+ * The window is long because result URLs are shared/bookmarked without an
+ * email; it exists at all because the public submit endpoint lets anyone
+ * insert rows (review H-6) and nothing else ever deletes them.
+ */
+export const QUIZ_RESULTS_RETENTION_DAYS = 180;
+
+/** Retention sweep hook: delete unclaimed results past the cutoff. */
+export async function pruneUnclaimedQuizResults(db: Db, cutoff: Date): Promise<number> {
+	const deleted = await db
+		.delete(quizResults)
+		.where(and(isNull(quizResults.subscriberId), lt(quizResults.createdAt, cutoff)))
+		.returning({ id: quizResults.id });
+	return deleted.length;
 }
 
 /** Latest results for the admin quiz page. */

@@ -191,7 +191,8 @@ describe('submission', () => {
 			],
 			FORM
 		);
-		expect(cleaned.map((a) => a.questionId)).toEqual(['adormire', 'oboseala']);
+		expect(cleaned.answers.map((a) => a.questionId)).toEqual(['adormire', 'oboseala']);
+		expect(cleaned.missingRequired).toEqual([]);
 	});
 
 	it('scores and stores a result with the full profile', async () => {
@@ -249,6 +250,138 @@ describe('submission', () => {
 		const item = listed.find((i) => i.quiz.id === quiz.id);
 		expect(item?.resultsCount).toBe(2);
 		expect(item?.pillarSlug).toBe('somn');
+	});
+});
+
+describe('hostile submissions (review M-2)', () => {
+	// A schema exercising the shapes the review attacks: a required
+	// single-select, a required multi-select, and a conditional question.
+	const HOSTILE_FORM: FormConfig = {
+		steps: [
+			{
+				id: 's1',
+				label: 'Pas',
+				groups: [
+					{
+						id: 'g1',
+						label: 'Grup',
+						questions: [
+							{
+								id: 'unic',
+								uuid: 'u-unic',
+								type: 'single-select',
+								label: 'Alege una',
+								required: true,
+								options: [
+									{ value: 'ru', label: 'RU' },
+									{ value: 'st', label: 'ST' }
+								]
+							},
+							{
+								id: 'multe',
+								type: 'multi-select',
+								label: 'Alege mai multe',
+								required: true,
+								options: [
+									{ value: 'a', label: 'A' },
+									{ value: 'b', label: 'B' }
+								]
+							},
+							{
+								id: 'conditionat',
+								type: 'single-select',
+								label: 'Doar uneori vizibilă',
+								required: true,
+								options: [{ value: 'x', label: 'X' }],
+								condition: { questionId: 'unic', operator: 'equals', value: 'st' }
+							},
+							{ id: 'nota', type: 'scale', label: 'Notă', min: 1, max: 5 }
+						]
+					}
+				]
+			}
+		]
+	};
+	const valid = (overrides: Record<string, unknown> = {}) =>
+		Object.entries({ unic: 'ru', multe: ['a'], ...overrides }).map(([questionId, value]) => ({
+			questionId,
+			value
+		}));
+
+	it('a single-select answered with a duplicated ARRAY is dropped, not summed', () => {
+		// Pre-fix this scored as a multi-select with duplicates summed — any
+		// archetype forceable, score > maxScore.
+		const out = sanitizeSubmittedAnswers(valid({ unic: ['ru', 'ru', 'ru'] }), HOSTILE_FORM);
+		expect(out.answers.map((a) => a.questionId)).toEqual(['multe']);
+		expect(out.missingRequired).toEqual(['unic']);
+	});
+
+	it('values outside the declared options are dropped; multi-select values are deduped', () => {
+		const out = sanitizeSubmittedAnswers(
+			valid({ unic: 'inexistent', multe: ['a', 'a', 'b', 'z', 7, null] }),
+			HOSTILE_FORM
+		);
+		expect(out.missingRequired).toEqual(['unic']);
+		expect(out.answers.find((a) => a.questionId === 'multe')?.value).toEqual(['a', 'b']);
+	});
+
+	it('duplicate questionId entries collapse to the first occurrence', () => {
+		const out = sanitizeSubmittedAnswers(
+			[...valid(), { questionId: 'unic', value: 'st' }],
+			HOSTILE_FORM
+		);
+		const unic = out.answers.filter((a) => a.questionId === 'unic');
+		expect(unic).toHaveLength(1);
+		expect(unic[0].value).toBe('ru');
+	});
+
+	it('an empty answers array no longer bypasses required questions', () => {
+		// Pre-fix `answers: []` passed sanitization and still stored a winner.
+		const out = sanitizeSubmittedAnswers([], HOSTILE_FORM);
+		expect(out.answers).toEqual([]);
+		expect(out.missingRequired).toEqual(['unic', 'multe']);
+	});
+
+	it('a required question behind a condition may be legitimately absent', () => {
+		const out = sanitizeSubmittedAnswers(valid(), HOSTILE_FORM);
+		expect(out.missingRequired).toEqual([]);
+	});
+
+	it('numeric answers must be finite numbers within the declared bounds', () => {
+		for (const bad of ['3', 99, 0, Number.NaN, Number.POSITIVE_INFINITY, { hack: 1 }]) {
+			const out = sanitizeSubmittedAnswers(valid({ nota: bad }), HOSTILE_FORM);
+			expect(out.answers.map((a) => a.questionId)).toEqual(['unic', 'multe']);
+		}
+		const ok = sanitizeSubmittedAnswers(valid({ nota: 4 }), HOSTILE_FORM);
+		expect(ok.answers.find((a) => a.questionId === 'nota')?.value).toBe(4);
+	});
+
+	it('stored metadata comes from the SCHEMA, never the payload', () => {
+		const out = sanitizeSubmittedAnswers(
+			[
+				{
+					questionId: 'unic',
+					value: 'ru',
+					uuid: 'spoofed',
+					stepId: 'spoofed',
+					type: 'multi-select',
+					label: '<script>alert(1)</script>',
+					displayValue: 'x'.repeat(100_000)
+				},
+				{ questionId: 'multe', value: ['b'] }
+			],
+			HOSTILE_FORM
+		);
+		expect(out.answers[0]).toEqual({
+			uuid: 'u-unic',
+			questionId: 'unic',
+			stepId: 's1',
+			type: 'single-select',
+			label: 'Alege una',
+			value: 'ru',
+			displayValue: 'RU'
+		});
+		expect(out.answers[1].displayValue).toBe('B');
 	});
 });
 

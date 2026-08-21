@@ -7,6 +7,7 @@ import { loginAttempts } from '../modules/auth/schema.ts';
 import { chatRateLimits, chatSessions } from '../modules/chat/schema.ts';
 import { subscribers } from '../modules/crm/schema.ts';
 import { nurtureEnrollments, nurtureSends, nurtureSequences } from '../modules/nurture/schema.ts';
+import { quizResults, quizzes } from '../modules/quiz/schema.ts';
 import { processedEvents } from './event-ledger/schema.ts';
 import { rateLimits } from './rate-limit/schema.ts';
 import { formatRetentionSweep, runRetentionSweep } from './retention.ts';
@@ -120,6 +121,41 @@ describe('runRetentionSweep', () => {
 			status: 'sent'
 		});
 
+		// Quiz results: only UNCLAIMED rows past the 180-day window are swept —
+		// the public submit endpoint lets anyone insert them (review H-6). A
+		// claimed row belongs to its subscriber and survives regardless of age.
+		const profile = {
+			score: 1,
+			maxScore: 2,
+			band: { key: 'b', min: 0, label: 'B', advice: 'A' },
+			dimensions: []
+		};
+		await db.insert(quizzes).values({ id: 'sweep-quiz', slug: 'sweep-quiz', title: 'Sweep' });
+		await db.insert(quizResults).values([
+			{
+				id: 'qr-expired',
+				quizId: 'sweep-quiz',
+				score: 1,
+				profile,
+				createdAt: daysAgo(181)
+			},
+			{
+				id: 'qr-claimed-old',
+				quizId: 'sweep-quiz',
+				subscriberId: 'sweep-sub-a',
+				score: 1,
+				profile,
+				createdAt: daysAgo(400)
+			},
+			{
+				id: 'qr-fresh',
+				quizId: 'sweep-quiz',
+				score: 1,
+				profile,
+				createdAt: daysAgo(1)
+			}
+		]);
+
 		const result = await runRetentionSweep(db, NOW);
 
 		expect(result).toMatchObject({
@@ -129,9 +165,11 @@ describe('runRetentionSweep', () => {
 			loginRateLimitRows: 1,
 			processedEventRows: 1,
 			nurtureEnrollmentRows: 1,
+			quizResultRows: 1,
 			retentionDays: 30,
 			ledgerRetentionDays: 90,
-			nurtureRetentionDays: 180
+			nurtureRetentionDays: 180,
+			quizResultsRetentionDays: 180
 		});
 		// The fresh row of every table survives — a sweep that took live
 		// counters would reset limits for anyone currently being throttled.
@@ -153,6 +191,11 @@ describe('runRetentionSweep', () => {
 			'enr-active-old'
 		]);
 		expect(await db.select().from(nurtureSends)).toEqual([]);
+		// The old claimed result and the fresh anonymous one both survive.
+		expect((await db.select().from(quizResults)).map((r) => r.id).sort()).toEqual([
+			'qr-claimed-old',
+			'qr-fresh'
+		]);
 	});
 
 	it('is a no-op on a swept database', async () => {
@@ -174,13 +217,16 @@ describe('runRetentionSweep', () => {
 			loginRateLimitRows: 5,
 			processedEventRows: 6,
 			nurtureEnrollmentRows: 7,
+			quizResultRows: 8,
 			retentionDays: 30,
 			ledgerRetentionDays: 90,
-			nurtureRetentionDays: 180
+			nurtureRetentionDays: 180,
+			quizResultsRetentionDays: 180
 		});
 		expect(line).toContain('2 session(s) older than 30 days');
 		expect(line).toContain('3 chat / 4 public-email / 5 login');
 		expect(line).toContain('6 processed-event row(s) older than 90 days');
 		expect(line).toContain('7 closed nurture enrollment(s) older than 180 days');
+		expect(line).toContain('8 unclaimed quiz result(s) older than 180 days');
 	});
 });
