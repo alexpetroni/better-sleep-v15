@@ -594,10 +594,7 @@ describe('scoring order survives the jsonb round-trip (H-1)', () => {
 		// submission produces Antena, not Străjerul" case).
 		const submitted = await submitQuiz(deps, { quizId: quiz.id, answers: [] });
 		if (!submitted.ok) throw new Error(`submitQuiz failed: ${submitted.error}`);
-		const [row] = await db
-			.select()
-			.from(quizResults)
-			.where(eq(quizResults.id, submitted.value.id));
+		const [row] = await db.select().from(quizResults).where(eq(quizResults.id, submitted.value.id));
 		expect(row.profile.winner?.key).toBe('ST');
 		expect(row.profile.dimensions.map((d) => d.key)).toEqual([
 			'ST',

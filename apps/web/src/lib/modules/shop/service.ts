@@ -11,6 +11,12 @@ import { ensureUniqueSlug, slugTaken } from '../../db/unique-slug.ts';
 import type { Result } from '../../util/result.ts';
 import { slugify } from '../../util/slug.ts';
 import { media, type MediaRow } from '../media/schema.ts';
+import {
+	filterNightMapSkus,
+	NIGHT_MAP_SKUS,
+	type NightMapSku,
+	type NightSegmentKey
+} from './night-map.ts';
 import { productPillars, products, type ProductRow, type ProductStatus } from './schema.ts';
 
 /**
@@ -223,6 +229,35 @@ export async function listVisibleProducts(
 		.where(and(eq(products.status, 'active'), taggedToActivePillar))
 		.orderBy(desc(products.createdAt), desc(products.id));
 	return rows;
+}
+
+/**
+ * The night-map chips checked against the live catalogue (review M-5): one
+ * query filters `NIGHT_MAP_SKUS` to slugs that are currently `active`, so an
+ * admin rename or archive degrades the landing to fewer chips instead of
+ * 404ing its product links. The visibility condition mirrors
+ * `getProductBySlug` (active + tagged to a site pillar) so a chip is shown
+ * exactly when its target page resolves.
+ */
+export async function activeNightMapSkus(
+	deps: ShopDeps,
+	sitePillarSlugs: string[]
+): Promise<Record<NightSegmentKey, NightMapSku[]>> {
+	const slugs = Object.values(NIGHT_MAP_SKUS)
+		.flat()
+		.map((sku) => sku.slug);
+	const taggedToSitePillar = exists(
+		deps.db
+			.select({ one: sql`1` })
+			.from(productPillars)
+			.innerJoin(pillars, eq(productPillars.pillarId, pillars.id))
+			.where(and(eq(productPillars.productId, products.id), inArray(pillars.slug, sitePillarSlugs)))
+	);
+	const rows = await deps.db
+		.select({ slug: products.slug })
+		.from(products)
+		.where(and(inArray(products.slug, slugs), eq(products.status, 'active'), taggedToSitePillar));
+	return filterNightMapSkus(new Set(rows.map((r) => r.slug)));
 }
 
 /** Admin listing: optional status filter and case-insensitive name/slug search. */

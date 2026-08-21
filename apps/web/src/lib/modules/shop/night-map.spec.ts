@@ -3,7 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { formatCents } from '../../util/money.ts';
 import { cartTotalCents } from './cart.ts';
-import { NIGHT_MAP_SKUS, NIGHT_SEGMENT_KEYS } from './night-map.ts';
+import { filterNightMapSkus, NIGHT_MAP_SKUS, NIGHT_SEGMENT_KEYS } from './night-map.ts';
 import { findShippingOption, shippingOptionsForCart, type ShippingSettings } from './shipping.ts';
 
 // The night map names real catalogue SKUs: every entry must match a COMMITTED
@@ -53,6 +53,31 @@ describe('NIGHT_MAP_SKUS', () => {
 				seen.add(slug);
 			}
 		}
+	});
+});
+
+describe('filterNightMapSkus (M-5)', () => {
+	const ALL_SLUGS = Object.values(NIGHT_MAP_SKUS)
+		.flat()
+		.map((sku) => sku.slug);
+
+	it('is the identity when every SKU is active', () => {
+		expect(filterNightMapSkus(new Set(ALL_SLUGS))).toEqual(NIGHT_MAP_SKUS);
+	});
+
+	it('drops missing SKUs per segment, preserving chip order', () => {
+		const withoutGaba = filterNightMapSkus(new Set(ALL_SLUGS.filter((s) => s !== 'gaba-750-mg')));
+		expect(withoutGaba['fereastra-fragila'].map((s) => s.slug)).toEqual([
+			'pentamag-90-capsule',
+			'magnesium-taurate'
+		]);
+		// The other segments are untouched.
+		expect(withoutGaba.adormirea).toEqual(NIGHT_MAP_SKUS.adormirea);
+	});
+
+	it('degrades to empty segments (never throws) when nothing is active', () => {
+		const empty = filterNightMapSkus(new Set());
+		for (const key of NIGHT_SEGMENT_KEYS) expect(empty[key]).toEqual([]);
 	});
 });
 

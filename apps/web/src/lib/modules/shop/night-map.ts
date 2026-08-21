@@ -35,6 +35,23 @@ export interface NightMapSku {
 	label: string;
 }
 
+/**
+ * Keep only the SKUs whose slug is in `activeSlugs`, preserving segment and
+ * chip order (review M-5). Pure — the landing load feeds it the result of one
+ * `status='active'` catalogue query, so an admin rename or archive drops the
+ * chip instead of shipping a dead /magazin link; segments simply render fewer
+ * (possibly zero) chips.
+ */
+export function filterNightMapSkus(
+	activeSlugs: ReadonlySet<string>
+): Record<NightSegmentKey, NightMapSku[]> {
+	const filtered = {} as Record<NightSegmentKey, NightMapSku[]>;
+	for (const key of NIGHT_SEGMENT_KEYS) {
+		filtered[key] = NIGHT_MAP_SKUS[key].filter((sku) => activeSlugs.has(sku.slug));
+	}
+	return filtered;
+}
+
 export const NIGHT_MAP_SKUS: Record<NightSegmentKey, NightMapSku[]> = {
 	adormirea: [
 		{ slug: 'melatonin-3-mg', label: 'Melatonină 3 mg' },

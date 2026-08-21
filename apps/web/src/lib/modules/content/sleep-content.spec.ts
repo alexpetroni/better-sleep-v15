@@ -6,6 +6,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
 import { seedPillars } from '../../db/seed.ts';
 import { articlePillars, articles } from '../blog/schema.ts';
+import { NIGHT_MAP_SKUS } from '../shop/night-map.ts';
 import { productPillars, products } from '../shop/schema.ts';
 import { formatCents } from '../../util/money.ts';
 import { storageConfigFromEnv } from '../media/env.ts';
@@ -156,6 +157,19 @@ describe('the committed content/sleep article bundles', () => {
 		expect(summary.failed).toBe(0);
 		const [productCount] = await db.select({ n: count() }).from(products);
 		expect(productCount.n).toBe(33);
+	});
+
+	it('every night-map SKU is an ACTIVE product in the seeded catalogue (M-5)', async () => {
+		// The landing load filters chips to active products; on a freshly
+		// seeded database ALL 11 must survive — a bundle status change or slug
+		// drift fails here, not silently on the landing page.
+		const skus = Object.values(NIGHT_MAP_SKUS).flat();
+		expect(skus).toHaveLength(11);
+		for (const { slug } of skus) {
+			const [row] = await db.select().from(products).where(eq(products.slug, slug));
+			expect(row, slug).toBeDefined();
+			expect(row.status, slug).toBe('active');
+		}
 	});
 
 	it('carries no English text from topics.json', async () => {

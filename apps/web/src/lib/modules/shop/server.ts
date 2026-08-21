@@ -85,6 +85,7 @@ export {
 } from './shipping.ts';
 export { orderEvents, orderItems, orders, productPillars, products, shipments } from './schema.ts';
 export {
+	activeNightMapSkus,
 	createProduct,
 	getProduct,
 	getProductBySlug,

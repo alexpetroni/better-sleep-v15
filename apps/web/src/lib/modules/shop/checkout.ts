@@ -175,9 +175,7 @@ export async function loadCartDetails(
 		// above what can ship is clamped (not refused — the buyer still gets
 		// everything available) and flagged so the cart page says why.
 		const qty =
-			product.stock !== null && product.stock > 0
-				? Math.min(item.qty, product.stock)
-				: item.qty;
+			product.stock !== null && product.stock > 0 ? Math.min(item.qty, product.stock) : item.qty;
 		const stockLimited = qty < item.qty;
 		lines.push({
 			product,

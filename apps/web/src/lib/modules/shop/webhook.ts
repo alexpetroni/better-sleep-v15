@@ -451,10 +451,7 @@ async function handleAsyncPaymentFailed(
 			// stock alone there and say so on the trail (the oversold flag
 			// already routes the order to a human).
 			if (!order.oversold) {
-				const items = await tx
-					.select()
-					.from(orderItems)
-					.where(eq(orderItems.orderId, order.id));
+				const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
 				for (const item of items) {
 					if (!item.productId) continue;
 					await tx

@@ -18,6 +18,7 @@ import { productsMediaReferenceCheck } from './media-ref.ts';
 import { createMockStripeGateway, type MockStripeGateway } from './mock-gateway.ts';
 import { orderEvents, orderItems, orders, productPillars, products } from './schema.ts';
 import {
+	activeNightMapSkus,
 	createProduct,
 	getProductBySlug,
 	isOutOfStock,
@@ -211,6 +212,30 @@ describe('public visibility (active + tagged to a site pillar)', () => {
 		expect(isOutOfStock(out)).toBe(true);
 		const listed = await listVisibleProducts(deps, { pillarSlugs: SLEEP_PILLARS });
 		expect(listed.some((i) => i.product.id === out.id)).toBe(true);
+	});
+});
+
+describe('night-map SKUs checked against the catalogue (M-5)', () => {
+	it('returns only chips whose product is active and site-visible, in declared order', async () => {
+		// This spec's database has none of the catalogue slugs — the landing
+		// degrades to zero chips rather than dead links.
+		const none = await activeNightMapSkus(deps, SLEEP_PILLARS);
+		expect(Object.values(none).flat()).toEqual([]);
+
+		// Give two night-map slugs real rows: one visible, one archived.
+		const visible = await makeProduct({ name: 'Melatonină 3 mg, 60 capsule' });
+		await updateProduct(deps, visible.id, { slug: 'melatonin-3-mg' });
+		const archived = await makeProduct({ name: 'GABA 750 mg, 30 capsule' });
+		await updateProduct(deps, archived.id, { slug: 'gaba-750-mg', status: 'archived' });
+
+		const filtered = await activeNightMapSkus(deps, SLEEP_PILLARS);
+		expect(filtered.adormirea.map((s) => s.slug)).toEqual(['melatonin-3-mg']);
+		expect(filtered['fereastra-fragila'].map((s) => s.slug)).toEqual([]);
+
+		// A pillar-untagged product page 404s publicly — its chip must go too.
+		await updateProduct(deps, visible.id, { pillarSlugs: ['nutritie'] });
+		const untagged = await activeNightMapSkus(deps, SLEEP_PILLARS);
+		expect(untagged.adormirea).toEqual([]);
 	});
 });
 

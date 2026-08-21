@@ -1,11 +1,32 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import messages from '../../../messages/ro.json';
 import { ARCHETYPE_PAGES, SLEEP_PATTERNS } from '../../lib/modules/quiz/index.ts';
-import { NIGHT_MAP_SKUS, NIGHT_SEGMENT_KEYS } from '../../lib/modules/shop/index.ts';
-import { load } from './+page.server.ts';
+import {
+	filterNightMapSkus,
+	NIGHT_MAP_SKUS,
+	NIGHT_SEGMENT_KEYS
+} from '../../lib/modules/shop/index.ts';
 
-// The landing load is pure static data — no DB, no event access. The
-// generated load type unions with `void`, so narrow to the actual shape.
+// M-5: the load filters night-map slugs against the live catalogue. Unit
+// scope here — the DB-backed query is stubbed to "everything active except
+// one archived SKU"; the real query is covered in shop.spec.ts and the
+// seeded-DB invariant (all 11 slugs active) in sleep-content.spec.ts.
+const INACTIVE_SLUG = 'gaba-750-mg';
+vi.mock('$lib/db', () => ({ getDb: () => ({}) }));
+vi.mock('$lib/server/site', () => ({ getSite: () => ({ pillars: ['somn'] }) }));
+vi.mock('$lib/modules/shop/server', async () => {
+	const nightMap = await import('../../lib/modules/shop/night-map.ts');
+	const all = Object.values(nightMap.NIGHT_MAP_SKUS)
+		.flat()
+		.map((sku) => sku.slug);
+	return {
+		activeNightMapSkus: async () =>
+			nightMap.filterNightMapSkus(new Set(all.filter((slug) => slug !== INACTIVE_SLUG)))
+	};
+});
+const { load } = await import('./+page.server.ts');
+
+// The generated load type unions with `void`, so narrow to the actual shape.
 const data = (await load({} as never)) as {
 	nightMapSkus: typeof NIGHT_MAP_SKUS;
 	patterns: { slug: string; title: string; archetypes: { name: string; slug: string }[] }[];
@@ -33,10 +54,24 @@ describe('landing +page.server load', () => {
 		expect(linked.size).toBe(ARCHETYPE_PAGES.length);
 	});
 
-	it('supplies the night-map SKUs for all four segments (BS-6 seam)', () => {
+	it('supplies the night-map SKUs filtered to the visible catalogue (BS-6 seam, M-5)', () => {
 		// Slug/name validity against the committed catalogue is pinned in
-		// modules/shop/night-map.spec.ts — here only the pass-through matters.
-		expect(data.nightMapSkus).toBe(NIGHT_MAP_SKUS);
+		// modules/shop/night-map.spec.ts — here the DB filter pass-through
+		// matters: the archived SKU's chip is gone, everything else survives
+		// in declaration order.
+		expect(data.nightMapSkus).toEqual(
+			filterNightMapSkus(
+				new Set(
+					Object.values(NIGHT_MAP_SKUS)
+						.flat()
+						.map((sku) => sku.slug)
+						.filter((slug) => slug !== INACTIVE_SLUG)
+				)
+			)
+		);
+		const flat = Object.values(data.nightMapSkus).flat();
+		expect(flat.some((sku) => sku.slug === INACTIVE_SLUG)).toBe(false);
+		expect(flat.length).toBe(Object.values(NIGHT_MAP_SKUS).flat().length - 1);
 		for (const key of NIGHT_SEGMENT_KEYS) {
 			expect(data.nightMapSkus[key].length, key).toBeGreaterThanOrEqual(2);
 		}

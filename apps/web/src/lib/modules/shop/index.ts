@@ -21,6 +21,7 @@ export {
 	type FulfillmentStatus
 } from './fulfillment.ts';
 export {
+	filterNightMapSkus,
 	NIGHT_MAP_SKUS,
 	NIGHT_SEGMENT_KEYS,
 	type NightMapSku,
