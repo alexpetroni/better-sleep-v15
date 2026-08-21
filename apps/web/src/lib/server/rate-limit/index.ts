@@ -12,8 +12,11 @@ export {
 } from './core.ts';
 export {
 	consumePublicEmailBudget,
+	consumeQuizSubmitBudget,
 	PUBLIC_EMAIL_GLOBAL_LIMIT,
 	PUBLIC_EMAIL_IP_LIMIT,
+	QUIZ_SUBMIT_GLOBAL_LIMIT,
+	QUIZ_SUBMIT_IP_LIMIT,
 	type PublicEmailLimits,
 	type PublicEmailScope
 } from './public-email.ts';

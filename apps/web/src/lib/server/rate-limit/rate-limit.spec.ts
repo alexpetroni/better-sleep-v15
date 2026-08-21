@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
 import { consumeRateLimit, type RateLimitConfig } from './core.ts';
-import { consumePublicEmailBudget } from './public-email.ts';
+import { consumePublicEmailBudget, consumeQuizSubmitBudget } from './public-email.ts';
 import { rateLimits } from './schema.ts';
 
 // Integration against the compose Postgres (TEST_DATABASE_URL, re-migrated
@@ -138,5 +138,69 @@ describe('consumePublicEmailBudget', () => {
 			limits
 		);
 		expect(sixth.limited).toBe(true);
+	});
+
+	it('an over-cap IP cannot drain the global bucket (review H-3)', async () => {
+		const limits = { ip: { max: 2, ...LIMITS }, global: { max: 10, ...LIMITS } };
+		const abuser = '203.0.113.66';
+		for (let i = 0; i < 2; i++) {
+			const r = await consumePublicEmailBudget(db, 'newsletter', abuser, at(2000), limits);
+			expect(r.limited).toBe(false);
+		}
+		const globalCount = async () => {
+			const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, 'newsletter:global'));
+			return row.count;
+		};
+		const before = await globalCount();
+		// 50 refused requests at full rate: pre-fix each one still consumed a
+		// global slot; the sequential check must leave the shared budget alone.
+		for (let i = 0; i < 50; i++) {
+			const r = await consumePublicEmailBudget(db, 'newsletter', abuser, at(2000), limits);
+			expect(r.limited).toBe(true);
+		}
+		expect(await globalCount()).toBe(before);
+		// Everyone else still has the remaining global budget (6 of 10 slots
+		// were admitted this window across the earlier tests + this one).
+		for (let i = 0; i < 4; i++) {
+			const r = await consumePublicEmailBudget(db, 'newsletter', `203.0.113.10${i}`, at(2000), {
+				...limits,
+				ip: { max: 100, ...LIMITS }
+			});
+			expect(r.limited).toBe(false);
+		}
+	});
+});
+
+describe('consumeQuizSubmitBudget', () => {
+	const LIMITS = { windowMs: 60 * 60 * 1000 };
+
+	it('caps submissions per IP and refuses without touching the global bucket', async () => {
+		const limits = { ip: { max: 3, ...LIMITS }, global: { max: 100, ...LIMITS } };
+		const ip = '192.0.2.10';
+		for (let i = 0; i < 3; i++) {
+			const r = await consumeQuizSubmitBudget(db, ip, at(1000), limits);
+			expect(r.limited).toBe(false);
+		}
+		const blocked = await consumeQuizSubmitBudget(db, ip, at(1000), limits);
+		expect(blocked.limited).toBe(true);
+		const [globalRow] = await db
+			.select()
+			.from(rateLimits)
+			.where(eq(rateLimits.key, 'quiz-submit:global'));
+		expect(globalRow.count).toBe(3);
+		// Another visitor is unaffected.
+		const other = await consumeQuizSubmitBudget(db, '192.0.2.11', at(1000), limits);
+		expect(other.limited).toBe(false);
+	});
+
+	it('trips the global cap across distinct IPs', async () => {
+		const limits = { ip: { max: 100, ...LIMITS }, global: { max: 6, ...LIMITS } };
+		// 4 global slots already consumed by the per-IP test above (same window/key).
+		for (let i = 0; i < 2; i++) {
+			const r = await consumeQuizSubmitBudget(db, `192.0.2.2${i}`, at(1000), limits);
+			expect(r.limited).toBe(false);
+		}
+		const over = await consumeQuizSubmitBudget(db, '192.0.2.30', at(1000), limits);
+		expect(over.limited).toBe(true);
 	});
 });
