@@ -58,3 +58,33 @@ describe('createStripeGateway resource_missing translation', () => {
 		);
 	});
 });
+
+// BS-9 (review M-4): the session must pin payment_method_types to card.
+// Without the pin, enabling any delayed-notification method in the Stripe
+// dashboard would silently start producing `pending` orders.
+describe('createCheckoutSession pins payment_method_types', () => {
+	it('sends payment_method_types=[card] to Stripe', async () => {
+		let body = '';
+		const capturingFetch: typeof fetch = async (_url, init) => {
+			body = String(init?.body ?? '');
+			return new Response(
+				JSON.stringify({ id: 'cs_pin', url: 'https://checkout.stripe.com/c/pay/cs_pin' }),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		};
+		const gateway = createStripeGateway('sk_test_not_real', {
+			maxNetworkRetries: 0,
+			fetchFn: capturingFetch
+		});
+		const session = await gateway.createCheckoutSession({
+			lineItems: [{ name: 'X', unitAmountCents: 1000, currency: 'ron', qty: 1 }],
+			successUrl: 'https://example.ro/ok',
+			cancelUrl: 'https://example.ro/cos',
+			shippingCountries: ['RO'],
+			metadata: {}
+		});
+		expect(session.id).toBe('cs_pin');
+		// stripe-node serializes params as a form body.
+		expect(decodeURIComponent(body)).toContain('payment_method_types[0]=card');
+	});
+});

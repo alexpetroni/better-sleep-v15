@@ -86,6 +86,12 @@ export type WebhookOutcome =
 	/** Same checkout session under a NEW event id — the order already exists. */
 	| { kind: 'duplicate-session'; sessionId: string }
 	| { kind: 'empty-cart'; sessionId: string }
+	/** Async payment settled: the pending order is now paid (M-4). */
+	| { kind: 'payment-succeeded'; orderId: string }
+	/** Async payment failed: the pending order is failed and restocked (M-4). */
+	| { kind: 'payment-failed'; orderId: string }
+	/** Async event for a session with no matching pending order — nothing to do. */
+	| { kind: 'async-unmatched'; sessionId: string }
 	| { kind: 'refund-marked'; orderId: string }
 	| { kind: 'refund-unmatched' }
 	| { kind: 'ignored'; type: string };
@@ -309,7 +315,11 @@ async function handleCheckoutCompleted(
 	if (!result.duplicate && result.value) {
 		// Deliberately AFTER the commit: a mail failure must never roll back a
 		// paid order — Stripe's redelivery retries the (idempotent) send instead.
-		await sendOrderConfirmation(deps, result.value.order, result.value.items);
+		// PENDING orders (async payment methods) get no confirmation yet: the
+		// email — like the invoice — belongs to `async_payment_succeeded` (M-4).
+		if (result.value.order.status === 'paid') {
+			await sendOrderConfirmation(deps, result.value.order, result.value.items);
+		}
 		// Nurture order-paid trigger, best-effort: enrollment is idempotent
 		// (unique per sequence+subscriber) and consent-gated inside; a failure
 		// here must never turn a processed payment into a webhook error.
@@ -329,12 +339,148 @@ async function handleCheckoutCompleted(
 	// Redelivery (same event id) or the same session under a new event id:
 	// the only work possibly left undone is the post-commit email, so
 	// re-attempt it — idempotency skips it unless the previous attempt failed
-	// (or never happened).
+	// (or never happened). Pending orders still wait for their async event.
 	const existing = await getOrderBySessionId(deps, session.id);
-	if (existing) await sendOrderConfirmation(deps, existing.order, existing.items);
+	if (existing && existing.order.status === 'paid') {
+		await sendOrderConfirmation(deps, existing.order, existing.items);
+	}
 	return result.duplicate
 		? { kind: 'duplicate-event', eventId: event.id, firstOutcome: result.outcome }
 		: { kind: 'duplicate-session', sessionId: session.id };
+}
+
+/**
+ * `checkout.session.async_payment_succeeded` (M-4): a delayed payment method
+ * settled. Flip the pending order to paid, issue its invoice, and only NOW
+ * send the confirmation email + nurture enrollment — exactly what the paid
+ * branch of `checkout.session.completed` does for instant methods. The
+ * session creation pins `payment_method_types: ['card']`, so this handler is
+ * the safety net for the day a delayed method is deliberately enabled.
+ */
+async function handleAsyncPaymentSucceeded(
+	deps: WebhookDeps,
+	event: Stripe.Event,
+	session: Stripe.Checkout.Session
+): Promise<WebhookOutcome> {
+	// Read-only, outside the ledger transaction (same as the completed handler).
+	const settings = await loadSettings(deps);
+
+	const result = await runOnce(
+		deps.db,
+		{ provider: 'stripe', eventId: event.id, eventType: event.type },
+		async (tx) => {
+			// The status guard makes the flip idempotent across event ids and
+			// refuses to resurrect an order that was refunded/failed meanwhile.
+			const [order] = await tx
+				.update(orders)
+				.set({ status: 'paid' })
+				.where(and(eq(orders.stripeSessionId, session.id), eq(orders.status, 'pending')))
+				.returning();
+			if (!order) return { outcome: 'async-unmatched', value: null };
+			await appendOrderEvent(tx, {
+				orderId: order.id,
+				kind: 'payment-succeeded',
+				actor: WEBHOOK_ACTOR,
+				note: session.id
+			});
+			const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+			// Same rule as instant payments: an invoice-issuance failure is
+			// recorded on the trail and retried from the admin, never fatal.
+			const issued = await issueInvoiceForOrderInTx(tx, order, items, settings, WEBHOOK_ACTOR);
+			if (!issued.ok) {
+				await appendOrderEvent(tx, {
+					orderId: order.id,
+					kind: 'invoice-failed',
+					actor: WEBHOOK_ACTOR,
+					note: issued.detail ? `${issued.error}: ${issued.detail}` : issued.error
+				});
+			}
+			return { outcome: 'payment-succeeded', value: { order, items } };
+		}
+	);
+
+	if (!result.duplicate && result.value) {
+		// AFTER the commit, same as the completed handler: mail/nurture failures
+		// must never roll back a settled payment.
+		await sendOrderConfirmation(deps, result.value.order, result.value.items);
+		if (result.value.order.email) {
+			try {
+				await enrollFromOrderEmail({ db: deps.db }, result.value.order.email);
+			} catch (err) {
+				console.error(`Nurture enrollment for order ${result.value.order.id} failed:`, err);
+			}
+		}
+		return { kind: 'payment-succeeded', orderId: result.value.order.id };
+	}
+
+	// Redelivery, or the order is already past pending: the only work possibly
+	// left undone is the idempotent confirmation email — re-attempt it.
+	const existing = await getOrderBySessionId(deps, session.id);
+	if (existing && existing.order.status === 'paid') {
+		await sendOrderConfirmation(deps, existing.order, existing.items);
+	}
+	return result.duplicate
+		? { kind: 'duplicate-event', eventId: event.id, firstOutcome: result.outcome }
+		: { kind: 'async-unmatched', sessionId: session.id };
+}
+
+/**
+ * `checkout.session.async_payment_failed` (M-4): the delayed payment never
+ * settled. The pending order is marked failed and its stock decrement is
+ * reversed — no email, no invoice; the customer already got Stripe's failure
+ * message and no confirmation was ever sent for the pending order.
+ */
+async function handleAsyncPaymentFailed(
+	deps: WebhookDeps,
+	event: Stripe.Event,
+	session: Stripe.Checkout.Session
+): Promise<WebhookOutcome> {
+	const result = await runOnce(
+		deps.db,
+		{ provider: 'stripe', eventId: event.id, eventType: event.type },
+		async (tx) => {
+			const [order] = await tx
+				.update(orders)
+				.set({ status: 'failed' })
+				.where(and(eq(orders.stripeSessionId, session.id), eq(orders.status, 'pending')))
+				.returning();
+			if (!order) return { outcome: 'async-unmatched', value: null };
+
+			// Return the reserved units. An OVERSOLD order's decrement was
+			// clamped at 0, so the exact reserved amount is unknowable — leave
+			// stock alone there and say so on the trail (the oversold flag
+			// already routes the order to a human).
+			if (!order.oversold) {
+				const items = await tx
+					.select()
+					.from(orderItems)
+					.where(eq(orderItems.orderId, order.id));
+				for (const item of items) {
+					if (!item.productId) continue;
+					await tx
+						.update(products)
+						.set({ stock: sql`${products.stock} + ${item.qty}` })
+						.where(and(eq(products.id, item.productId), isNotNull(products.stock)));
+				}
+			}
+			await appendOrderEvent(tx, {
+				orderId: order.id,
+				kind: 'payment-failed',
+				actor: WEBHOOK_ACTOR,
+				note: order.oversold
+					? `${session.id} — stock NOT restored automatically (order was flagged oversold)`
+					: session.id
+			});
+			return { outcome: 'payment-failed', value: { orderId: order.id } };
+		}
+	);
+
+	if (result.duplicate) {
+		return { kind: 'duplicate-event', eventId: event.id, firstOutcome: result.outcome };
+	}
+	return result.value
+		? { kind: 'payment-failed', orderId: result.value.orderId }
+		: { kind: 'async-unmatched', sessionId: session.id };
 }
 
 async function handleChargeRefunded(
@@ -416,6 +562,10 @@ export async function processStripeEvent(
 	switch (event.type) {
 		case 'checkout.session.completed':
 			return handleCheckoutCompleted(deps, event, event.data.object);
+		case 'checkout.session.async_payment_succeeded':
+			return handleAsyncPaymentSucceeded(deps, event, event.data.object);
+		case 'checkout.session.async_payment_failed':
+			return handleAsyncPaymentFailed(deps, event, event.data.object);
 		case 'charge.refunded':
 			return handleChargeRefunded(deps, event, event.data.object);
 		default:

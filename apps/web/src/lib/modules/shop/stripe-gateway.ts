@@ -92,6 +92,12 @@ export function createStripeGateway(
 		async createCheckoutSession(input) {
 			const session = await stripe.checkout.sessions.create({
 				mode: 'payment',
+				// Pinned on purpose (review M-4): without this, enabling any
+				// delayed-notification method in the Stripe DASHBOARD would arm
+				// the pending→paid async flow with zero code change. Cards settle
+				// synchronously; the async webhook handlers exist as the safety
+				// net for the day this list is deliberately widened.
+				payment_method_types: ['card'],
 				line_items: input.lineItems.map((li) => ({
 					quantity: li.qty,
 					price_data: {

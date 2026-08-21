@@ -430,13 +430,20 @@ interface SessionOverrides {
 	email?: string;
 	/** Provider event id; defaults to one derived from the session id. */
 	eventId?: string;
+	/** `unpaid` models a delayed payment method mid-flight (M-4). */
+	paymentStatus?: 'paid' | 'unpaid';
 }
 
-function completedSessionEvent(overrides: SessionOverrides): string {
+type SessionEventType =
+	| 'checkout.session.completed'
+	| 'checkout.session.async_payment_succeeded'
+	| 'checkout.session.async_payment_failed';
+
+function sessionEvent(type: SessionEventType, overrides: SessionOverrides): string {
 	return JSON.stringify({
 		id: overrides.eventId ?? `evt_${overrides.id}`,
 		object: 'event',
-		type: 'checkout.session.completed',
+		type,
 		api_version: '2026-01-01',
 		created: 1783000000,
 		data: {
@@ -446,7 +453,7 @@ function completedSessionEvent(overrides: SessionOverrides): string {
 				amount_total: overrides.amountTotal,
 				currency: 'ron',
 				payment_intent: overrides.paymentIntent ?? 'pi_test_1',
-				payment_status: 'paid',
+				payment_status: overrides.paymentStatus ?? 'paid',
 				customer_details: { email: overrides.email ?? 'client@example.ro', name: 'Ana Pop' },
 				collected_information: {
 					shipping_details: {
@@ -463,6 +470,10 @@ function completedSessionEvent(overrides: SessionOverrides): string {
 			}
 		}
 	});
+}
+
+function completedSessionEvent(overrides: SessionOverrides): string {
+	return sessionEvent('checkout.session.completed', overrides);
 }
 
 function signedHeader(payload: string, secret = WEBHOOK_SECRET): string {
@@ -640,6 +651,185 @@ describe('webhook: checkout.session.completed', () => {
 		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
 		const outcome = await processStripeEvent(webhookDeps, event);
 		expect(outcome).toEqual({ kind: 'ignored', type: 'payment_intent.created' });
+	});
+});
+
+// M-4: delayed payment methods complete the session with payment_status
+// 'unpaid'; the order must wait as `pending` (no email, no invoice) until
+// `async_payment_succeeded` — or be failed AND restocked on
+// `async_payment_failed`. Nothing else ever writes status 'paid'.
+describe('webhook: async payments (M-4)', () => {
+	async function deliver(payload: string) {
+		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
+		return processStripeEvent(webhookDeps, event);
+	}
+
+	async function emailCount(orderId: string): Promise<number> {
+		const logs = await db
+			.select()
+			.from(emailLog)
+			.where(eq(emailLog.idempotencyKey, `order-confirmation:${orderId}`));
+		return logs.length;
+	}
+
+	it('an unpaid session creates a PENDING order with no confirmation email and no invoice attempt', async () => {
+		const product = await makeProduct({ name: 'Plată amânată', priceCents: 3000, stock: 10 });
+		const cart = [{ productId: product.id, qty: 2, priceCents: 3000 }];
+		const outcome = await deliver(
+			sessionEvent('checkout.session.completed', {
+				id: 'cs_async_pending',
+				cart,
+				amountTotal: 6000,
+				paymentStatus: 'unpaid'
+			})
+		);
+		expect(outcome.kind).toBe('order-created');
+		if (outcome.kind !== 'order-created') return;
+
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.status).toBe('pending');
+		// Stock is reserved at completion — the failure path returns it.
+		const [after] = await db.select().from(products).where(eq(products.id, product.id));
+		expect(after.stock).toBe(8);
+		// No confirmation, and no invoice attempt: the trail carries only
+		// `created` (a paid order in this settings-less DB would also log
+		// `invoice-failed`, so its absence proves issuance never ran).
+		expect(await emailCount(order.id)).toBe(0);
+		const trail = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+		expect(trail.map((e) => e.kind)).toEqual(['created']);
+
+		// A redelivery of the completed event still sends nothing while pending.
+		await deliver(
+			sessionEvent('checkout.session.completed', {
+				id: 'cs_async_pending',
+				cart,
+				amountTotal: 6000,
+				paymentStatus: 'unpaid',
+				eventId: 'evt_cs_async_pending_redelivered'
+			})
+		);
+		expect(await emailCount(order.id)).toBe(0);
+	});
+
+	it('async_payment_succeeded flips pending → paid, issues the invoice and sends ONE email', async () => {
+		const product = await makeProduct({ name: 'Amânat reușit', priceCents: 3000, stock: 10 });
+		const cart = [{ productId: product.id, qty: 1, priceCents: 3000 }];
+		await deliver(
+			sessionEvent('checkout.session.completed', {
+				id: 'cs_async_ok',
+				cart,
+				amountTotal: 3000,
+				paymentStatus: 'unpaid'
+			})
+		);
+
+		const outcome = await deliver(
+			sessionEvent('checkout.session.async_payment_succeeded', {
+				id: 'cs_async_ok',
+				cart,
+				amountTotal: 3000,
+				eventId: 'evt_cs_async_ok_paid'
+			})
+		);
+		expect(outcome.kind).toBe('payment-succeeded');
+		if (outcome.kind !== 'payment-succeeded') return;
+
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.status).toBe('paid');
+		// The trail shows the flip AND the invoice attempt (this DB has
+		// placeholder issuer settings, so the attempt records its failure —
+		// same as the instant-payment specs above).
+		const trail = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+		expect(trail.map((e) => e.kind).sort()).toEqual([
+			'created',
+			'invoice-failed',
+			'payment-succeeded'
+		]);
+		expect(await emailCount(order.id)).toBe(1);
+
+		// Redelivery (same event id) and a second flip attempt (new event id)
+		// are both no-ops with still exactly one email.
+		const redelivered = await deliver(
+			sessionEvent('checkout.session.async_payment_succeeded', {
+				id: 'cs_async_ok',
+				cart,
+				amountTotal: 3000,
+				eventId: 'evt_cs_async_ok_paid'
+			})
+		);
+		expect(redelivered.kind).toBe('duplicate-event');
+		const again = await deliver(
+			sessionEvent('checkout.session.async_payment_succeeded', {
+				id: 'cs_async_ok',
+				cart,
+				amountTotal: 3000,
+				eventId: 'evt_cs_async_ok_paid_2'
+			})
+		);
+		expect(again.kind).toBe('async-unmatched');
+		expect(await emailCount(order.id)).toBe(1);
+		const [still] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(still.status).toBe('paid');
+	});
+
+	it('async_payment_failed marks the order failed and returns the reserved stock', async () => {
+		const product = await makeProduct({ name: 'Amânat eșuat', priceCents: 3000, stock: 10 });
+		const cart = [{ productId: product.id, qty: 3, priceCents: 3000 }];
+		await deliver(
+			sessionEvent('checkout.session.completed', {
+				id: 'cs_async_fail',
+				cart,
+				amountTotal: 9000,
+				paymentStatus: 'unpaid'
+			})
+		);
+		const [reserved] = await db.select().from(products).where(eq(products.id, product.id));
+		expect(reserved.stock).toBe(7);
+
+		const outcome = await deliver(
+			sessionEvent('checkout.session.async_payment_failed', {
+				id: 'cs_async_fail',
+				cart,
+				amountTotal: 9000,
+				paymentStatus: 'unpaid',
+				eventId: 'evt_cs_async_fail_failed'
+			})
+		);
+		expect(outcome.kind).toBe('payment-failed');
+		if (outcome.kind !== 'payment-failed') return;
+
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.status).toBe('failed');
+		const [restocked] = await db.select().from(products).where(eq(products.id, product.id));
+		expect(restocked.stock).toBe(10);
+		expect(await emailCount(order.id)).toBe(0);
+		const trail = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+		expect(trail.map((e) => e.kind).sort()).toEqual(['created', 'payment-failed']);
+
+		// A redelivery under a new event id cannot double-restock.
+		const again = await deliver(
+			sessionEvent('checkout.session.async_payment_failed', {
+				id: 'cs_async_fail',
+				cart,
+				amountTotal: 9000,
+				paymentStatus: 'unpaid',
+				eventId: 'evt_cs_async_fail_failed_2'
+			})
+		);
+		expect(again.kind).toBe('async-unmatched');
+		const [after] = await db.select().from(products).where(eq(products.id, product.id));
+		expect(after.stock).toBe(10);
+	});
+
+	it('async events for an unknown session are acknowledged without effect', async () => {
+		const outcome = await deliver(
+			sessionEvent('checkout.session.async_payment_succeeded', {
+				id: 'cs_async_ghost',
+				cart: [],
+				amountTotal: 0
+			})
+		);
+		expect(outcome).toEqual({ kind: 'async-unmatched', sessionId: 'cs_async_ghost' });
 	});
 });
 
