@@ -8,6 +8,7 @@ import { getDb } from '$lib/db';
 import { getAuth, guardAdminPath, isStaffRole } from '$lib/modules/auth';
 import { createSettingsLoader } from '$lib/modules/settings/server';
 import { assertBootEnv } from '$lib/server/boot';
+import { securityHeaders } from '$lib/server/headers';
 import { formatServerError } from '$lib/server/log';
 // Side effect: selects the chat provider at boot — CHAT_PROVIDER=anthropic
 // without an ANTHROPIC_API_KEY fails fast instead of at the first message.
@@ -16,6 +17,21 @@ import '$lib/modules/chat/server';
 // Fail fast (audit resilience #10): refuse to boot on missing required env
 // instead of 500ing on first use. PUBLIC_SITE_URL lives in the public env.
 assertBootEnv({ ...env, PUBLIC_SITE_URL: publicEnv.PUBLIC_SITE_URL });
+
+/**
+ * Security headers on every response (review H-5): clickjacking protection
+ * for /admin/login, nosniff/referrer hygiene, HSTS on https deploys, and a
+ * report-only CSP starting point. First in the sequence so it wraps whatever
+ * the inner handles resolve. See $lib/server/headers.ts for the rationale
+ * per header.
+ */
+const handleHeaders: Handle = async ({ event, resolve }) => {
+	const response = await resolve(event);
+	for (const [name, value] of Object.entries(securityHeaders(publicEnv.PUBLIC_SITE_URL))) {
+		response.headers.set(name, value);
+	}
+	return response;
+};
 
 const handleParaglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, ({ request, locale }) => {
@@ -75,7 +91,12 @@ const handleAdminGuard: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-export const handle: Handle = sequence(handleParaglide, handleSettings, handleAdminGuard);
+export const handle: Handle = sequence(
+	handleHeaders,
+	handleParaglide,
+	handleSettings,
+	handleAdminGuard
+);
 
 /**
  * Every unexpected server error is logged as one structured JSON line and
