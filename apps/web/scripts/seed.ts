@@ -48,7 +48,9 @@ await storage.ensureBucket();
 // `direct` provider, so the bucket has to be anonymously readable.
 await storage.allowPublicRead();
 const productCount = await seedDemoProducts(db, storage);
-console.log(`Seeded ${productCount} demo product(s) (draft — /magazin lists only the real catalogue)`);
+console.log(
+	`Seeded ${productCount} demo product(s) (draft — /magazin lists only the real catalogue)`
+);
 const pageCount = await seedDefaultPages(db);
 console.log(`Seeded ${pageCount} default page(s)`);
 const settingCount = await seedPlaceholderSettings(db);

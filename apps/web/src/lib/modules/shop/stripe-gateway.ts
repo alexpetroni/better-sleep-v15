@@ -1,5 +1,9 @@
 import Stripe from 'stripe';
-import { GatewayResourceMissingError, type CheckoutSessionView, type StripeGateway } from './gateway.ts';
+import {
+	GatewayResourceMissingError,
+	type CheckoutSessionView,
+	type StripeGateway
+} from './gateway.ts';
 
 /** Translate Stripe's `resource_missing` into the gateway's typed error. */
 function isResourceMissing(err: unknown): boolean {

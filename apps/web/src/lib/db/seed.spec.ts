@@ -182,10 +182,7 @@ describe('seedDemoQuiz', () => {
 			.set({ status: 'draft' })
 			.where(eq(quizzes.id, 'seed-quiz-arhetip-somn'));
 		await seedArchetypeQuiz(db);
-		const [after] = await db
-			.select()
-			.from(quizzes)
-			.where(eq(quizzes.id, 'seed-quiz-arhetip-somn'));
+		const [after] = await db.select().from(quizzes).where(eq(quizzes.id, 'seed-quiz-arhetip-somn'));
 		expect(after.status).toBe('draft');
 	});
 });
@@ -207,7 +204,9 @@ describe('seededDemoLaunchProblems', () => {
 		const problems = await seededDemoLaunchProblems(db);
 		expect(problems).toHaveLength(7); // 3 products + 3 articles + 1 demo quiz
 		expect(problems.join('\n')).toMatch(/demo product "masca-de-somn-premium" .* still active/);
-		expect(problems.join('\n')).toMatch(/demo article "ciclurile-somnului-explicate" .* still published/);
+		expect(problems.join('\n')).toMatch(
+			/demo article "ciclurile-somnului-explicate" .* still published/
+		);
 		expect(problems.join('\n')).toMatch(/demo quiz "evaluare-somn" .* still published/);
 		// The published ARCHETYPE quiz must never be flagged — it is the launch quiz.
 		await db

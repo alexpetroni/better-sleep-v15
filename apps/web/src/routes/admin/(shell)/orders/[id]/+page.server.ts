@@ -97,7 +97,8 @@ export const actions: Actions = {
 		if (mockAwbBlocked(env)) {
 			return fail(400, {
 				awbError: 'courier-mock-live',
-				awbDetail: 'COURIER_PROVIDER=mock într-un mediu live — configurează Sameday (DEPLOYMENT.md §7)'
+				awbDetail:
+					'COURIER_PROVIDER=mock într-un mediu live — configurează Sameday (DEPLOYMENT.md §7)'
 			});
 		}
 
