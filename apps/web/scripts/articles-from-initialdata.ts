@@ -15,9 +15,18 @@
 // The script fails loudly on any gap: a topic without a file, a file without
 // a topic, a slug without meta, an empty/overlong meta field, or meta text
 // that duplicates the English topics.json copy.
-import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { CONTENT_BUNDLE_VERSION, type ContentBundle } from '../src/lib/modules/content/bundle.ts';
+import { findEnglishSentence } from '../src/lib/modules/content/english-leak.ts';
+import {
+	GENERATED_MANIFEST_NAME,
+	parseGeneratedManifest,
+	serializeGeneratedManifest,
+	staleGeneratedFiles,
+	updateGeneratedManifest
+} from '../src/lib/modules/content/generated-manifest.ts';
+import { writeFileAtomic } from './atomic-write.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const ARTICLES_DIR = path.join(ROOT, '.initialData/articles');
@@ -118,6 +127,19 @@ for (const topic of topics.toSorted((a, b) => a.id - b.id)) {
 		}
 	}
 
+	// Heuristic backstop (L-12): a LIFTED English sentence — not just a
+	// verbatim topics.json copy — must not ship either.
+	for (const [field, value] of [
+		['title', title],
+		['excerpt', m.excerpt],
+		['seoTitle', m.seoTitle],
+		['seoDescription', m.seoDescription],
+		['bodyMd', bodyMd]
+	] as const) {
+		const english = findEnglishSentence(value);
+		if (english) fail(`"${topic.slug}": ${field} contains an English sentence: "${english}"`);
+	}
+
 	const publishedAt = new Date(
 		PUBLISHED_ANCHOR_MS - (topics.length - topic.id) * TWO_DAYS_MS
 	).toISOString();
@@ -154,19 +176,26 @@ if (unusedMeta.size > 0) {
 await mkdir(OUT_DIR, { recursive: true });
 
 // Drop stale generated article bundles (a renamed slug would otherwise leave
-// its old file behind and re-import under the dead slug).
-const keep = new Set(bundles.map((b) => b.filename));
-for (const existing of await readdir(OUT_DIR)) {
-	if (!/^\d{4}-.+\.json$/.test(existing) || keep.has(existing)) continue;
-	const parsed = JSON.parse(await readFile(path.join(OUT_DIR, existing), 'utf8')) as {
-		type?: string;
-	};
-	if (parsed.type !== 'article') continue;
-	await unlink(path.join(OUT_DIR, existing));
-	console.log(`Removed stale ${existing}`);
+// its old file behind and re-import under the dead slug). Only files a
+// PREVIOUS run recorded in the manifest may be deleted — hand-authored
+// bundles in the same directory are never ours to touch (M-9).
+const manifestPath = path.join(OUT_DIR, GENERATED_MANIFEST_NAME);
+const manifest = parseGeneratedManifest(
+	await readFile(manifestPath, 'utf8')
+		.then((raw) => JSON.parse(raw) as unknown)
+		.catch(() => null)
+);
+const filenames = bundles.map((b) => b.filename);
+for (const stale of staleGeneratedFiles(manifest, 'article', filenames, await readdir(OUT_DIR))) {
+	await unlink(path.join(OUT_DIR, stale));
+	console.log(`Removed stale ${stale}`);
 }
 
 for (const { filename, bundle } of bundles) {
-	await writeFile(path.join(OUT_DIR, filename), JSON.stringify(bundle, null, '\t') + '\n', 'utf8');
+	await writeFileAtomic(path.join(OUT_DIR, filename), JSON.stringify(bundle, null, '\t') + '\n');
 }
+await writeFileAtomic(
+	manifestPath,
+	serializeGeneratedManifest(updateGeneratedManifest(manifest, 'article', filenames))
+);
 console.log(`Wrote ${bundles.length} article bundle(s) to ${OUT_DIR}`);

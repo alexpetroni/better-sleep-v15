@@ -40,6 +40,24 @@ travel as **slugs**, not numeric ids.
 `examples/article.json` is a complete, importable minimal bundle — copy it into
 `common/` or a site directory to start from scratch instead of exporting.
 
+## Generated bundles & ownership (`sleep/`)
+
+Most of `sleep/` is **script-generated**: the 40 article bundles (`0010…0400`)
+come from `pnpm --filter web articles:from-initialdata` and the 33 product
+bundles (`1010…1330`) from `pnpm --filter web products:from-initialdata`, both
+reading the vendored sources in `.initialData/`. **Never edit a generated
+bundle by hand** — edit the source (article bodies, `article-meta.ro.json`,
+`product-descriptions.ro.json`) and regenerate; a regeneration run overwrites
+the files it owns.
+
+Ownership is tracked in `sleep/.generated-manifest` (committed; not a `.json`
+file, so the importer ignores it): each run records the filenames it wrote and
+may delete only files a *previous* run recorded that it no longer generates
+(e.g. after a slug rename in the sources). Hand-authored bundles exported into
+`sleep/` are therefore safe regardless of filename — the scripts never touch a
+file outside their manifest. Keep the manifest committed alongside the bundles;
+without it, stale generated files are left behind rather than cleaned up.
+
 Shape (see `apps/web/src/lib/modules/content/bundle.ts` for the full contract):
 
 ```json
