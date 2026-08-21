@@ -167,9 +167,15 @@ export const SETTINGS_REGISTRY = {
 		clientSafe: false,
 		placeholder: ph('locul emiterii facturilor (ex. București)')
 	},
-	// Standard RO VAT rate in basis points (21% since 2025-08). Launch-required
-	// with no placeholder: the operator must consciously save the rate that
-	// applies to THIS entity before launch:check goes green.
+	// VAT rate in basis points; the default is the RO STANDARD rate (21% since
+	// 2025-08), but food supplements — the whole catalogue — are commonly at
+	// the REDUCED rate: the admin UI shows a confirm-with-the-accountant hint
+	// (review H-10) and LAUNCH-CHECKLIST.md carries the decision. ONE site-wide
+	// rate by design: per-product rates would ripple through invoice lines,
+	// e-Factura XML and the shipping row — build it only the day two rates
+	// genuinely coexist in the catalogue. Launch-required with no placeholder:
+	// the operator must consciously save the rate that applies to THIS entity
+	// before launch:check goes green.
 	'invoice.vatRateBp': {
 		kind: 'percentBp',
 		default: 2100,

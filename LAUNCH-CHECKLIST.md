@@ -72,6 +72,13 @@ list applies later to better-life (with its own domain/accounts).
         entity is not VAT-registered — leave "Plătitor de TVA" unchecked so
         invoices carry the neplătitor mention (launch:check enforces the
         required ones);
+      - **VAT rate confirmed with the accountant BEFORE launch**: the whole
+        catalogue is food supplements, which in Romania are commonly at the
+        REDUCED rate (11% after the Aug 2025 reform), NOT the 21% standard
+        default — a wrong rate overstates VAT on every invoice and e-Factura
+        XML from day one. Note the limitation: ONE site-wide rate applies to
+        all products and to shipping (no per-product rate yet — ask for it
+        the day two rates must coexist);
       - confirm with the accountant: the declared series/number regime, the
         per-line VAT rounding documented in `modules/invoice/README.md`, and
         the invoice TEMPLATE itself — download a test PDF from an order page
@@ -111,12 +118,21 @@ list applies later to better-life (with its own domain/accounts).
 - [ ] R2 bucket `bettersleep-media` created; scoped API token issued for the
       app (read+write). Only on the imgproxy provider: a second, read-only
       token for imgproxy.
-- [ ] `CHAT_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` set (or a conscious
-      decision to launch with the widget off / mock).
+- [ ] `CHAT_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` set. Since BS-7,
+      `launch:check` REFUSES a live env (`EMAIL_DRYRUN=false`) on the mock
+      chat provider — launching with canned answers is no longer a silent
+      possibility; turning the widget off instead means `chatWidget: false`
+      in the site config.
 - [ ] `COURIER_PROVIDER=sameday` + `SAMEDAY_USERNAME`/`SAMEDAY_PASSWORD`/
       `SAMEDAY_PICKUP_POINT` set from the courier contract (DEPLOYMENT.md §2,
       §7 "Shipping"). The mock default generates FAKE AWBs — fine for
-      staging, never for a customer parcel.
+      staging, never for a customer parcel: since BS-7 `launch:check` refuses
+      a live env on the mock, and the admin AWB button is blocked at runtime
+      as a second net.
+- [ ] `STRIPE_SECRET_KEY` present and `sk_live_…` in the live env — since
+      BS-7 `launch:check` refuses a missing or non-live key when
+      `EMAIL_DRYRUN=false`, and the cart refuses checkout on the mock
+      gateway at runtime ("Magazinul nu acceptă încă plăți online").
 - [ ] Shipping prices decided and saved at `/admin/settings` → "Magazin":
       standard price (launch-required — `launch:check` refuses until it is
       consciously saved; 0 = deliberate free shipping), optional express
@@ -152,9 +168,11 @@ list applies later to better-life (with its own domain/accounts).
 
 ## Content
 
-- [ ] Demo content reviewed: keep or delete the 3 seeded articles, the demo
-      quiz copy and the 3 demo products (they are real-looking!). Delete via
-      admin, or replace their copy.
+- [ ] Demo content reviewed: since BS-7 the 3 seeded articles, the demo quiz
+      and the 3 demo products land as DRAFT and `launch:check` refuses a
+      launch while any of them is live; re-seeding never re-publishes them.
+      Keep them as drafts, delete them via admin, or replace their copy
+      before consciously publishing.
 - [ ] At least the launch set of real articles published and tagged `somn`.
 - [ ] Quiz copy (questions, bands, advice) reviewed by the content owner —
       it is health-adjacent wording.

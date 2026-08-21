@@ -41,6 +41,12 @@
 		'shop.shippingNote': m.admin_settings_shop_shipping_note
 	};
 
+	// Per-field guidance shown under the input — for settings where the right
+	// VALUE needs a human decision the form itself cannot make (review H-10).
+	const fieldHints: Partial<Record<SettingKey, () => string>> = {
+		'invoice.vatRateBp': m.admin_settings_invoice_vat_rate_hint
+	};
+
 	const errorLabels: Record<string, () => string> = {
 		required: m.admin_settings_err_required,
 		'invalid-url': m.admin_settings_err_url,
@@ -125,6 +131,14 @@
 									data-testid="settings-field-{field.key}"
 									class="w-full rounded border border-(--color-brand-soft) px-3 py-2 text-sm"
 								/>
+							{/if}
+							{#if fieldHints[field.key]}
+								<span
+									data-testid="settings-hint-{field.key}"
+									class="mt-1 block text-xs text-(--color-ink)/60"
+								>
+									{fieldHints[field.key]?.()}
+								</span>
 							{/if}
 							{#if fieldError}
 								<span
