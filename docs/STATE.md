@@ -1,4 +1,72 @@
-# STATE — betterSleep after BS-7 launch safety (2026-08-21)
+# STATE — betterSleep after BS-8 abuse & consent integrity (2026-08-21)
+
+## BS-8 — abuse economics & consent integrity (2026-08-21)
+
+Closes the review's public-endpoint abuse family (`docs/REVIEW-2026-08-21.md`
+H-2, H-3, H-4, H-6, M-1, M-2). Theme: the throttles and the double-opt-in
+guarantee now hold under adversarial use.
+
+- **Unsubscribe sticks (H-2)**: `unsubscribeByToken` clears `confirmedAt`
+  alongside revoking consents — confirmation is per-grant, not
+  per-address-forever. A third party re-typing an unsubscribed address on any
+  public form starts a FRESH double opt-in (`already-confirmed` fast path and
+  nurture `isMailable` both key on `confirmedAt`); nothing is mailable until
+  the mailbox owner clicks a new confirm link. Spec: crm.spec "unsubscribe
+  revokes confirmation".
+- **Global budget isolation (H-3)**: `consumePublicEmailBudget` (and the new
+  quiz-submit budget) consume the per-IP counter FIRST and short-circuit —
+  a refused over-cap IP no longer drains the shared `:global` bucket
+  (previously `Promise.all` consumed both unconditionally). Refused requests
+  still count against their own IP key. Spec: rate-limit.spec H-3 case.
+- **Proxy-aware client addresses (H-4)**: `launch:check` now REQUIRES
+  `ADDRESS_HEADER` in a live env (`EMAIL_DRYRUN=false`) on the NODE target,
+  and a positive-integer `XFF_DEPTH` when the header is `x-forwarded-for`
+  (`cf-connecting-ip` needs no depth; Vercel is exempt — platform-resolved).
+  Both vars are in `env-matrix.ts`; DEPLOYMENT.md §3 states plainly that
+  without them the per-IP throttles are not load-bearing on adapter-node.
+- **Quiz submit throttled + swept (H-6)**: the public submit endpoint
+  consumes a `quiz-submit` scope (20/hour/IP, 500/hour global —
+  `consumeQuizSubmitBudget`, same `rate_limits` table) before any insert and
+  429s when spent; body cap shrunk 256 KB → 16 KB. `runRetentionSweep` now
+  also deletes UNCLAIMED `quiz_results` older than 180 days
+  (`pruneUnclaimedQuizResults`; claimed results live until subscriber
+  erasure). E2e runs stay under the caps (global-setup clears `rate_limits`).
+- **Result `?/email` action guards (M-1)**: the action re-runs the
+  slug/published/pillar gates; unknown ids, cross-slug/unpublished claims and
+  claims on someone else's result ALL return the same `{ sent: true }` shape
+  (no existence oracle; pre-fix unknown ids 404'd). `claimQuizResult` is
+  first-claim-wins: a different address on a claimed result is refused
+  BEFORE any consent grant or email, via an ownership check plus a
+  conditional UPDATE that guards the race. DELIBERATE trade-off: the old
+  "corrected typo gets its result email" path is gone for already-claimed
+  results (indistinguishable from the attack; the result stays visible
+  on-page). `enrollFromQuizResult(deps, resultId, claimedSubscriberId)` now
+  takes the claimer explicitly and no-ops on mismatch. New ADDITIVE
+  migration `0020` adds `nurture_enrollments.result_id` (FK → quiz_results,
+  set-null): the originating result, stored at enrollment (both the claim
+  path and the confirm-time back-fill) and preferred by the drain's
+  `{{resultUrl}}` resolution — a retake between enrollment and send no
+  longer redirects the email; fallback to latest linked result for null/
+  erased.
+- **Hostile submissions (M-2)**: `sanitizeSubmittedAnswers` returns
+  `{ answers, missingRequired }` and validates per question type against the
+  schema: declared option values only, single-selects must be strings (an
+  array no longer scores as a summed multi-select), multi-selects deduped,
+  numbers finite + in-bounds, strings bounded (2000 chars), duplicate
+  questionIds collapse to first; uuid/stepId/type/label/displayValue are
+  REBUILT from the schema, never stored from the payload. The endpoint 400s
+  when a required (unconditionally-visible) question is missing — `answers:
+[]` no longer stores a winner. Questions behind a step/group/question
+  `condition` are exempt from the required check (documented limitation:
+  formcomp's visibility fixpoint is not evaluated server-side).
+- **Key commands**: `EMAIL_DRYRUN=false pnpm launch:check --dev --no-probe`
+  now also lists the ADDRESS_HEADER problem on the node target.
+- **Next phase must know**: `sanitizeSubmittedAnswers`' signature changed
+  (object, not array). `enrollFromQuizResult` has a new required param.
+  capture-action.spec now creates one fresh result per claiming test
+  (first-claim-wins makes the old shared-result pattern invalid). The
+  quiz-submit per-IP cap is 20/hour — a manual dev session that submits a
+  lot clears `rate_limits` or waits.
 
 ## BS-7 — launch safety: no mock ever faces a customer (2026-08-21)
 
@@ -44,7 +112,7 @@ run dry, so every mock stays fully usable there.
 - **Security headers** (`src/lib/server/headers.ts` + `handleHeaders` first
   in the hooks sequence): `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
-  DENY`, CSP `frame-ancestors 'none'`, HSTS only when `PUBLIC_SITE_URL` is
+DENY`, CSP `frame-ancestors 'none'`, HSTS only when `PUBLIC_SITE_URL` is
   https, and a REPORT-ONLY `default-src 'self'` CSP (the path toward an
   enforced policy backstopping the sanitized `{@html}` routes). Unit spec +
   `e2e/headers.e2e.ts` (public `/` and `/admin/login`). Note: responses that
@@ -290,7 +358,7 @@ path is untouched.
   (`capture-form` testid, `input[name="email"]`,
   `input[name="newsletter_consent_box"]`).
 - Messages: `quiz_capture_*` keys added; `quiz_email_heading/blurb/
-  name_placeholder/submit/sent` and `quiz_consent_profile_label` removed;
+name_placeholder/submit/sent` and `quiz_consent_profile_label` removed;
   consent errors reuse `newsletter_consent_required`.
 
 ## BS-2 — the archetype quiz `/quiz/arhetip-somn` (2026-08-20)
@@ -301,7 +369,7 @@ untouched. All in `modules/quiz`:
 
 - **Scoring engine (additive, `scoring.ts`).** Two orthogonal extensions:
   - `resultMode?: 'band' | 'archetype'` (+ `archetypes?: Record<key,
-    { label, essence, advice }>`): in archetype mode every dimension key IS
+{ label, essence, advice }>`): in archetype mode every dimension key IS
     an archetype key (validated 1:1 both ways, ≥2 dimensions required) and
     `scoreQuiz` adds `profile.winner`/`profile.runnerUp` (full copy
     snapshotted into the stored profile, like bands). Tie-break: higher
@@ -311,7 +379,7 @@ untouched. All in `modules/quiz`:
     admin results table) keep working. Band-mode profiles carry none of the
     new fields; all old tests untouched.
   - New question-scoring kind `weights`: `{ kind: 'weights', weights:
-    { optionValue: { dimensionKey: points } } }` — the PICKED option decides
+{ optionValue: { dimensionKey: points } } }` — the PICKED option decides
     which dimension(s) score (map/numeric attribute a whole question to one
     dimension, which cannot express "each option names a different
     archetype"). Multi-select sums selected values; validation checks option
@@ -494,8 +562,8 @@ rehearses the launch procedure. No schema changes; two new pure-JS deps
   documented nowhere (now §9, §11, §12, checklist Ops), and the chat smoke
   item predating history restore (checklist updated).
 - Verified: gate green (lint + check + 715 unit/integration), `pnpm
-  test:neon` green, e2e 81 green across both sites, `DEPLOY_TARGET=vercel
-  pnpm build` green, `pnpm db:migrate` clean on fresh DBs for both sites.
+test:neon` green, e2e 81 green across both sites, `DEPLOY_TARGET=vercel
+pnpm build` green, `pnpm db:migrate` clean on fresh DBs for both sites.
 
 ## Nurture sequences: DB-backed email queue on the cron seam (2026-08-07, NEXT-9)
 
@@ -782,7 +850,7 @@ only, never bytes). New deps: `pdf-lib` + `@pdf-lib/fontkit` (PDF),
 - **Serverless constraint enforced** — a grep spec (documents.spec.ts)
   fails if anything under modules/invoice, modules/email, api/invoices,
   api/stripe or admin/orders imports `fs`; `DEPLOY_TARGET=vercel pnpm
-  build` verified.
+build` verified.
 - `util/money.ts` additions: `centsToDecimal` (dot/comma) and
   `centsPerUnitToDecimal` (4-decimal unit net) — amounts still meet strings
   only there.
@@ -901,11 +969,12 @@ The two foundations invoicing (NEXT-6/7) and shipping (NEXT-8) sit on:
 exactly-once webhook processing for EVERY event type, and a fulfillment
 dimension on orders with an audit trail. Migration `0015_furry_eternity`
 (new tables `processed_events`, `order_events`; `orders.fulfillment_status`
-+ index). No new env vars.
 
-- **`processed_events` ledger** — `lib/server/event-ledger/` (`schema.ts` +
+- index). No new env vars.
+
+* **`processed_events` ledger** — `lib/server/event-ledger/` (`schema.ts` +
   framework-free `core.ts`). `runOnce(db, {provider, eventId, eventType},
-  effect)` claims the (provider, event id) PK by insert INSIDE the same
+effect)` claims the (provider, event id) PK by insert INSIDE the same
   transaction the effect writes through: redelivery of ANY handled type skips
   the effect and reports the recorded `outcome` (so admin/debugging can see
   why an event did nothing); concurrent deliveries serialize on the claim; a
@@ -916,7 +985,7 @@ dimension on orders with an audit trail. Migration `0015_furry_eternity`
   set (the durable history is `order_events`). Wired into the existing
   `runRetentionSweep` (`server/retention.ts`), so both the VPS cron script and
   the Vercel cron route sweep it — no new deploy step.
-- **Webhook idempotency is now two-layered** (`modules/shop/webhook.ts`):
+* **Webhook idempotency is now two-layered** (`modules/shop/webhook.ts`):
   the ledger keys on the provider EVENT id (new outcome `duplicate-event`,
   carrying the first delivery's outcome); the unique `stripe_session_id`
   claim still collapses the same SESSION arriving under a NEW event id
@@ -925,10 +994,10 @@ dimension on orders with an audit trail. Migration `0015_furry_eternity`
   unknown event types are acknowledged WITHOUT a ledger row (no effect to
   guard; would grow with every category Stripe adds). Order confirmation email
   stays post-commit + idempotency-keyed on the order id.
-- **`orders.fulfillment_status`** — separate dimension from payment `status`:
+* **`orders.fulfillment_status`** — separate dimension from payment `status`:
   `unfulfilled → packed → shipped → delivered`, plus `returned` (from
   shipped/delivered) and `cancelled` (only BEFORE shipping); `packed →
-  unfulfilled` is a deliberate unpack correction; `returned`/`cancelled` are
+unfulfilled` is a deliberate unpack correction; `returned`/`cancelled` are
   terminal. Pure state machine in `modules/shop/fulfillment.ts` (client-safe —
   the admin UI renders legal moves from it, typed `IllegalTransitionError`);
   THE single writer is `transitionFulfillment` (`fulfillment-service.ts`),
@@ -939,11 +1008,11 @@ dimension on orders with an audit trail. Migration `0015_furry_eternity`
   `cancelled` (never going to be fulfilled; must not look like pending work),
   everything else `unfulfilled` via the column default — verified against a DB
   seeded with pre-migration orders.
-- **`order_events` audit trail** — append-only per-order history (kind,
+* **`order_events` audit trail** — append-only per-order history (kind,
   actor = staff email or `stripe-webhook`, from/to status, note). Writers:
   webhook (`created`, `refund-marked`), fulfillment service
   (`fulfillment-transition`). Invoices/AWBs hook into the same trail next.
-- **Admin work queue** — `/admin/orders?f=…`: default (and unknown-filter
+* **Admin work queue** — `/admin/orders?f=…`: default (and unknown-filter
   fallback) is `action` = paid orders still `unfulfilled`/`packed` — the daily
   to-do, oversold included and badged; `oversold` = flagged orders still
   pre-shipping (the ones where restock/partial-refund/apology is undecided —
@@ -952,7 +1021,7 @@ dimension on orders with an audit trail. Migration `0015_furry_eternity`
   timeline, and the LEGAL transitions as form-action buttons with a note
   field — action re-checks `role === 'admin'` in the handler (defense in
   depth), 400s an illegal/unknown target without writing.
-- Tests — integration (`shop.spec.ts`): duplicate `charge.refunded` marks
+* Tests — integration (`shop.spec.ts`): duplicate `charge.refunded` marks
   refunded ONCE and the redelivery reports the ledger hit (fails pre-ledger);
   ledger row + effect roll back atomically on a poisoned event, retry then
   succeeds; same session under a new event id still yields one order/decrement
@@ -1008,7 +1077,7 @@ that was left for them. No schema changes; three new OPTIONAL env vars
   `data.analytics`; `AnalyticsLoader.svelte` (mounted ONLY there — admin/api
   are structurally untracked, plus `isTrackablePath()` as defense) injects
   the script in an `$effect` gated on `shouldLoadAnalytics(config, decision,
-  path)` and removes it on cleanup. The live decision is
+path)` and removes it on cleanup. The live decision is
   `localDecision ?? data.cookieConsent`, fed by the banner's new `onchange`
   prop — accepting tracks immediately, no reload. `track()` (`events.ts`)
   sanitizes custom-event props (PII-named keys, email/phone-shaped values
@@ -1028,8 +1097,8 @@ that was left for them. No schema changes; three new OPTIONAL env vars
   `settings.e2e.ts` gained the legal-surface test (in that file ON PURPOSE —
   it depends on the company data saved by its first test, and parallel spec
   files would race the shared `site_settings`): footer identity + ANPC hrefs
-  + `rel=noopener`, identity block on both legal pages, cookie table lists
-  the real cookie names.
+  - `rel=noopener`, identity block on both legal pages, cookie table lists
+    the real cookie names.
 - Docs: LAUNCH-CHECKLIST Legal section (identification/ANPC boxes are now
   "fill in `/admin/settings`, renders automatically"; lawyer review of the
   three seeded pages incl. the new cookie policy stays human; analytics
@@ -1082,7 +1151,7 @@ stub is gone; `StubPage.svelte` deleted). One new migration
   generated from the registry, one `?/save` action per group (hidden `group`
   field) so a half-configured site can still save company data. Server-side
   validation, per-field error codes + echoed values on `fail(400, { group,
-  errors, values })`, `saved`/audit testids (`settings-field-<key>`,
+errors, values })`, `saved`/audit testids (`settings-field-<key>`,
   `settings-save-<group>`, `settings-error-<key>`, `settings-saved`,
   `settings-audit`). Plain no-JS POST forms (pages-editor pattern). Settings
   was already in `ADMIN_ONLY_SECTIONS` — editor gets 403 (covered in
@@ -1108,7 +1177,7 @@ Everything between the Vercel/Neon branch and an executable deploy: migrations
 got a home in CI, the untickable "grep for dev secrets" checklist box became a
 script, and the imgproxy hosting question is decided and committed. No schema
 changes, no new required env vars (`CRON_SECRET`/`DIRECT_DATABASE_URL` were
-already §12 variables — they are now *enforced* on the vercel target instead
+already §12 variables — they are now _enforced_ on the vercel target instead
 of just documented).
 
 - **Single-source env matrix** — `apps/web/src/lib/server/env-matrix.ts` is
@@ -1139,7 +1208,7 @@ of just documented).
   (`scripts/migrate-status.ts`, new): prints applied/PENDING per committed
   journal entry (drizzle stores the journal `when` as `created_at` — that is
   the join key), exits non-zero while any are pending, treats a missing
-  migrations table (fresh db, error 42P01 on the *cause* of the wrapped
+  migrations table (fresh db, error 42P01 on the _cause_ of the wrapped
   drizzle error) as "nothing applied". The workflow YAML is under test —
   `src/lib/server/migrate-workflow.spec.ts` parses it (new devDep `yaml`) and
   asserts triggers, secret, fail-closed guard, migrate→status order, no
@@ -1194,7 +1263,7 @@ behind `NEON_WS_PROXY`).
   run can't silently degrade into a pg run. Verified both ways: green with the
   proxy up, a clear per-file error with it stopped.
 - **The three unknowns, answered in code** (`src/lib/db/driver-parity.spec.ts`
-  + compile-time assertions in `client.ts`):
+  - compile-time assertions in `client.ts`):
   1. **`SET statement_timeout` on connect is honored** on a neon-driver
      connection: `SHOW statement_timeout` reports the configured value and a
      query exceeding it is cancelled server-side ("statement timeout"),
@@ -1304,7 +1373,7 @@ env var (`CONTENT_DIR`) and one new script (`pnpm content:init`).
   pinned in `.env` — rule and rationale in Env & environment quirks. This
   unblocked the integration suite, `db:migrate` and the seed scripts on the HOST
   with the committed `.env`, which previously died with `ENOTFOUND
-  host.docker.internal` and needed a manual override per command.
+host.docker.internal` and needed a manual override per command.
 - **Verification**: full unit+integration suite (411 tests) green on the host
   against the committed `.env`; a `dev-run.sh` launch driven through home → blog
   → article → shop → add-to-cart → cart → quiz → chat → admin login in chromium
@@ -1345,7 +1414,7 @@ new scripts. Deliberate rendering/behavior changes are listed below.
     (`listVisibleProducts`) and all CMS pages (`listPages`), each with
     `lastmod`.
   - **hreflang**: the public layout emits `<link rel="alternate"
-    hreflang="ro|en|x-default">` per page (de-localized pathname re-localized
+hreflang="ro|en|x-default">` per page (de-localized pathname re-localized
     per locale via paraglide, absolute via `canonicalUrl`); the root layout's
     display:none locale-anchor hack is GONE. NOTE: `localizeHref` does NOT
     de-localize its input — always feed it `deLocalizeUrl(url).pathname`.
@@ -1402,18 +1471,18 @@ timezone in `formatDate` (below).
     db legitimately need sibling table objects;
   - `import type` of anything — erased at runtime, rename-safe via tsc;
   - `*.spec.ts` files — integration specs deliberately wire modules together.
-  Everything else must go through `$lib/util`, `$lib/db`, `$lib/server` or a
-  module barrel (`$lib/modules/<name>[/server]`). Enforcement was proven with
-  a probe fixture (runtime `../crm/service.ts` errors; schema + type-only
-  pass). **Plain-node entry points** (`scripts/*`, `db/seed.ts`) still import
-  module files relatively — node cannot resolve `$lib` — but they live
-  outside `src/lib/modules` and are deliberately not governed by the rule.
-  The three runtime violations flushed out were FIXED, not exempted:
-  blog/render → `$lib/modules/media/server` (barrel now re-exports
-  `imageSources`), quiz/funnel → `$lib/modules/crm/server`,
-  extractMediaRefs → `$lib/util/media-refs.ts`. Consequence: `blog/render.ts`
-  and `quiz/funnel.ts` are now Vite-only (they import barrels) — do NOT
-  import them from plain-node scripts.
+    Everything else must go through `$lib/util`, `$lib/db`, `$lib/server` or a
+    module barrel (`$lib/modules/<name>[/server]`). Enforcement was proven with
+    a probe fixture (runtime `../crm/service.ts` errors; schema + type-only
+    pass). **Plain-node entry points** (`scripts/*`, `db/seed.ts`) still import
+    module files relatively — node cannot resolve `$lib` — but they live
+    outside `src/lib/modules` and are deliberately not governed by the rule.
+    The three runtime violations flushed out were FIXED, not exempted:
+    blog/render → `$lib/modules/media/server` (barrel now re-exports
+    `imageSources`), quiz/funnel → `$lib/modules/crm/server`,
+    extractMediaRefs → `$lib/util/media-refs.ts`. Consequence: `blog/render.ts`
+    and `quiz/funnel.ts` are now Vite-only (they import barrels) — do NOT
+    import them from plain-node scripts.
 - **NEW shared layer `$lib/util`** (universal, framework-free, node-safe):
   `slug.ts` + `money.ts` (moved verbatim from blog/shop — the blog/shop
   barrels no longer re-export them, routes import `$lib/util/{slug,money}`),
@@ -1425,7 +1494,7 @@ timezone in `formatDate` (below).
   by blog markdown, shop description scan and the content CLI).
 - **NEW shared db helpers `$lib/db`** (node-safe, imported relatively by
   modules): `unique-slug.ts` — generic `slugTaken`/`ensureUniqueSlug(db,
-  {table,id,slug}, base, fallback, excludeId)` replacing the triplicated
+{table,id,slug}, base, fallback, excludeId)` replacing the triplicated
   per-table copies (blog/shop/quiz) and pages' collect-all variant;
   `pillar-tags.ts` — `resolvePillarRows`/`setPillars`/`pillarSlugsFor` over a
   `PillarJoin` descriptor replacing the duplicated validate+replace+read in
@@ -1485,11 +1554,11 @@ timezone in `formatDate` (below).
 - **Runner gotcha discovered this phase**: this host has NO chromium system
   libraries (`libnspr4` etc.) and no root — a bare `pnpm test:e2e` fails all
   tests in ms with `browserType.launch … error while loading shared
-  libraries`. Workaround that produced this phase's green run: `apt-get
-  download` the ~16 debs with user-writable state dirs (`-o
-  Dir::State::Lists=… -o Dir::Cache=…`), `dpkg-deb -x` into a scratch root,
+libraries`. Workaround that produced this phase's green run: `apt-get
+download` the ~16 debs with user-writable state dirs (`-o
+Dir::State::Lists=… -o Dir::Cache=…`), `dpkg-deb -x` into a scratch root,
   and run `LD_LIBRARY_PATH=<scratch>/usr/lib/x86_64-linux-gnu:… pnpm
-  test:e2e`. If /tmp was wiped, redo it (or `playwright install-deps` where
+test:e2e`. If /tmp was wiped, redo it (or `playwright install-deps` where
   root exists). Both sites verified booting from the adapter-node build
   (home 200, /api/health ok) with the same env as DEPLOYMENT.md.
 
@@ -1522,7 +1591,7 @@ timezone in `formatDate` (below).
   `${VAR:?}` — NO committed fallback pair anywhere (an empty pair would
   disable signing entirely; the old committed pair is burned in git history —
   never reuse it). `.env.example` ships empty placeholders + `openssl rand
-  -hex 32` instructions; local dev `.env` values were rotated this phase.
+-hex 32` instructions; local dev `.env` values were rotated this phase.
   Rotation procedure documented in DEPLOYMENT.md §6.
 - **SVG uploads stay allowed but defanged** (M1 — option B; dropping svg
   would have broken the seeded product covers): compose/prod imgproxy get
@@ -1566,11 +1635,11 @@ timezone in `formatDate` (below).
   conditionals, secret-equality), `secrets.spec.ts` (pure + wiring: getters
   return TOKEN_SECRET; tokens signed by the app do NOT verify under
   BETTER_AUTH_SECRET), `health-route.spec.ts` (503 not 500 — mocks `$lib/db`
-  + media server barrel to throw), `body.spec.ts` (endless chunked stream
-  abandoned within ~cap bytes; header-only rejection), `chat-route.spec.ts`
-  (413 before any dependency is touched), `upload-ticket.spec.ts`,
-  log redaction cases, imgproxy `att:1` unit + live sanitize/attachment
-  integration test in `media.spec.ts`.
+  - media server barrel to throw), `body.spec.ts` (endless chunked stream
+    abandoned within ~cap bytes; header-only rejection), `chat-route.spec.ts`
+    (413 before any dependency is touched), `upload-ticket.spec.ts`,
+    log redaction cases, imgproxy `att:1` unit + live sanitize/attachment
+    integration test in `media.spec.ts`.
 - No schema changes, no new migrations. New env var: `TOKEN_SECRET`
   (REQUIRED everywhere; e2e/preview inherit it from root `.env`). New
   exports: `assertBootEnv`/`bootEnvProblems`/`REQUIRED_BOOT_ENV`
@@ -1803,7 +1872,7 @@ timezone in `formatDate` (below).
   their own table) + `prev_count` column on `login_attempts` and
   `chat_rate_limits`. Applied to sleep/life/test dbs.
 - **Login limiter** (`modules/auth/rate-limit.ts`): `registerLoginAttempt(db,
-  key)` atomically counts the attempt BEFORE the password check; success
+key)` atomically counts the attempt BEFORE the password check; success
   still `clearAttempts`. 5 attempts per sliding 15 min per IP+email. The old
   pure helpers (getAttemptState/recordFailure/saveAttemptState/isRateLimited)
   are deleted.
@@ -2271,7 +2340,7 @@ Not run in CI/agent runs — do this by hand when you have keys:
 2. `stripe listen --forward-to localhost:5173/api/stripe/webhook` and copy the
    printed `whsec_…` into `STRIPE_WEBHOOK_SECRET` (restart dev again).
 3. Buy something on `/magazin` → Stripe Checkout test card `4242 4242 4242
-   4242`, any future expiry/CVC, RO address → you land on `/cos/succes` and
+4242`, any future expiry/CVC, RO address → you land on `/cos/succes` and
    `stripe listen` forwards `checkout.session.completed` → order appears in
    `/admin/orders` as `plătită`, stock decremented, `email_log` has the
    `order-confirmation` row (dry-run unless Resend is configured).
@@ -2282,7 +2351,7 @@ Not run in CI/agent runs — do this by hand when you have keys:
 
 - **Content export/import CLI** (`modules/content/`, node-safe; script
   `apps/web/scripts/content.ts`): `pnpm content export --type article|quiz|product
-  --slug X [--out f.json]` produces a SELF-CONTAINED bundle (version 1):
+--slug X [--out f.json]` produces a SELF-CONTAINED bundle (version 1):
   content fields, pillar SLUGS (ids differ per db), and every referenced media
   row incl. original bytes base64 (cover, gallery, `media:` body refs).
   `pnpm content import f.json` targets the CURRENT env's DATABASE_URL +
@@ -2477,11 +2546,11 @@ deliberate deferrals, each with its reason.
   `mkdir -p /tmp/apt-lists/partial /tmp/apt-cache/archives/partial /tmp/debs`,
   `apt-get update -o Dir::State::Lists=/tmp/apt-lists -o Dir::Cache=/tmp/apt-cache`,
   then in /tmp/debs `apt-get download -o … libnspr4 libnss3 libatk1.0-0
-  libatk-bridge2.0-0 libdbus-1-3 libxcomposite1 libxdamage1 libxfixes3
-  libxrandr2 libgbm1 libxkbcommon0 libasound2 libatspi2.0-0 libdrm2
-  libwayland-server0 libxi6` and `for d in *.deb; do dpkg-deb -x "$d"
-  ~/chromium-libs; done` (verify: `ldd …/chrome-headless-shell | grep 'not
-  found'` is empty with LD_LIBRARY_PATH set).
+libatk-bridge2.0-0 libdbus-1-3 libxcomposite1 libxdamage1 libxfixes3
+libxrandr2 libgbm1 libxkbcommon0 libasound2 libatspi2.0-0 libdrm2
+libwayland-server0 libxi6` and `for d in *.deb; do dpkg-deb -x "$d"
+~/chromium-libs; done` (verify: `ldd …/chrome-headless-shell | grep 'not
+found'` is empty with LD_LIBRARY_PATH set).
 - Paraglide output (`src/lib/paraglide/`) is gitignored and regenerated; `pnpm check`
   runs `paraglide:compile` first so it works from a fresh checkout.
 
@@ -2637,15 +2706,15 @@ Cloudflare with no container of ours anywhere. No schema change.
 
 - **The seam.** `imageSources()` no longer knows how to build a URL; it takes
   an `ImageProvider` (`modules/media/image.ts`): `{ name, transforms,
-  url(key, opts) }`. Three implementations —
+url(key, opts) }`. Three implementations —
   - `cloudflare.ts` — `/cdn-cgi/image/<opts>/<origin>/<key>`, options emitted
     in a FIXED order (a reordered list is a separate edge-cache entry and a
     separate billed transformation), `metadata=none` always (EXIF/GPS off our
     derivatives), imgproxy's fit modes mapped onto Cloudflare's;
   - `imgproxy.ts` — unchanged signing, now wrapped as a provider;
   - `direct.ts` — the stored original, `transforms: false`.
-  Selected by `IMAGE_PROVIDER` (`env.ts`), defaulting to `direct`. Pages,
-  components and `ImageSources` are untouched — the swap is one env var.
+    Selected by `IMAGE_PROVIDER` (`env.ts`), defaulting to `direct`. Pages,
+    components and `ImageSources` are untouched — the swap is one env var.
 - **`transforms: false` is honest, not degraded.** `buildSrcset` returns ''
   (N identical URLs would make the browser fetch the largest for nothing) and
   `computeBlurhash` throws rather than downloading a megapixel original.

@@ -334,7 +334,10 @@ describe('launch:check rules', () => {
 	});
 
 	it('accepts a Cloudflare-set header without XFF_DEPTH on node', () => {
-		const env = { ...liveEnv(), ADDRESS_HEADER: 'cf-connecting-ip' };
+		const env: Record<string, string | undefined> = {
+			...liveEnv(),
+			ADDRESS_HEADER: 'cf-connecting-ip'
+		};
 		delete env.XFF_DEPTH;
 		expect(launchCheckProblems(env, { target: 'node' })).toEqual([]);
 	});

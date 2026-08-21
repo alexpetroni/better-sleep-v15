@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { isActionFailure, isHttpError } from '@sveltejs/kit';
+import { isActionFailure } from '@sveltejs/kit';
 import { createDb, type Db } from '../../lib/db/client.ts';
 import { emailLog } from '../../lib/modules/email/schema.ts';
 import { windowStart } from '../../lib/server/rate-limit/core.ts';
@@ -138,44 +138,35 @@ describe('newsletter signup throttle', () => {
 	});
 });
 
-describe('quiz-result email throttle', () => {
-	it('consumes budget before the result lookup and returns 429 past the per-IP cap', async () => {
+describe('quiz-result email action (BS-8 review M-1: gates run before the budget)', () => {
+	// Pre-BS-8 the throttle ran FIRST and unknown ids 404'd after it — probing
+	// cost a slot but the 404-vs-success shapes were an existence oracle over
+	// result ids. Now the gates run first and every refusal is a silent
+	// `{ sent: true }`: a scan learns NOTHING, which supersedes making it
+	// expensive. The 429 path on a REAL result is pinned in
+	// capture-action.spec ("rate limit trips once the budget is spent").
+	it('an unknown result id is a silent success that spends no budget and sends nothing', async () => {
 		const ip = '203.0.113.210';
-		// Unknown result id: the handler 404s AFTER the throttle, so every probe
-		// still spends a slot — an attacker can't scan for free.
-		for (let i = 1; i <= PUBLIC_EMAIL_IP_LIMIT.max; i++) {
-			await quizEmailAction(quizEmailEvent(`victima-${i}@example.com`, ip)).then(
-				() => {
-					throw new Error('expected error(404)');
-				},
-				(e: unknown) => {
-					if (!isHttpError(e)) throw e;
-					expect(e.status).toBe(404);
-				}
-			);
+		const logBefore = (await db.select().from(emailLog)).length;
+		for (let i = 1; i <= 3; i++) {
+			expect(await quizEmailAction(quizEmailEvent(`victima-${i}@example.com`, ip))).toEqual({
+				sent: true
+			});
 		}
-
-		const blocked = await quizEmailAction(quizEmailEvent('victima-11@example.com', ip));
-		if (!isActionFailure(blocked)) throw new Error('expected an ActionFailure');
-		expect(blocked.status).toBe(429);
-		expect(blocked.data).toEqual({ error: 'rate-limited' });
-
-		// A different visitor still reaches the handler (404 for this fake id).
-		await quizEmailAction(quizEmailEvent('ok@example.com', '203.0.113.211')).then(
-			() => {
-				throw new Error('expected error(404)');
-			},
-			(e: unknown) => {
-				if (!isHttpError(e)) throw e;
-				expect(e.status).toBe(404);
-			}
-		);
+		expect(
+			await db
+				.select()
+				.from(rateLimits)
+				.where(eq(rateLimits.key, `quiz-email:ip:${ip}`))
+		).toEqual([]);
+		expect((await db.select().from(emailLog)).length).toBe(logBefore);
 	});
 
-	it('trips the global cap across distinct IPs', async () => {
+	it('a spent global budget is not probeable through fake ids either', async () => {
 		await exhaustGlobalBudget('quiz-email');
-		const blocked = await quizEmailAction(quizEmailEvent('victima@example.com', '198.51.100.240'));
-		if (!isActionFailure(blocked)) throw new Error('expected an ActionFailure');
-		expect(blocked.status).toBe(429);
+		// Same shape whether or not the budget is spent — no oracle.
+		expect(await quizEmailAction(quizEmailEvent('victima@example.com', '198.51.100.240'))).toEqual({
+			sent: true
+		});
 	});
 });
