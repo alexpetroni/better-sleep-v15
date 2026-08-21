@@ -1,5 +1,10 @@
 import Stripe from 'stripe';
-import type { CheckoutSessionView, StripeGateway } from './gateway.ts';
+import { GatewayResourceMissingError, type CheckoutSessionView, type StripeGateway } from './gateway.ts';
+
+/** Translate Stripe's `resource_missing` into the gateway's typed error. */
+function isResourceMissing(err: unknown): boolean {
+	return err instanceof Stripe.errors.StripeInvalidRequestError && err.code === 'resource_missing';
+}
 
 /** Default per-request cap (Stripe's own default is 80s); override via STRIPE_TIMEOUT_MS. */
 export const STRIPE_TIMEOUT_MS_DEFAULT = 20_000;
@@ -41,10 +46,15 @@ export function createStripeGateway(
 		},
 
 		async updateProduct(productId, input) {
-			await stripe.products.update(productId, {
-				name: input.name,
-				description: input.description || undefined
-			});
+			try {
+				await stripe.products.update(productId, {
+					name: input.name,
+					description: input.description || undefined
+				});
+			} catch (err) {
+				if (isResourceMissing(err)) throw new GatewayResourceMissingError(productId);
+				throw err;
+			}
 		},
 
 		async createPrice(input) {
@@ -57,7 +67,12 @@ export function createStripeGateway(
 		},
 
 		async archivePrice(priceId) {
-			await stripe.prices.update(priceId, { active: false });
+			try {
+				await stripe.prices.update(priceId, { active: false });
+			} catch (err) {
+				if (isResourceMissing(err)) throw new GatewayResourceMissingError(priceId);
+				throw err;
+			}
 		},
 
 		async getPrice(priceId) {

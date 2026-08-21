@@ -248,6 +248,29 @@ describe('Stripe sync (mock gateway)', () => {
 		expect(gateway.prices.get(resynced.product.stripePriceId!)?.unitAmountCents).toBe(7500);
 	});
 
+	// BS-7 (review H-8): pre-phase this returned { ok: false, error: 'gateway' }
+	// FOREVER — a stored id the Stripe account no longer knows (mock-era
+	// residue, an account or test/live-mode switch) made every later sync fail.
+	it('recovers from resource_missing: stale stored ids are re-created fresh', async () => {
+		const before = createMockStripeGateway();
+		// Shift the id sequence so the stale ids cannot collide with the ids the
+		// fresh gateway will mint (mock ids are sequential per instance).
+		await before.createProduct({ name: 'decalaj' });
+		const row = await makeProduct({ name: 'Cont schimbat', priceCents: 5000 });
+		const first = await syncProductToStripe({ db, gateway: before }, row.id);
+		if (!first.ok) throw new Error('first sync failed');
+
+		// A fresh mock = a different Stripe account: every stored id is unknown,
+		// so update AND the old-price archive both raise resource_missing.
+		const after = createMockStripeGateway();
+		const resynced = await syncProductToStripe({ db, gateway: after }, row.id);
+		expect(resynced.ok).toBe(true);
+		if (!resynced.ok) return;
+		expect(resynced.priceChanged).toBe(true);
+		expect(after.products.has(resynced.product.stripeProductId!)).toBe(true);
+		expect(after.prices.get(resynced.product.stripePriceId!)?.unitAmountCents).toBe(5000);
+	});
+
 	it('an unpriced product syncs without creating a price', async () => {
 		const gateway = createMockStripeGateway();
 		const row = await makeProduct({ name: 'Fără preț', priceCents: 0 });

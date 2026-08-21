@@ -30,6 +30,17 @@ export function mockCheckoutBlocked(env: LiveGuardEnv): boolean {
 }
 
 /**
+ * True when admin saves should mirror the product into Stripe. With no key
+ * the gateway is the mock, and syncing would persist `prod_mock_N` /
+ * `price_mock_N` ids into product rows — ids a later REAL Stripe account has
+ * never heard of (review H-8). Keyless envs therefore skip sync entirely; the
+ * first save after real keys arrive mirrors everything.
+ */
+export function stripeSyncEnabled(env: LiveGuardEnv): boolean {
+	return Boolean(env.STRIPE_SECRET_KEY);
+}
+
+/**
  * True when AWB generation must be refused: the mock courier is selected
  * (COURIER_PROVIDER unset or `mock` — see selectCourierProvider) in a live
  * env. Without this, real paid orders get deterministic fake AWBs mailed to

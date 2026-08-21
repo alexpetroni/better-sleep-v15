@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
-import type { StripeGateway } from './gateway.ts';
+import { GatewayResourceMissingError, type StripeGateway } from './gateway.ts';
 import { products, type ProductRow } from './schema.ts';
 
 /**
@@ -8,6 +8,10 @@ import { products, type ProductRow } from './schema.ts';
  * Stripe prices are immutable — create a new price and archive the replaced
  * one whenever the amount or currency changed. Idempotent: re-syncing an
  * unchanged product only refreshes the product's name/description.
+ *
+ * A stored id Stripe no longer knows (`resource_missing` — mock-era residue,
+ * an account or live/test-mode switch) is treated as "create fresh", never as
+ * a permanent failure (review H-8).
  */
 
 export interface SyncDeps {
@@ -27,7 +31,12 @@ export async function syncProductToStripe(deps: SyncDeps, productId: string): Pr
 		const productInput = { name: row.name, description: row.descriptionMd };
 		let stripeProductId = row.stripeProductId;
 		if (stripeProductId) {
-			await deps.gateway.updateProduct(stripeProductId, productInput);
+			try {
+				await deps.gateway.updateProduct(stripeProductId, productInput);
+			} catch (err) {
+				if (!(err instanceof GatewayResourceMissingError)) throw err;
+				stripeProductId = await deps.gateway.createProduct(productInput);
+			}
 		} else {
 			stripeProductId = await deps.gateway.createProduct(productInput);
 		}
@@ -47,7 +56,14 @@ export async function syncProductToStripe(deps: SyncDeps, productId: string): Pr
 					unitAmountCents: row.priceCents,
 					currency: row.currency
 				});
-				if (stripePriceId) await deps.gateway.archivePrice(stripePriceId);
+				if (stripePriceId) {
+					try {
+						await deps.gateway.archivePrice(stripePriceId);
+					} catch (err) {
+						// A replaced price that no longer exists is already "archived".
+						if (!(err instanceof GatewayResourceMissingError)) throw err;
+					}
+				}
 				stripePriceId = newPriceId;
 				priceChanged = true;
 			}

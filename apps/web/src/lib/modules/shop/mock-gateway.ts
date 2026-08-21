@@ -1,9 +1,10 @@
 import { cartTotalCents } from './cart.ts';
-import type {
-	CheckoutSessionInput,
-	CheckoutSessionView,
-	GatewayProductInput,
-	StripeGateway
+import {
+	GatewayResourceMissingError,
+	type CheckoutSessionInput,
+	type CheckoutSessionView,
+	type GatewayProductInput,
+	type StripeGateway
 } from './gateway.ts';
 
 /**
@@ -47,7 +48,9 @@ export function createMockStripeGateway(): MockStripeGateway {
 		},
 
 		async updateProduct(productId, input) {
-			if (!products.has(productId)) throw new Error(`Mock Stripe: no product ${productId}`);
+			// Like Stripe: updating an unknown id is `resource_missing` (typed, so
+			// sync.ts can recover by creating fresh — review H-8).
+			if (!products.has(productId)) throw new GatewayResourceMissingError(productId);
 			products.set(productId, input);
 		},
 
@@ -58,6 +61,8 @@ export function createMockStripeGateway(): MockStripeGateway {
 		},
 
 		async archivePrice(priceId) {
+			// Like Stripe: archiving an unknown price is `resource_missing`.
+			if (!prices.has(priceId)) throw new GatewayResourceMissingError(priceId);
 			archivedPrices.add(priceId);
 		},
 

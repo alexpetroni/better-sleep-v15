@@ -3,7 +3,7 @@
 // mock's dead checkout.stripe.com URL, and the mock courier issued fake AWBs
 // for real orders. Every "blocked" assertion here fails against that behavior.
 import { describe, expect, it } from 'vitest';
-import { isLiveEnv, mockAwbBlocked, mockCheckoutBlocked } from './live-guard.ts';
+import { isLiveEnv, mockAwbBlocked, mockCheckoutBlocked, stripeSyncEnabled } from './live-guard.ts';
 
 describe('isLiveEnv', () => {
 	it('only EMAIL_DRYRUN=false is live — unset and "true" are dev-shaped', () => {
@@ -32,6 +32,20 @@ describe('mockCheckoutBlocked', () => {
 		expect(mockCheckoutBlocked({ EMAIL_DRYRUN: 'true', STRIPE_SECRET_KEY: 'sk_test_x' })).toBe(
 			false
 		);
+	});
+});
+
+// BS-7 (review H-8): pre-phase every admin save synced through whatever
+// gateway was selected, so a keyless env wrote prod_mock_N ids into the DB.
+describe('stripeSyncEnabled', () => {
+	it('keyless (mock gateway) envs never sync — mock ids must not persist', () => {
+		expect(stripeSyncEnabled({})).toBe(false);
+		expect(stripeSyncEnabled({ STRIPE_SECRET_KEY: '' })).toBe(false);
+	});
+
+	it('any real key syncs, test or live', () => {
+		expect(stripeSyncEnabled({ STRIPE_SECRET_KEY: 'sk_test_x' })).toBe(true);
+		expect(stripeSyncEnabled({ STRIPE_SECRET_KEY: 'sk_live_x' })).toBe(true);
 	});
 });
 

@@ -11,6 +11,19 @@ export interface GatewayProductInput {
 }
 
 /**
+ * A stored Stripe id that no longer exists on the account (Stripe's
+ * `resource_missing`) — e.g. mock-era residue or an account/mode switch. Both
+ * gateways throw THIS class for it so `sync.ts` can recover by creating the
+ * resource fresh instead of failing forever (review H-8).
+ */
+export class GatewayResourceMissingError extends Error {
+	constructor(id: string) {
+		super(`Stripe resource ${id} does not exist on this account`);
+		this.name = 'GatewayResourceMissingError';
+	}
+}
+
+/**
  * A checkout line. Sessions are created with inline `price_data` snapshotted
  * from OUR database (the single source of truth for what is charged) rather
  * than referencing synced Stripe price ids — this keeps checkout independent

@@ -1,10 +1,12 @@
 import { error, fail } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { getDb } from '$lib/db';
 import { parseLeiToCents } from '$lib/util/money';
 import type { ProductStatus } from '$lib/modules/shop';
 import {
 	getProduct,
 	getStripeGateway,
+	stripeSyncEnabled,
 	syncProductToStripe,
 	updateProduct,
 	type ProductPatch
@@ -68,11 +70,15 @@ export const actions: Actions = {
 
 		// Mirror into the Stripe catalog on every save. A gateway failure keeps
 		// the save (retried on the next save) and is surfaced as a warning.
-		const sync = await syncProductToStripe({ db: getDb(), gateway: getStripeGateway() }, params.id);
+		// Keyless envs skip the mirror — the mock's prod_mock_N/price_mock_N ids
+		// must never persist into product rows (review H-8).
+		const sync = stripeSyncEnabled(env)
+			? await syncProductToStripe({ db: getDb(), gateway: getStripeGateway() }, params.id)
+			: null;
 		return {
 			saved: true,
 			slug: result.value.slug,
-			syncError: sync.ok ? '' : (sync.detail ?? sync.error)
+			syncError: sync && !sync.ok ? (sync.detail ?? sync.error) : ''
 		};
 	}
 };
