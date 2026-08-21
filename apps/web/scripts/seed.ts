@@ -32,10 +32,13 @@ if (!databaseUrl) throw new Error('DATABASE_URL is not set');
 const db = createDb(databaseUrl);
 const count = await seedPillars(db, site.pillars);
 console.log(`Seeded ${count} pillar(s) for site "${site.id}"`);
+// Demo content lands as draft (review H-9): it is fictional, so it must be a
+// conscious /admin publish away from any visitor — and a re-seed never
+// reverts what an operator decided.
 const articleCount = await seedDemoArticles(db);
-console.log(`Seeded ${articleCount} demo article(s)`);
+console.log(`Seeded ${articleCount} demo article(s) (draft — publish in /admin if wanted)`);
 const quizSlug = await seedDemoQuiz(db);
-console.log(`Seeded demo quiz "/quiz/${quizSlug}"`);
+console.log(`Seeded demo quiz "/quiz/${quizSlug}" (draft)`);
 const archetypeSlug = await seedArchetypeQuiz(db);
 console.log(`Seeded archetype quiz "/quiz/${archetypeSlug}"`);
 // Product placeholder images land in storage — needs the compose MinIO up.
@@ -45,7 +48,7 @@ await storage.ensureBucket();
 // `direct` provider, so the bucket has to be anonymously readable.
 await storage.allowPublicRead();
 const productCount = await seedDemoProducts(db, storage);
-console.log(`Seeded ${productCount} demo product(s)`);
+console.log(`Seeded ${productCount} demo product(s) (draft — /magazin lists only the real catalogue)`);
 const pageCount = await seedDefaultPages(db);
 console.log(`Seeded ${pageCount} default page(s)`);
 const settingCount = await seedPlaceholderSettings(db);

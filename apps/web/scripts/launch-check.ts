@@ -22,6 +22,7 @@
 // rule lives in src/lib/modules/settings (settingsLaunchProblems).
 import { loadRootEnv } from './env.ts';
 import { createDb } from '../src/lib/db/client.ts';
+import { seededDemoLaunchProblems } from '../src/lib/db/seed.ts';
 import { settingsLaunchProblems } from '../src/lib/modules/settings/server.ts';
 import {
 	imageProbeBlocker,
@@ -68,24 +69,26 @@ if (probeBlocker) {
 	problems.push(...(await probeImages(env)));
 }
 
-// Site-settings preflight: launch-required settings must be explicitly saved
-// and no longer the seeded placeholders. --dev acknowledges placeholders the
-// same way it acknowledges dev-default env values; --no-probe keeps the run
-// env-only (CI has no database to dial).
+// Database preflight: launch-required settings must be explicitly saved and
+// no longer the seeded placeholders, and no FICTIONAL demo content may be
+// live (review H-9). --dev acknowledges both the same way it acknowledges
+// dev-default env values; --no-probe keeps the run env-only (CI has no
+// database to dial).
 if (dev) {
-	notes.push('site-settings check skipped: --dev');
+	notes.push('database checks skipped: --dev');
 } else if (noProbe) {
-	notes.push('site-settings check skipped: --no-probe');
+	notes.push('database checks skipped: --no-probe');
 } else if (!env.DATABASE_URL) {
 	// Reported as a missing variable above.
-	notes.push('site-settings check skipped: DATABASE_URL not set');
+	notes.push('database checks skipped: DATABASE_URL not set');
 } else {
 	const db = createDb(env.DATABASE_URL);
 	try {
 		problems.push(...(await settingsLaunchProblems({ db })));
+		problems.push(...(await seededDemoLaunchProblems(db)));
 	} catch (err) {
 		problems.push(
-			`site settings could not be read (${err instanceof Error ? err.message : err}) — is DATABASE_URL reachable and migrated?`
+			`database checks could not run (${err instanceof Error ? err.message : err}) — is DATABASE_URL reachable and migrated?`
 		);
 	} finally {
 		await db.$client.end();

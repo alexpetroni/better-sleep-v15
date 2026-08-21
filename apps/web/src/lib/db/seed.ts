@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { PILLARS_BY_SLUG } from '../config/pillars.ts';
 import { articlePillars, articles } from '../modules/blog/schema.ts';
 import { media } from '../modules/media/schema.ts';
@@ -45,9 +45,12 @@ export async function seedPillars(db: Db, pillarSlugs: string[]): Promise<number
 }
 
 /**
- * Three published demo articles (ro), tagged to the `somn` pillar — both sites
- * activate it, so dev environments always have visible blog content.
- * Idempotent: fixed ids + upsert-by-slug, re-running never duplicates.
+ * Three demo articles (ro), tagged to the `somn` pillar — both sites activate
+ * it, so dev environments always have demo blog content. DRAFT unless the
+ * caller (the e2e setup) asks for `published` — fictional demo content must
+ * never be live in production by default, and a re-seed never overwrites the
+ * status an operator chose (review H-9). Idempotent: fixed ids +
+ * upsert-by-slug, re-running never duplicates.
  */
 const DEMO_ARTICLES = [
 	{
@@ -58,7 +61,10 @@ const DEMO_ARTICLES = [
 			'Ce se întâmplă în creierul tău în fiecare noapte și de ce contează fiecare fază a somnului.',
 		bodyMd:
 			'Somnul nu este o stare uniformă: în fiecare noapte treci prin **4–6 cicluri** de aproximativ 90 de minute.\n\n## Fazele unui ciclu\n\n- **Somn ușor** — tranziția către odihnă, ușor de întrerupt.\n- **Somn profund** — refacerea fizică; aici corpul repară țesuturi.\n- **Somn REM** — visele și consolidarea memoriei.\n\nTrezirile scurte între cicluri sunt normale. Contează ca ele să rămână scurte.\n',
-		publishedAt: new Date('2026-06-01T08:00:00Z')
+		// 07:45, not 08:00 — the oldest generated bundle (0010) publishes at
+		// 08:00Z the same day, and a timestamp tie made the archive's tail order
+		// per-database luck (review L-11).
+		publishedAt: new Date('2026-06-01T07:45:00Z')
 	},
 	{
 		id: 'seed-article-igiena-somnului',
@@ -93,8 +99,16 @@ interface QuizSeed {
 	scoring: ScoringConfig;
 }
 
-/** Upsert one published seed quiz (fixed id + upsert-by-slug, idempotent). */
-async function upsertSeedQuiz(db: Db, seed: QuizSeed): Promise<string> {
+/**
+ * Upsert one seed quiz (fixed id + upsert-by-slug, idempotent). `status` only
+ * applies to the INSERT: a re-seed refreshes content but never overwrites the
+ * publish state an operator chose in /admin/quizzes (review H-9).
+ */
+async function upsertSeedQuiz(
+	db: Db,
+	seed: QuizSeed,
+	status: 'draft' | 'published'
+): Promise<string> {
 	const errors = validateForPublish(seed.formSchema, seed.scoring);
 	if (errors.length) {
 		throw new Error(`Seed quiz "${seed.slug}" is not publishable: ${errors.join(' ')}`);
@@ -111,38 +125,50 @@ async function upsertSeedQuiz(db: Db, seed: QuizSeed): Promise<string> {
 		resultTemplateKey,
 		formSchema,
 		scoring,
-		pillarId: pillar.id,
-		status: 'published' as const
+		pillarId: pillar.id
 	};
 	await db
 		.insert(quizzes)
-		.values({ id, ...values })
+		.values({ id, ...values, status })
 		.onConflictDoUpdate({ target: quizzes.slug, set: { ...values, updatedAt: new Date() } });
 	return seed.slug;
 }
 
 /**
- * The demo-able sleep screening quiz, published and tagged `somn` (active on
- * both sites). Idempotent: fixed id + upsert-by-slug.
+ * The demo-able sleep screening quiz, tagged `somn` (active on both sites).
+ * DRAFT unless the caller (the e2e setup) asks for `published` — it is demo
+ * copy, not reviewed launch content (review H-9). Idempotent: fixed id +
+ * upsert-by-slug.
  */
-export async function seedDemoQuiz(db: Db): Promise<string> {
-	return upsertSeedQuiz(db, SLEEP_QUIZ_SEED);
+export async function seedDemoQuiz(
+	db: Db,
+	opts: { status?: 'draft' | 'published' } = {}
+): Promise<string> {
+	return upsertSeedQuiz(db, SLEEP_QUIZ_SEED, opts.status ?? 'draft');
 }
 
 /**
  * The archetype quiz `/quiz/arhetip-somn` — the site's central conversion
- * device (12 questions, archetype scoring mode). Idempotent like the demo quiz.
+ * device (12 questions, archetype scoring mode), published on first seed: it
+ * IS launch content, not demo content. Idempotent like the demo quiz.
  */
 export async function seedArchetypeQuiz(db: Db): Promise<string> {
-	return upsertSeedQuiz(db, ARCHETYPE_QUIZ_SEED);
+	return upsertSeedQuiz(db, ARCHETYPE_QUIZ_SEED, 'published');
 }
 
 /**
- * Three active demo products (ro), tagged `somn`, with SVG placeholder
- * images uploaded to storage. Idempotent: fixed media/product ids + fixed
- * storage keys + upsert-by-slug; re-running never duplicates.
+ * Three FICTIONAL demo products (ro), tagged `somn`, with SVG placeholder
+ * images uploaded to storage. DRAFT unless the caller (the e2e setup) asks
+ * for `active` — a customer must never be able to pay for a product that
+ * does not exist, and a re-seed never reverts an operator's archive
+ * (review H-9). Idempotent: fixed media/product ids + fixed storage keys +
+ * upsert-by-slug; re-running never duplicates.
  */
-export async function seedDemoProducts(db: Db, storage: Storage): Promise<number> {
+export async function seedDemoProducts(
+	db: Db,
+	storage: Storage,
+	opts: { status?: 'draft' | 'active' } = {}
+): Promise<number> {
 	const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
 	if (!somn) throw new Error('Cannot seed demo products: the "somn" pillar is not seeded');
 
@@ -175,13 +201,14 @@ export async function seedDemoProducts(db: Db, storage: Storage): Promise<number
 			descriptionMd: demo.descriptionMd,
 			priceCents: demo.priceCents,
 			stock: demo.stock,
-			status: 'active' as const,
 			coverMediaId: demo.cover.id,
 			gallery: demo.gallery.map((g) => g.id)
 		};
+		// `status` only on INSERT — the conflict set must not revert an
+		// operator's archive/draft decision on re-seed (review H-9).
 		const [row] = await db
 			.insert(products)
-			.values({ id: demo.id, ...values })
+			.values({ id: demo.id, ...values, status: opts.status ?? 'draft' })
 			.onConflictDoUpdate({ target: products.slug, set: { ...values, updatedAt: new Date() } })
 			.returning();
 		await db
@@ -192,16 +219,21 @@ export async function seedDemoProducts(db: Db, storage: Storage): Promise<number
 	return DEMO_PRODUCTS.length;
 }
 
-export async function seedDemoArticles(db: Db): Promise<number> {
+export async function seedDemoArticles(
+	db: Db,
+	opts: { status?: 'draft' | 'published' } = {}
+): Promise<number> {
 	const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
 	if (!somn) throw new Error('Cannot seed demo articles: the "somn" pillar is not seeded');
 
 	for (const demo of DEMO_ARTICLES) {
 		const { id, ...content } = demo;
+		// `status` only on INSERT — a re-seed must not force-republish an
+		// article an operator unpublished (review H-9).
 		const [row] = await db
 			.insert(articles)
-			.values({ id, ...content, status: 'published' })
-			.onConflictDoUpdate({ target: articles.slug, set: { ...content, status: 'published' } })
+			.values({ id, ...content, status: opts.status ?? 'draft' })
+			.onConflictDoUpdate({ target: articles.slug, set: content })
 			.returning();
 		await db
 			.insert(articlePillars)
@@ -230,6 +262,66 @@ export async function seedPlaceholderSettings(db: Db): Promise<number> {
 		.onConflictDoNothing({ target: siteSettings.key })
 		.returning({ key: siteSettings.key });
 	return inserted.length;
+}
+
+/**
+ * The launch preflight's demo-content rule (`pnpm launch:check`, review H-9):
+ * none of the FICTIONAL demo rows this file seeds may be live in a production
+ * database — a customer could pay real money for a product that does not
+ * exist. The id lists are the same constants the seeding above uses, so a new
+ * demo row is covered the day it is added. The archetype quiz is deliberately
+ * NOT here: it is launch content and must be published.
+ */
+export async function seededDemoLaunchProblems(db: Db): Promise<string[]> {
+	const problems: string[] = [];
+
+	const activeProducts = await db
+		.select({ id: products.id, slug: products.slug })
+		.from(products)
+		.where(
+			and(
+				inArray(
+					products.id,
+					DEMO_PRODUCTS.map((p) => p.id)
+				),
+				eq(products.status, 'active')
+			)
+		);
+	for (const row of activeProducts) {
+		problems.push(
+			`demo product "${row.slug}" (${row.id}) is still active in the catalogue — archive or delete it in /admin/products`
+		);
+	}
+
+	const publishedArticles = await db
+		.select({ id: articles.id, slug: articles.slug })
+		.from(articles)
+		.where(
+			and(
+				inArray(
+					articles.id,
+					DEMO_ARTICLES.map((a) => a.id)
+				),
+				eq(articles.status, 'published')
+			)
+		);
+	for (const row of publishedArticles) {
+		problems.push(
+			`demo article "${row.slug}" (${row.id}) is still published — unpublish or delete it in /admin/articles`
+		);
+	}
+
+	const [demoQuiz] = await db
+		.select({ id: quizzes.id, slug: quizzes.slug })
+		.from(quizzes)
+		.where(and(eq(quizzes.id, SLEEP_QUIZ_SEED.id), eq(quizzes.status, 'published')));
+	if (demoQuiz) {
+		problems.push(
+			`demo quiz "${demoQuiz.slug}" (${demoQuiz.id}) is still published — unpublish it in /admin/quizzes (the archetype quiz is the launch quiz)`
+		);
+	}
+
+	return problems;
 }
 
 /**

@@ -38,10 +38,18 @@ export default async function globalSetup() {
 		const db = createDb(siteDatabaseUrl(siteId));
 		try {
 			await migrate(db, { migrationsFolder: path.resolve(import.meta.dirname, '../drizzle') });
-			// The quiz e2e runs against the seeded pillars + demo/archetype quizzes (idempotent).
+			// The quiz e2e runs against the seeded pillars + demo/archetype quizzes
+			// (idempotent). Demo content defaults to draft since BS-7 (review H-9);
+			// the e2e suite is exactly the environment that opts back in.
 			await seedPillars(db, resolveSiteConfig(siteId).pillars);
-			await seedDemoQuiz(db);
+			await seedDemoQuiz(db, { status: 'published' });
 			await seedArchetypeQuiz(db);
+			// Quiz rows persist across runs and seeding no longer touches `status`
+			// on conflict (BS-7) — force the publish state the quiz e2e relies on,
+			// like the deletes above reset every other table the suite owns.
+			await db.execute(
+				sql`update quizzes set status = 'published' where id in ('seed-quiz-evaluare-somn', 'seed-quiz-arhetip-somn')`
+			);
 			const auth = createAuth({ db, secret });
 			await upsertStaffUser(auth, { ...E2E_ADMIN, role: 'admin' });
 			await upsertStaffUser(auth, { ...E2E_EDITOR, role: 'editor' });
@@ -80,7 +88,7 @@ export default async function globalSetup() {
 			await db.execute(sql`delete from chat_rate_limits`);
 			// The shop e2e runs against the seeded demo catalog (idempotent; also
 			// restores stock levels consumed by earlier webhook simulations).
-			await seedDemoProducts(db, storage);
+			await seedDemoProducts(db, storage, { status: 'active' });
 			// The 33 BS-6 catalogue products (product bundles only — the article
 			// bundles stay out so the blog e2e keeps its listing assumptions).
 			// The landing night map links into these; the shop e2e counts them.
@@ -96,7 +104,7 @@ export default async function globalSetup() {
 			}
 			// The full-funnel e2e walks pillar page → demo article and the legal
 			// pages linked from the footer.
-			await seedDemoArticles(db);
+			await seedDemoArticles(db, { status: 'published' });
 			await seedDefaultPages(db);
 		} finally {
 			await db.$client.end();
