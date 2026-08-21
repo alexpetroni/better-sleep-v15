@@ -2,6 +2,7 @@
 import { env } from '$env/dynamic/private';
 import { tokenSecretFrom } from '$lib/server/secrets';
 
+export { CONSENT_COPY_VERSION, consentCopyRef, currentConsentCopyRefs } from './consent-copy.ts';
 export { subscribers, type SubscriberRow } from './schema.ts';
 export {
 	confirmSubscriber,

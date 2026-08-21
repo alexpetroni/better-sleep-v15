@@ -3,6 +3,7 @@ import type { Db } from '../../db/client.ts';
 import { normalizeEmail } from '../../util/email.ts';
 import type { Result } from '../../util/result.ts';
 import type { EmailSender, SendEmailOutcome } from '../email/service.ts';
+import { currentConsentCopyRefs } from './consent-copy.ts';
 import { applyConsents, hasConsent, revokeAllConsents, type ConsentChanges } from './consent.ts';
 import { subscribers, type SubscriberRow } from './schema.ts';
 import { signToken, verifyToken } from './token.ts';
@@ -44,7 +45,13 @@ export async function upsertSubscriber(
 			.set({
 				name: input.name?.trim() || existing.name,
 				locale: input.locale ?? existing.locale,
-				consents: applyConsents(existing.consents, input.grants, input.source, now),
+				consents: applyConsents(
+					existing.consents,
+					input.grants,
+					input.source,
+					now,
+					currentConsentCopyRefs()
+				),
 				updatedAt: now
 			})
 			.where(eq(subscribers.id, existing.id))
@@ -59,7 +66,7 @@ export async function upsertSubscriber(
 			email,
 			name: input.name?.trim() || null,
 			locale: input.locale ?? 'ro',
-			consents: applyConsents({}, input.grants, input.source, now),
+			consents: applyConsents({}, input.grants, input.source, now, currentConsentCopyRefs()),
 			unsubscribeToken: crypto.randomUUID()
 		})
 		.onConflictDoNothing({ target: subscribers.email })

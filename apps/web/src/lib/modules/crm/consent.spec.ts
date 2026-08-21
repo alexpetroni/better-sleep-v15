@@ -44,6 +44,28 @@ describe('applyConsents', () => {
 		expect(next.newsletter).toEqual(current.newsletter);
 	});
 
+	it('records the consent-copy ref on grants, never on revocations (M-11)', () => {
+		const refs = { newsletter: 'v1:sha256:0123456789abcdef' };
+		const granted = applyConsents({}, { newsletter: true }, 'footer', NOW, refs);
+		expect(granted.newsletter).toEqual({
+			granted: true,
+			at: NOW.toISOString(),
+			source: 'footer',
+			copy: 'v1:sha256:0123456789abcdef'
+		});
+
+		// Revocation proves the withdrawal, not the wording — no copy ref, and
+		// a key without a ref (profile_emails) grants cleanly without one.
+		const revoked = applyConsents(granted, { newsletter: false }, 'unsubscribe', LATER, refs);
+		expect(revoked.newsletter).toEqual({
+			granted: false,
+			at: LATER.toISOString(),
+			source: 'unsubscribe'
+		});
+		const noRef = applyConsents({}, { profile_emails: true }, 'quiz:x', NOW, refs);
+		expect(noRef.profile_emails).toEqual({ granted: true, at: NOW.toISOString(), source: 'quiz:x' });
+	});
+
 	it('does not mutate the input object', () => {
 		const current: Consents = {
 			newsletter: { granted: true, at: NOW.toISOString(), source: 'footer' }

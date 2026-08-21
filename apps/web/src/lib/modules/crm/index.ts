@@ -6,6 +6,7 @@ export {
 	hasConsent,
 	revokeAllConsents,
 	type ConsentChanges,
+	type ConsentCopyRefs,
 	type ConsentKey,
 	type ConsentRecord,
 	type Consents

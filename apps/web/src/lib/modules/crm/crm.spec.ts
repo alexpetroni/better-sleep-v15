@@ -2,10 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { m } from '$lib/paraglide/messages';
 import { createDb, type Db } from '../../db/client.ts';
 import { createEmailSender, type EmailSender } from '../email/service.ts';
 import { emailLog } from '../email/schema.ts';
 import { isMailable } from '../nurture/service.ts';
+import { consentCopyRef } from './consent-copy.ts';
 import { hasConsent } from './consent.ts';
 import { subscribers } from './schema.ts';
 import {
@@ -68,6 +70,11 @@ describe('upsertSubscriber', () => {
 		expect(result.value.consents.newsletter?.granted).toBe(true);
 		expect(result.value.consents.newsletter?.source).toBe('footer');
 		expect(result.value.consents.newsletter?.at).toBeTruthy();
+		// M-11: the grant records WHICH wording was agreed to — the current
+		// newsletter label's version+hash, resolvable via ro.json's git history.
+		expect(result.value.consents.newsletter?.copy).toBe(
+			consentCopyRef(m.newsletter_consent_label())
+		);
 	});
 
 	it('re-upserting merges consents without duplicating the row', async () => {

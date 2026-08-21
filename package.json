@@ -23,6 +23,7 @@
 		"content": "pnpm --filter web content",
 		"content:init": "pnpm --filter web content:init",
 		"subscriber:delete": "pnpm --filter web subscriber:delete",
+		"subscriber:export": "pnpm --filter web subscriber:export",
 		"user:create": "pnpm --filter web user:create"
 	}
 }

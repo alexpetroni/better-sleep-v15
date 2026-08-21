@@ -30,6 +30,7 @@
 		"content:init": "node scripts/content.ts import-dir",
 		"products:from-initialdata": "node scripts/products-from-initialdata.ts",
 		"subscriber:delete": "node scripts/subscriber-delete.ts",
+		"subscriber:export": "node scripts/subscriber-export.ts",
 		"user:create": "node scripts/user-create.ts"
 	},
 	"dependencies": {
