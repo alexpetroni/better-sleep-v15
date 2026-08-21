@@ -1,4 +1,78 @@
-# STATE — betterSleep after BS-8 abuse & consent integrity (2026-08-21)
+# STATE — betterSleep after BS-9 correctness & data integrity (2026-08-21)
+
+## BS-9 — correctness & data integrity (2026-08-21)
+
+Closes the review's correctness family (`docs/REVIEW-2026-08-21.md` H-1,
+M-3…M-8). Theme: what production stores and serves now matches what the
+code — and the tests — claim.
+
+- **jsonb-proof scoring order (H-1)**: `ScoringConfig.dimensions` is now an
+  ORDERED ARRAY `[{ key, label }]`. Postgres jsonb preserves array order but
+  re-sorts object keys, so the old record shape silently made "Antena" win
+  every sparse archetype tie in production and rendered the band quiz's
+  dimension bars out of narrative order. The record shape is still READ
+  (band-mode compat; its order is jsonb's key sort), but
+  `validateScoringConfig` refuses it in archetype mode, where array position
+  IS the tie-break. Both seeds converted; `pnpm db:seed`'s quiz upsert
+  rewrites the two stored configs on the next deploy. NEW TEST CLASS —
+  quiz.spec "scoring order survives the jsonb round-trip": store → reload →
+  score (incl. through `submitQuiz`); it fails against the pre-BS-9 code
+  with the review's exact symptom. Stored `quiz_results.profile`s are
+  snapshots — no data migration.
+- **Stock clamp pre-payment (M-3)**: `loadCartDetails` clamps a line's qty
+  to the tracked stock and flags it (`CartLine.stockLimited`); the cart page
+  explains (`cart_stock_limited` message), checkout charges the clamped
+  snapshot, and the product `?/add` action caps at stock. The webhook's
+  oversell clamp is now only the concurrent-buyer race backstop.
+- **Async payments cannot strand orders (M-4)**: session creation pins
+  `payment_method_types: ['card']` (a Stripe-dashboard toggle can no longer
+  arm the delayed-payment flow silently), and the webhook handles
+  `checkout.session.async_payment_succeeded` (pending → paid + invoice +
+  confirmation email + nurture, through the processed-events ledger) and
+  `async_payment_failed` (→ failed + restock; OVERSOLD orders keep stock
+  untouched with a trail note — the flag already routes them to a human).
+  BEHAVIOR CHANGE: a pending (unpaid) order gets NO confirmation email at
+  `completed` time — email and invoice both belong to the paid moment.
+- **Night map checked against the DB (M-5)**: the landing load filters
+  `NIGHT_MAP_SKUS` through `activeNightMapSkus` (one query: active +
+  site-pillar tagged, mirroring `getProductBySlug`'s visibility rule) via
+  the pure `filterNightMapSkus`; segments degrade to fewer or zero chips
+  (per-segment label included). sleep-content.spec pins all 11 SKUs active
+  on a seeded database.
+- **Product SEO layer (M-6)**: product pages emit Product/Offer JSON-LD
+  (`productJsonLd`: price via `centsToDecimal`, `priceCurrency: 'RON'`,
+  availability from stock — valid without an image) and a per-product meta
+  description (`productMetaDescription`: Sursă-preț line excluded, markdown
+  stripped, sentence-boundary cut ≤160; the shop tagline remains only as the
+  empty-description fallback). `Seo.svelte` gained a SITE-WIDE og:image
+  fallback: `SiteConfig.ogImage` (`/og-default.png`, committed 1200×630
+  night card; regenerate with `apps/web/scripts/og-default-image.sh`,
+  requires ImageMagick), absolutized via `canonicalUrl` — every public page
+  now ships a social card. LAUNCH ITEMS (extends BS-6's list): real product
+  images AND article cover images are both still missing (`coverMediaId:
+  null` everywhere); the branded fallback card papers over both until then.
+- **Stable import identity (M-7)**: `articles`/`products` gained a nullable
+  UNIQUE `import_key` (ADDITIVE migration 0021). Generated bundles carry
+  `topic-<id>` (topics.json) / `zenyth-<url-segment>` (captured URL), and
+  `importContent` upserts on the key first — a slug edit in the sources now
+  RENAMES the seeded row instead of leaving the old slug published forever.
+  Slug stays the fallback for legacy/admin rows (they adopt the key on first
+  re-import); a keyless bundle never erases a stamped key. All 73 bundles
+  regenerated with keys.
+- **`updated_at` survives re-seeds (M-8)**: the import update path
+  deep-compares every mapped field (jsonb key-order-insensitive) and SKIPS
+  the UPDATE when nothing changed — sitemap lastmod and article JSON-LD
+  dateModified no longer churn on every deploy. Spec pins both stability
+  across a full re-import and the bump on a genuinely changed bundle.
+- **Key commands**: unchanged; `pnpm db:migrate` applies 0021.
+- **Next phase must know**: the `dimensions` ARRAY shape is canonical —
+  admin-authored archetype quizzes must use it (validation enforces).
+  `CartLine`/`CartPageLine` gained `stockLimited`. `WebhookOutcome` gained
+  `payment-succeeded`/`payment-failed`/`async-unmatched`. `SiteConfig`
+  gained a required `ogImage`. Bundle content types gained `importKey`
+  (required in the TS type, tolerated-absent when parsing legacy files).
+  landing.spec now mocks `$lib/modules/shop/server` + `$lib/db` (the load
+  queries the catalogue).
 
 ## BS-8 — abuse economics & consent integrity (2026-08-21)
 
