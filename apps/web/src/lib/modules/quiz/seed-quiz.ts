@@ -247,11 +247,13 @@ export const SLEEP_QUIZ_SCORING: ScoringConfig = {
 			}
 		}
 	},
-	dimensions: {
-		noapte: { label: 'Somnul nocturn' },
-		zi: { label: 'Impactul din timpul zilei' },
-		obiceiuri: { label: 'Igiena somnului' }
-	},
+	// Ordered array (not a record): jsonb would re-sort record keys and the
+	// result page renders the dimension bars in this narrative order (H-1).
+	dimensions: [
+		{ key: 'noapte', label: 'Somnul nocturn' },
+		{ key: 'zi', label: 'Impactul din timpul zilei' },
+		{ key: 'obiceiuri', label: 'Igiena somnului' }
+	],
 	bands: [
 		{
 			key: 'bun',

@@ -54,10 +54,35 @@ export type QuestionScoring =
 			weights: Record<string, Record<string, number>>;
 	  };
 
+/** One declared dimension. Array position IS the order contract (see below). */
+export interface DimensionDeclaration {
+	key: string;
+	label: string;
+}
+
+/**
+ * The two accepted `dimensions` shapes. The ORDERED ARRAY is canonical:
+ * Postgres jsonb preserves array order but re-sorts object keys (length, then
+ * bytewise), so the legacy record shape loses its authored order the moment a
+ * config round-trips through the `quizzes.scoring` jsonb column (review H-1).
+ * Record-shaped configs already in the database still score correctly — but
+ * their dimension order (and with it the archetype tie-break) follows jsonb's
+ * key sort, which is why `archetype` mode now refuses the record shape at
+ * validation time.
+ */
+export type DimensionsConfig = DimensionDeclaration[] | Record<string, { label: string }>;
+
+/** Normalize either `dimensions` shape into the ordered list the engine uses. */
+export function dimensionList(dimensions: DimensionsConfig | undefined): DimensionDeclaration[] {
+	if (!dimensions) return [];
+	if (Array.isArray(dimensions)) return dimensions;
+	return Object.entries(dimensions).map(([key, { label }]) => ({ key, label }));
+}
+
 export interface ScoringConfig {
 	questions: Record<string, QuestionScoring>;
-	/** Dimension key → ro label. Questions opt in via their `dimension` field. */
-	dimensions?: Record<string, { label: string }>;
+	/** Ordered dimension declarations. Questions opt in via their `dimension` field. */
+	dimensions?: DimensionsConfig;
 	/** Sorted ascending by `min`; the total score picks the highest band it reaches. */
 	bands: ScoringBand[];
 	/**
@@ -221,8 +246,12 @@ export function scoreQuiz(
 
 	let score = 0;
 	let maxScore: number | null = 0;
+	// Declaration order comes from `dimensionList` — for the canonical array
+	// shape this survives jsonb storage; the legacy record shape follows the
+	// stored key order instead (H-1).
+	const declared = dimensionList(scoring.dimensions);
 	const perDimension = new Map<string, { score: number; maxScore: number | null }>();
-	for (const key of Object.keys(scoring.dimensions ?? {})) {
+	for (const { key } of declared) {
 		perDimension.set(key, { score: 0, maxScore: 0 });
 	}
 
@@ -260,14 +289,12 @@ export function scoreQuiz(
 		}
 	}
 
-	const dimensions: DimensionScore[] = Object.entries(scoring.dimensions ?? {}).map(
-		([key, { label }]) => ({
-			key,
-			label,
-			score: perDimension.get(key)?.score ?? 0,
-			maxScore: perDimension.get(key)?.maxScore ?? 0
-		})
-	);
+	const dimensions: DimensionScore[] = declared.map(({ key, label }) => ({
+		key,
+		label,
+		score: perDimension.get(key)?.score ?? 0,
+		maxScore: perDimension.get(key)?.maxScore ?? 0
+	}));
 
 	const profile: QuizProfile = {
 		score,
@@ -278,8 +305,10 @@ export function scoreQuiz(
 
 	if (scoring.resultMode === 'archetype') {
 		// Tie-break is deterministic: the higher score wins; on EQUAL scores the
-		// dimension declared EARLIER in `scoring.dimensions` wins (`dimensions`
-		// is built in declaration order and Array#sort is stable).
+		// dimension declared EARLIER in the `dimensions` ARRAY wins (Array#sort
+		// is stable). Since the array shape survives jsonb storage, this order
+		// holds in production, not just in memory — validation refuses the
+		// legacy record shape in archetype mode for exactly this reason (H-1).
 		const ranked = [...dimensions].sort((a, b) => b.score - a.score);
 		const toArchetype = (dim: DimensionScore): ArchetypeResult => {
 			// Validation guarantees a matching entry; fall back to the dimension
@@ -342,18 +371,34 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 		}
 	}
 
-	// dimensions
+	// dimensions — canonical shape: ORDERED array [{ key, label }] (the order
+	// is the tie-break contract and survives jsonb storage, review H-1). The
+	// legacy record shape { key: { label } } is still accepted for stored
+	// band-mode configs, but its order is whatever jsonb sorted it to.
 	const dimensionKeys = new Set<string>();
+	let dimensionsAreOrdered = false;
 	if (raw.dimensions !== undefined) {
-		if (!isRecord(raw.dimensions)) {
-			errors.push('"dimensions" trebuie să fie un obiect { cheie: { label } }.');
-		} else {
+		if (Array.isArray(raw.dimensions)) {
+			dimensionsAreOrdered = true;
+			raw.dimensions.forEach((entry, i) => {
+				if (!isRecord(entry) || typeof entry.key !== 'string' || typeof entry.label !== 'string') {
+					errors.push(`Dimensiunea #${i + 1}: are nevoie de "key" și "label" (texte).`);
+					return;
+				}
+				if (dimensionKeys.has(entry.key)) {
+					errors.push(`Dimensiunea "${entry.key}" apare de două ori.`);
+				}
+				dimensionKeys.add(entry.key);
+			});
+		} else if (isRecord(raw.dimensions)) {
 			for (const [key, value] of Object.entries(raw.dimensions)) {
 				if (!isRecord(value) || typeof value.label !== 'string') {
 					errors.push(`Dimensiunea "${key}" are nevoie de un "label" text.`);
 				}
 				dimensionKeys.add(key);
 			}
+		} else {
+			errors.push('"dimensions" trebuie să fie o listă ordonată [{ key, label }].');
 		}
 	}
 
@@ -382,6 +427,13 @@ export function validateScoringConfig(form: FormConfig, raw: unknown): string[] 
 	if (raw.resultMode === 'archetype') {
 		if (dimensionKeys.size < 2) {
 			errors.push('Modul "archetype" are nevoie de cel puțin două dimensiuni declarate.');
+		}
+		// In archetype mode the dimension order IS the tie-break; a record-shaped
+		// config would ship whatever order jsonb sorted it to (review H-1).
+		if (raw.dimensions !== undefined && !dimensionsAreOrdered) {
+			errors.push(
+				'Modul "archetype" cere "dimensions" ca listă ordonată [{ key, label }] — ordinea decide egalitățile.'
+			);
 		}
 		if (!isRecord(raw.archetypes)) {
 			errors.push('Modul "archetype" are nevoie de un obiect "archetypes".');

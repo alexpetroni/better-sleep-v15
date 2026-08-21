@@ -79,6 +79,9 @@ const SCORING: ScoringConfig = {
 		oboseala: { kind: 'numeric', dimension: 'zi' },
 		cafele: { kind: 'numeric', dimension: 'zi', multiplier: 2, cap: 6 }
 	},
+	// Deliberately the LEGACY record shape: band-mode configs stored before
+	// BS-9 keep scoring (order is cosmetic there); archetype mode requires the
+	// ordered array — see the H-1 cases below.
 	dimensions: {
 		adormire: { label: 'Adormire' },
 		zi: { label: 'Impact în timpul zilei' }
@@ -200,11 +203,11 @@ function weightsScoring(): ScoringConfig {
 			},
 			fraza: { kind: 'weights', weights: { mn: { MN: 3 }, ru: { RU: 3 }, st: { ST: 3 } } }
 		},
-		dimensions: {
-			MN: { label: 'Managerul' },
-			RU: { label: 'Ruminatorul' },
-			ST: { label: 'Străjerul' }
-		},
+		dimensions: [
+			{ key: 'MN', label: 'Managerul' },
+			{ key: 'RU', label: 'Ruminatorul' },
+			{ key: 'ST', label: 'Străjerul' }
+		],
 		archetypes: {
 			MN: { label: 'Managerul', essence: 'Mintea rulează liste', advice: 'Copie MN.' },
 			RU: { label: 'Ruminatorul', essence: 'Reia scene', advice: 'Copie RU.' },
@@ -268,11 +271,12 @@ const ARCH_SCORING: ScoringConfig = {
 		ganduri: { kind: 'map', dimension: 'MN', map: { lista: 2 } },
 		fraza: { kind: 'map', dimension: 'RU', map: { ru: 3 } }
 	},
-	dimensions: {
-		MN: { label: 'Managerul' },
-		RU: { label: 'Ruminatorul' },
-		ST: { label: 'Străjerul' }
-	},
+	// Ordered array — position is the tie-break priority (H-1).
+	dimensions: [
+		{ key: 'MN', label: 'Managerul' },
+		{ key: 'RU', label: 'Ruminatorul' },
+		{ key: 'ST', label: 'Străjerul' }
+	],
 	archetypes: {
 		MN: { label: 'Managerul', essence: 'Mintea rulează liste', advice: 'Copie MN.' },
 		RU: { label: 'Ruminatorul', essence: 'Reia scene', advice: 'Copie RU.' },
@@ -438,7 +442,7 @@ describe('validateScoringConfig — archetype mode', () => {
 		const bad = {
 			...ARCH_SCORING,
 			questions: { ganduri: { kind: 'map', dimension: 'MN', map: { lista: 2 } } },
-			dimensions: { MN: { label: 'Managerul' } },
+			dimensions: [{ key: 'MN', label: 'Managerul' }],
 			archetypes: { MN: ARCH_SCORING.archetypes!.MN }
 		};
 		expect(validateScoringConfig(ARCH_FORM, bad).join(' ')).toContain('două dimensiuni');
@@ -505,5 +509,48 @@ describe('validateScoringConfig', () => {
 			bands: BANDS
 		};
 		expect(validateScoringConfig(FORM, scoring).join(' ')).toContain('necunoscut');
+	});
+
+	// H-1: the ordered-array dimensions shape is canonical; the legacy record
+	// shape stays readable but archetype mode refuses it (its order would be
+	// jsonb's key sort, not the author's tie-break intent).
+	it('accepts ordered-array dimensions and rejects duplicate keys in it', () => {
+		const ok = {
+			...SCORING,
+			dimensions: [
+				{ key: 'adormire', label: 'Adormire' },
+				{ key: 'zi', label: 'Impact în timpul zilei' }
+			]
+		};
+		expect(validateScoringConfig(FORM, ok)).toEqual([]);
+		const dup = {
+			...ok,
+			dimensions: [
+				{ key: 'zi', label: 'A' },
+				{ key: 'zi', label: 'B' }
+			]
+		};
+		expect(validateScoringConfig(FORM, dup).join(' ')).toContain('de două ori');
+	});
+
+	it('archetype mode refuses record-shaped dimensions (order would not survive jsonb)', () => {
+		const legacyShape = {
+			resultMode: 'archetype',
+			questions: {},
+			dimensions: { MN: { label: 'Managerul' }, RU: { label: 'Ruminatorul' } },
+			archetypes: {
+				MN: { label: 'Managerul', essence: 'x', advice: 'x' },
+				RU: { label: 'Ruminatorul', essence: 'x', advice: 'x' }
+			},
+			bands: BANDS
+		};
+		expect(validateScoringConfig(FORM, legacyShape).join(' ')).toContain('listă ordonată');
+	});
+
+	it('band mode still scores a legacy record-shaped config (backward compatibility)', () => {
+		expect(validateScoringConfig(FORM, SCORING)).toEqual([]);
+		const profile = scoreQuiz(FORM, SCORING, { adormire: 'peste-30', oboseala: 2 });
+		expect(profile.dimensions.find((d) => d.key === 'adormire')?.score).toBe(4);
+		expect(profile.dimensions.find((d) => d.key === 'zi')?.score).toBe(2);
 	});
 });

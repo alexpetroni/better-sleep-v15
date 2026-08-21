@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { FormConfig } from 'formcomp';
 import { createDb, type Db } from '../../db/client.ts';
-import { seedPillars } from '../../db/seed.ts';
+import { seedArchetypeQuiz, seedDemoQuiz, seedPillars } from '../../db/seed.ts';
 import { users } from '../auth/schema.ts';
 import { emailLog } from '../email/schema.ts';
 import { createEmailSender } from '../email/service.ts';
@@ -12,8 +12,8 @@ import { hasConsent } from '../crm/consent.ts';
 import { subscribers } from '../crm/schema.ts';
 import { unsubscribeByToken } from '../crm/service.ts';
 import { claimQuizResult, type QuizFunnelDeps } from './funnel.ts';
-import { quizResults, type QuizRow, type StoredAnswer } from './schema.ts';
-import type { ScoringConfig } from './scoring.ts';
+import { quizResults, quizzes, type QuizRow, type StoredAnswer } from './schema.ts';
+import { scoreQuiz, type ScoringConfig } from './scoring.ts';
 import {
 	createQuiz,
 	getQuizBySlug,
@@ -539,5 +539,76 @@ describe('the email funnel', () => {
 			profileEmails: false
 		});
 		expect(outcome).toEqual({ ok: false, error: 'not-found' });
+	});
+});
+
+// Review H-1: Postgres jsonb re-orders object keys (length, then bytewise), so
+// any ordering contract carried by OBJECT KEY declaration order is destroyed
+// the moment a scoring config round-trips through the `quizzes.scoring` jsonb
+// column. These tests are THROUGH THE DATABASE on purpose — the pure
+// scoring.spec.ts cases never leave process memory, which is exactly how the
+// bug stayed invisible: dimension order and the archetype tie-break must hold
+// on the config AS STORED, not as authored.
+describe('scoring order survives the jsonb round-trip (H-1)', () => {
+	async function storedQuiz(slug: string): Promise<QuizRow> {
+		const [row] = await db.select().from(quizzes).where(eq(quizzes.slug, slug));
+		if (!row) throw new Error(`quiz "${slug}" not seeded`);
+		return row;
+	}
+
+	it('archetype quiz: dimensions keep declaration order and an all-tied score picks the first declared archetype', async () => {
+		await seedArchetypeQuiz(db);
+		const quiz = await storedQuiz('arhetip-somn');
+
+		// Empty answers: every archetype scores 0 — a full nine-way tie, so the
+		// winner is decided purely by the documented declaration order.
+		const profile = scoreQuiz(quiz.formSchema, quiz.scoring, {});
+		expect(profile.dimensions.map((d) => d.key)).toEqual([
+			'ST',
+			'MN',
+			'RU',
+			'VU',
+			'SA',
+			'PE',
+			'AN',
+			'FU',
+			'EP'
+		]);
+		expect(profile.winner?.key).toBe('ST');
+		expect(profile.winner?.label).toBe('Străjerul');
+		expect(profile.runnerUp?.key).toBe('MN');
+	});
+
+	it('band quiz: dimension bars keep narrative order after storage', async () => {
+		await seedDemoQuiz(db);
+		const quiz = await storedQuiz('evaluare-somn');
+		const profile = scoreQuiz(quiz.formSchema, quiz.scoring, {});
+		expect(profile.dimensions.map((d) => d.key)).toEqual(['noapte', 'zi', 'obiceiuri']);
+	});
+
+	it('a sparse submission through submitQuiz stores the first-declared archetype as winner', async () => {
+		await seedArchetypeQuiz(db);
+		const quiz = await storedQuiz('arhetip-somn');
+		// submitQuiz re-reads the quiz row itself, so this scores the config AS
+		// STORED. No answers → a full nine-way tie (the review's "sparse
+		// submission produces Antena, not Străjerul" case).
+		const submitted = await submitQuiz(deps, { quizId: quiz.id, answers: [] });
+		if (!submitted.ok) throw new Error(`submitQuiz failed: ${submitted.error}`);
+		const [row] = await db
+			.select()
+			.from(quizResults)
+			.where(eq(quizResults.id, submitted.value.id));
+		expect(row.profile.winner?.key).toBe('ST');
+		expect(row.profile.dimensions.map((d) => d.key)).toEqual([
+			'ST',
+			'MN',
+			'RU',
+			'VU',
+			'SA',
+			'PE',
+			'AN',
+			'FU',
+			'EP'
+		]);
 	});
 });

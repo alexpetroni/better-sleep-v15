@@ -494,17 +494,21 @@ export const ARCHETYPE_QUIZ_SCORING: ScoringConfig = {
 			}
 		}
 	},
-	dimensions: {
-		ST: { label: 'Străjerul' },
-		MN: { label: 'Managerul' },
-		RU: { label: 'Ruminatorul' },
-		VU: { label: 'Vulcanul' },
-		SA: { label: 'Salvatorul' },
-		PE: { label: 'Perfecționistul' },
-		AN: { label: 'Antena' },
-		FU: { label: 'Fugarul' },
-		EP: { label: 'Epuizatul' }
-	},
+	// Ordered array (not a record): the position here IS the tie-break priority
+	// — equal scores resolve to the earlier entry — and only an array keeps its
+	// order through the jsonb `scoring` column (H-1). A record shape shipped
+	// AN, EP, FU, … in production and made "Antena" win every sparse tie.
+	dimensions: [
+		{ key: 'ST', label: 'Străjerul' },
+		{ key: 'MN', label: 'Managerul' },
+		{ key: 'RU', label: 'Ruminatorul' },
+		{ key: 'VU', label: 'Vulcanul' },
+		{ key: 'SA', label: 'Salvatorul' },
+		{ key: 'PE', label: 'Perfecționistul' },
+		{ key: 'AN', label: 'Antena' },
+		{ key: 'FU', label: 'Fugarul' },
+		{ key: 'EP', label: 'Epuizatul' }
+	],
 	archetypes: ARCHETYPES,
 	// Archetype mode still carries one catch-all band: it feeds band consumers
 	// (the transactional result email, admin listings) a sensible fallback.
