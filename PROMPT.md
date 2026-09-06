@@ -3,9 +3,10 @@
 You are building **betterSleep** (bettersleep.ro): a Romanian-market sleep site — landing page,
 archetype quiz, blog, shop, chat — on top of the existing, working better-base platform this
 repository was cloned from. You are NOT rebuilding the platform; you are shaping, extending and
-populating it. The platform's architecture log is `docs/STATE.md` (~2300 lines, accurate):
-**read the section for a module before touching that module**, and read the module's own
-`README.md` where one exists.
+populating it. The platform's record lives in `docs/`: `docs/STATE.md` (where we are) and —
+once BS-11 has merged upstream — `docs/CHANGELOG.md` (the dated history, BS-0…BS-10 included),
+`docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`, `docs/TESTING.md`. **Read the section for a module
+before touching that module**, and read the module's own `README.md` where one exists.
 
 Work at HIGH effort: think before editing, prefer reading existing code over guessing, and
 never trade correctness for speed.
@@ -34,8 +35,10 @@ never trade correctness for speed.
 - **Nothing brand-specific hardcoded** in a route or component — brand derives from
   `apps/web/src/lib/config/sites/sleep.ts`. All user-facing copy goes through Paraglide
   (`apps/web/messages/ro.json`, `import { m } from '$lib/paraglide/messages'`).
-- `packages/formcomp` is an internal dependency: you may extend it additively and fix bugs,
-  but do not rewrite it.
+- `packages/formcomp` is an internal dependency vendored from formComp releases: you may extend
+  it additively and fix bugs, but do not rewrite it. Replacing it wholesale with a newer vendored
+  release under `.initialData/formcomp-<version>/` is allowed only when a phase plan says so
+  (BS-11: 0.4.0).
 - Admin is part of the app at `/admin`. No external CMS.
 - No `any` escapes, no `@ts-ignore` without a one-line justification comment.
 - Money is integer bani (cents); `apps/web/src/lib/util/money.ts` is the only place amounts meet strings.
