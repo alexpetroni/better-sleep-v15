@@ -1063,6 +1063,738 @@ driver-parity included) green: 851 passed, 0 skipped.
 **New env vars:** none. **New tables:** `admin_audit`. **New migrations:**
 `0020_wonderful_pretty_boy.sql`, `0021_odd_green_goblin.sql`.
 
+## betterSleep BS-0…BS-10 (2026-08-20 → 2026-08-21, the product layer on the fork of 2026-08-19)
+
+The ten betterSleep phases ran on a clone of `feat/vercel-neon` at `8ad14ac`
+(2026-08-19), in parallel with FIX-9…FIX-18 above; BS-11 (2026-09-07) merged
+the two lines — see `docs/STATE.md` for the resolution table. The sections
+below are the BS phase records verbatim (they were `docs/STATE.md` in the
+betterSleep repository until BS-11); their references to "STATE.md" mean
+this history.
+
+## BS-10 — hygiene batch: the review loop closes (2026-08-21)
+
+Executes the remaining accepted findings of `docs/REVIEW-2026-08-21.md`
+(M-9…M-15 minus the ones BS-9 already closed, plus the whole L list). With
+this phase every finding in the review is disposed of — table below. Root
+gate green (105 files / 955 passed / 4 skipped — the neon-parity suite,
+now loudly announced), Playwright e2e green (53 passed / 1 pre-existing
+skip), formcomp unit (41) + e2e (19) green.
+
+### Disposition table (review 2026-08-21, closing BS-7…BS-10)
+
+| Finding | Phase | Disposition |
+| --- | --- | --- |
+| C-1 mock checkout in prod | BS-7 | FIXED — preflight + runtime guard |
+| H-1 jsonb scrambles dimensions | BS-9 | FIXED — ordered array; BS-10 adds the tied-answers e2e |
+| H-2 unsubscribe not sticky | BS-8 | FIXED — confirmedAt cleared |
+| H-3 global budget drain | BS-8 | FIXED — per-IP first |
+| H-4 proxy client addresses | BS-8 | FIXED — ADDRESS_HEADER required live |
+| H-5 no security headers | BS-7 | FIXED — handleHeaders hook |
+| H-6 unthrottled quiz submit | BS-8 | FIXED — throttle + retention sweep |
+| H-7 mock chat/courier in prod | BS-7 | FIXED — preflight rules |
+| H-8 prod_mock ids persist | BS-7 | FIXED — sync skips/heals |
+| H-9 demo content live | BS-7 | FIXED — draft seeds, status survives |
+| H-10 VAT rate | BS-7 | HUMAN DECISION flagged (admin hint + checklist) |
+| M-1 claim-action guards | BS-8 | FIXED |
+| M-2 hostile submissions | BS-8 | FIXED |
+| M-3 qty vs stock | BS-9 | FIXED |
+| M-4 async payments | BS-9 | FIXED |
+| M-5 night-map drift | BS-9 | FIXED |
+| M-6 product SEO layer | BS-9 | FIXED |
+| M-7 import identity | BS-9 | FIXED |
+| M-8 updated_at churn | BS-9 | FIXED |
+| M-9 sweep can eat hand-authored bundles | BS-10 | FIXED — manifest-owned sweep, tmp+rename, README ownership |
+| M-10 no SAR export | BS-10 | FIXED — `pnpm subscriber:export -- --email …` |
+| M-11 consent wording unproven | BS-10 | FIXED — `copy: v<N>:sha256:<hash>` per grant |
+| M-12 DEPLOYMENT.md two-site residue | BS-10 | FIXED — single-site rewrite, §10 appendix |
+| M-13 sitemap misses quizzes | BS-10 | FIXED — found still open at BS-10 close-out; published site-pillar quizzes now listed, spec-pinned |
+| M-14 silent pattern-copy lookup | BS-10 | FIXED — literal-union-typed map (compile error on rename) |
+| M-15 landing copy ~40% pinned | BS-10 | FIXED — full namespace pin + per-block render spec |
+| L-1 formcomp warnings | BS-10 | FIXED — src annotated/`$derived`, rebuilt; 0 warnings |
+| L-2 honeypot semantics | BS-10 | FIXED — only filled ⇒ bot; success copy server-only |
+| L-3 dry-run rows terminal | BS-10 | FIXED — live send supersedes dryrun rows; documented |
+| L-4 unpublish 404s results | BS-10 | FIXED — results render; only taking gated |
+| L-5 form state in `$derived` | BS-10 | FIXED — QuizForm child created once (no direct unit pin — covered by check + quiz e2e) |
+| L-6 missing shipping row | BS-10 | FIXED — success page + order email |
+| L-7 zero-priced purchasable | BS-10 | FIXED — `isPurchasable` gates every buy path |
+| L-8 blog soft-404 | BS-10 | FIXED — 404 past the archive |
+| L-9 dofollow supplier links | BS-10 | FIXED — Sursă-preț rendered unlinked |
+| L-10 landing polish list | BS-10 | FIXED — all items (details below) |
+| L-11 demo publishedAt tie | BS-7 | FIXED |
+| L-12 exact-match leak guards | BS-10 | FIXED — sentence-level stopword heuristic |
+| L-13 curation order / copy triplication / winner link | BS-10 | FIXED |
+| L-14 money string surgery + PROMPT.md path | BS-10 | FIXED — `centsToDecimal`; PROMPT.md corrected |
+| L-15 no test CI, silent neon skip | BS-10 | FIXED — ci.yml (gate + neon jobs); skip prints to stderr |
+| L-16 named test gaps | BS-8/9/10 | FIXED — BS-10 adds real-corpus pagination + tied-answers e2e |
+
+### What BS-10 changed, by group
+
+- **Content pipeline (M-9, L-12)**: the regeneration scripts delete ONLY
+  files recorded in the committed `content/sleep/.generated-manifest` (their
+  own previous output) — a hand-authored bundle exported into the directory
+  is never swept, whatever its filename. Bundle + manifest writes are
+  tmp+rename (`scripts/atomic-write.ts`). Ownership + regeneration commands
+  documented in `content/README.md`. `findEnglishSentence`
+  (`modules/content/english-leak.ts`, spec'd) backstops the exact-match
+  guards in both scripts' fail paths: ≥3 distinct unambiguous English
+  stopwords in one sentence fails the run (corpus verified clean; the word
+  regex counts Romanian diacritics as letters so "sforăit" cannot shed a
+  fake "it").
+- **GDPR/CRM (M-10, M-11)**: `pnpm subscriber:export -- --email …` prints a
+  consistent JSON snapshot (one read transaction) of everything held for an
+  address — subscriber, linked quiz results, nurture enrollments, orders,
+  invoices (retained under accounting law), email log — the read-side twin
+  of `subscriber:delete`, same tables (`modules/gdpr/export.ts`, spec'd).
+  Every consent grant now records `copy: 'v1:sha256:<16hex>'` — hash of the
+  exact wording shown (`modules/crm/consent-copy.ts`); bump
+  `CONSENT_COPY_VERSION` when the consent's MEANING changes, the hash tracks
+  text edits by itself. Revocations record no copy. `profile_emails` has no
+  public grant surface, hence no wording registered yet.
+- **Docs (M-12, L-14)**: DEPLOYMENT.md is single-site betterSleep;
+  "adding a second site" is an appendix that starts with "create the site
+  config file first". PROMPT.md's money path corrected to
+  `apps/web/src/lib/util/money.ts`; the two admin `formatCents(...).split`
+  call sites now use `centsToDecimal(value, ',')` (same rendered strings).
+- **Landing (M-14, M-15, L-10)**: the pattern copy map is
+  `Record<PatternSlug, …>` where `PatternSlug` is the literal union off
+  `SLEEP_PATTERNS` (`as const satisfies`) — a slug rename fails `pnpm
+  check`. Card titles moved to Paraglide (`home_pattern_*_title`, mixed
+  case + CSS `uppercase`); `SleepPattern.title` is GONE.
+  `landing-copy.pinned.json` pins all 90 `home_*` messages
+  (regenerate it deliberately when copy changes);
+  `landing-render.spec.ts` server-renders all ten blocks and asserts each
+  block's own strings in place (patterns sliced per card, reframe/steps/
+  nightmap/proof/objections checked lead-before-body). Polish: eyebrows
+  numbered by render position (…07, 08, 09); hero `100svh`; reveal CSS
+  behind `@media screen and (prefers-reduced-motion: no-preference)`;
+  `reveal()` skips hiding elements already in-viewport at mount; hero trust
+  list keyed by index; dead `color-night-raised` and the `text-scale` meta
+  removed; `BezelCard.svelte` replaces four copy-pasted double-bezel blocks
+  (objections keeps its inline variant — there the white face is the
+  `<summary>`); `--ease-glide` theme token replaces every inline
+  cubic-bezier; the two font subsets (latin + latin-ext) are preloaded and a
+  metric-tuned `Plus Jakarta Sans Fallback` (`size-adjust` over local Arial,
+  approximate values derived from the fonts' metrics) shrinks the swap/CLS
+  window. **Deck block-3 images: CUT, recorded here** — the deck specifies
+  card images for the four patterns; none shipped in BS-5 and none ship now
+  (no usable vendored art; cards carry title/symptom/mechanism/archetype
+  chips). Revisit together with the product/article image launch item.
+- **Quiz/blog/shop (L-2, L-4…L-9, L-13)**: honeypot is a bot signal only
+  when FILLED (a privacy extension stripping the field no longer swallows a
+  human's signup) and the delivery-success copy renders only from a real
+  server `form.sent`; result pages of unpublished quizzes render (only
+  taking is gated — the `?/email` action keeps its M-1 gates); the quiz page
+  creates form state + `x-quiz-attempt` token ONCE in a `QuizForm` child
+  remounted per slug by `{#key}`; paid shipping is its own row on the
+  success page and in the order-confirmation email (lines now sum to the
+  total); `isPurchasable` (price > 0 AND in stock) gates product page add,
+  cart availability and checkout; `/blog?page=N` past the archive 404s;
+  the Sursă-preț line is plain text (regenerated in all 33 product bundles
+  — provenance stays in `.initialData` and the import key);
+  `listPublishedBySlugs` returns CURATION order; the archetype dimension
+  labels derive from `ARCHETYPES` via `ARCHETYPE_TIEBREAK_ORDER` and a
+  drift spec pins `/tipuri` page copy to the scoring definitions; the
+  result page links the winner to `/tipuri/<slug>`
+  (`quiz_result_archetype_guide`); dead `flattenStepResponses` removed.
+- **Sitemap (M-13, caught at close-out)**: the review's disposition sweep
+  found M-13 still open — no phase had picked it up.
+  `listPublishedQuizzesForSitemap` (published + site-pillar, mirroring the
+  public quiz page's visibility) feeds the sitemap's `Promise.all`;
+  sitemap.spec pins published-in / draft-out / foreign-pillar-out and that
+  no `/rezultat/` URL ever appears.
+- **Platform (L-1, L-3, L-15, L-16)**: formcomp emits ZERO
+  `state_referenced_locally` warnings (deliberate initial captures carry
+  `svelte-ignore` + rationale; `settings` is `$derived`; dist rebuilt);
+  `shouldSkipResend(status, { dryRun })` — a dryrun email_log row is final
+  only while the sender runs dry, so flipping `EMAIL_DRYRUN=false` needs no
+  cleanup and the first live send supersedes (CAS-guarded, once);
+  `.github/workflows/ci.yml` runs the root gate against compose
+  Postgres+MinIO plus a `test:neon` job through the wsproxy on every
+  push/PR; blog pagination is pinned against the real 40-article corpus
+  (5 disjoint pages); a new e2e submits an exact 10–10 ST/MN tie and
+  asserts Străjerul wins by declaration order, then follows the winner
+  link to `/tipuri/strajerul`.
+- **Key commands**: `pnpm subscriber:export -- --email x@y.ro` (SAR JSON on
+  stdout). CI: workflow `ci` (gate + neon). Everything else unchanged.
+- **Next phase must know**: `SLEEP_PATTERNS` entries no longer carry
+  `title`; use the `home_pattern_*` messages (type `PatternSlug` is the slug
+  union). `shouldSkipResend` takes `{ dryRun }`. `applyConsents` takes an
+  optional 5th `copyRefs` param; `ConsentRecord` gained optional `copy`.
+  `isOutOfStock` still exists but purchase gating goes through
+  `isPurchasable`. `content/sleep/.generated-manifest` must stay committed —
+  without it the sweep deletes nothing (safe) but stale generated bundles
+  linger. Editing any `home_*` message requires regenerating
+  `landing-copy.pinned.json` in the same commit.
+
+## BS-9 — correctness & data integrity (2026-08-21)
+
+Closes the review's correctness family (`docs/REVIEW-2026-08-21.md` H-1,
+M-3…M-8). Theme: what production stores and serves now matches what the
+code — and the tests — claim.
+
+- **jsonb-proof scoring order (H-1)**: `ScoringConfig.dimensions` is now an
+  ORDERED ARRAY `[{ key, label }]`. Postgres jsonb preserves array order but
+  re-sorts object keys, so the old record shape silently made "Antena" win
+  every sparse archetype tie in production and rendered the band quiz's
+  dimension bars out of narrative order. The record shape is still READ
+  (band-mode compat; its order is jsonb's key sort), but
+  `validateScoringConfig` refuses it in archetype mode, where array position
+  IS the tie-break. Both seeds converted; `pnpm db:seed`'s quiz upsert
+  rewrites the two stored configs on the next deploy. NEW TEST CLASS —
+  quiz.spec "scoring order survives the jsonb round-trip": store → reload →
+  score (incl. through `submitQuiz`); it fails against the pre-BS-9 code
+  with the review's exact symptom. Stored `quiz_results.profile`s are
+  snapshots — no data migration.
+- **Stock clamp pre-payment (M-3)**: `loadCartDetails` clamps a line's qty
+  to the tracked stock and flags it (`CartLine.stockLimited`); the cart page
+  explains (`cart_stock_limited` message), checkout charges the clamped
+  snapshot, and the product `?/add` action caps at stock. The webhook's
+  oversell clamp is now only the concurrent-buyer race backstop.
+- **Async payments cannot strand orders (M-4)**: session creation pins
+  `payment_method_types: ['card']` (a Stripe-dashboard toggle can no longer
+  arm the delayed-payment flow silently), and the webhook handles
+  `checkout.session.async_payment_succeeded` (pending → paid + invoice +
+  confirmation email + nurture, through the processed-events ledger) and
+  `async_payment_failed` (→ failed + restock; OVERSOLD orders keep stock
+  untouched with a trail note — the flag already routes them to a human).
+  BEHAVIOR CHANGE: a pending (unpaid) order gets NO confirmation email at
+  `completed` time — email and invoice both belong to the paid moment.
+- **Night map checked against the DB (M-5)**: the landing load filters
+  `NIGHT_MAP_SKUS` through `activeNightMapSkus` (one query: active +
+  site-pillar tagged, mirroring `getProductBySlug`'s visibility rule) via
+  the pure `filterNightMapSkus`; segments degrade to fewer or zero chips
+  (per-segment label included). sleep-content.spec pins all 11 SKUs active
+  on a seeded database.
+- **Product SEO layer (M-6)**: product pages emit Product/Offer JSON-LD
+  (`productJsonLd`: price via `centsToDecimal`, `priceCurrency: 'RON'`,
+  availability from stock — valid without an image) and a per-product meta
+  description (`productMetaDescription`: Sursă-preț line excluded, markdown
+  stripped, sentence-boundary cut ≤160; the shop tagline remains only as the
+  empty-description fallback). `Seo.svelte` gained a SITE-WIDE og:image
+  fallback: `SiteConfig.ogImage` (`/og-default.png`, committed 1200×630
+  night card; regenerate with `apps/web/scripts/og-default-image.sh`,
+  requires ImageMagick), absolutized via `canonicalUrl` — every public page
+  now ships a social card. LAUNCH ITEMS (extends BS-6's list): real product
+  images AND article cover images are both still missing (`coverMediaId:
+  null` everywhere); the branded fallback card papers over both until then.
+- **Stable import identity (M-7)**: `articles`/`products` gained a nullable
+  UNIQUE `import_key` (ADDITIVE migration 0021). Generated bundles carry
+  `topic-<id>` (topics.json) / `zenyth-<url-segment>` (captured URL), and
+  `importContent` upserts on the key first — a slug edit in the sources now
+  RENAMES the seeded row instead of leaving the old slug published forever.
+  Slug stays the fallback for legacy/admin rows (they adopt the key on first
+  re-import); a keyless bundle never erases a stamped key. All 73 bundles
+  regenerated with keys.
+- **`updated_at` survives re-seeds (M-8)**: the import update path
+  deep-compares every mapped field (jsonb key-order-insensitive) and SKIPS
+  the UPDATE when nothing changed — sitemap lastmod and article JSON-LD
+  dateModified no longer churn on every deploy. Spec pins both stability
+  across a full re-import and the bump on a genuinely changed bundle.
+- **Key commands**: unchanged; `pnpm db:migrate` applies 0021.
+- **Next phase must know**: the `dimensions` ARRAY shape is canonical —
+  admin-authored archetype quizzes must use it (validation enforces).
+  `CartLine`/`CartPageLine` gained `stockLimited`. `WebhookOutcome` gained
+  `payment-succeeded`/`payment-failed`/`async-unmatched`. `SiteConfig`
+  gained a required `ogImage`. Bundle content types gained `importKey`
+  (required in the TS type, tolerated-absent when parsing legacy files).
+  landing.spec now mocks `$lib/modules/shop/server` + `$lib/db` (the load
+  queries the catalogue).
+
+## BS-8 — abuse economics & consent integrity (2026-08-21)
+
+Closes the review's public-endpoint abuse family (`docs/REVIEW-2026-08-21.md`
+H-2, H-3, H-4, H-6, M-1, M-2). Theme: the throttles and the double-opt-in
+guarantee now hold under adversarial use.
+
+- **Unsubscribe sticks (H-2)**: `unsubscribeByToken` clears `confirmedAt`
+  alongside revoking consents — confirmation is per-grant, not
+  per-address-forever. A third party re-typing an unsubscribed address on any
+  public form starts a FRESH double opt-in (`already-confirmed` fast path and
+  nurture `isMailable` both key on `confirmedAt`); nothing is mailable until
+  the mailbox owner clicks a new confirm link. Spec: crm.spec "unsubscribe
+  revokes confirmation".
+- **Global budget isolation (H-3)**: `consumePublicEmailBudget` (and the new
+  quiz-submit budget) consume the per-IP counter FIRST and short-circuit —
+  a refused over-cap IP no longer drains the shared `:global` bucket
+  (previously `Promise.all` consumed both unconditionally). Refused requests
+  still count against their own IP key. Spec: rate-limit.spec H-3 case.
+- **Proxy-aware client addresses (H-4)**: `launch:check` now REQUIRES
+  `ADDRESS_HEADER` in a live env (`EMAIL_DRYRUN=false`) on the NODE target,
+  and a positive-integer `XFF_DEPTH` when the header is `x-forwarded-for`
+  (`cf-connecting-ip` needs no depth; Vercel is exempt — platform-resolved).
+  Both vars are in `env-matrix.ts`; DEPLOYMENT.md §3 states plainly that
+  without them the per-IP throttles are not load-bearing on adapter-node.
+- **Quiz submit throttled + swept (H-6)**: the public submit endpoint
+  consumes a `quiz-submit` scope (20/hour/IP, 500/hour global —
+  `consumeQuizSubmitBudget`, same `rate_limits` table) before any insert and
+  429s when spent; body cap shrunk 256 KB → 16 KB. `runRetentionSweep` now
+  also deletes UNCLAIMED `quiz_results` older than 180 days
+  (`pruneUnclaimedQuizResults`; claimed results live until subscriber
+  erasure). E2e runs stay under the caps (global-setup clears `rate_limits`).
+- **Result `?/email` action guards (M-1)**: the action re-runs the
+  slug/published/pillar gates; unknown ids, cross-slug/unpublished claims and
+  claims on someone else's result ALL return the same `{ sent: true }` shape
+  (no existence oracle; pre-fix unknown ids 404'd). `claimQuizResult` is
+  first-claim-wins: a different address on a claimed result is refused
+  BEFORE any consent grant or email, via an ownership check plus a
+  conditional UPDATE that guards the race. DELIBERATE trade-off: the old
+  "corrected typo gets its result email" path is gone for already-claimed
+  results (indistinguishable from the attack; the result stays visible
+  on-page). `enrollFromQuizResult(deps, resultId, claimedSubscriberId)` now
+  takes the claimer explicitly and no-ops on mismatch. New ADDITIVE
+  migration `0020` adds `nurture_enrollments.result_id` (FK → quiz_results,
+  set-null): the originating result, stored at enrollment (both the claim
+  path and the confirm-time back-fill) and preferred by the drain's
+  `{{resultUrl}}` resolution — a retake between enrollment and send no
+  longer redirects the email; fallback to latest linked result for null/
+  erased.
+- **Hostile submissions (M-2)**: `sanitizeSubmittedAnswers` returns
+  `{ answers, missingRequired }` and validates per question type against the
+  schema: declared option values only, single-selects must be strings (an
+  array no longer scores as a summed multi-select), multi-selects deduped,
+  numbers finite + in-bounds, strings bounded (2000 chars), duplicate
+  questionIds collapse to first; uuid/stepId/type/label/displayValue are
+  REBUILT from the schema, never stored from the payload. The endpoint 400s
+  when a required (unconditionally-visible) question is missing — `answers:
+[]` no longer stores a winner. Questions behind a step/group/question
+  `condition` are exempt from the required check (documented limitation:
+  formcomp's visibility fixpoint is not evaluated server-side).
+- **Key commands**: `EMAIL_DRYRUN=false pnpm launch:check --dev --no-probe`
+  now also lists the ADDRESS_HEADER problem on the node target.
+- **Next phase must know**: `sanitizeSubmittedAnswers`' signature changed
+  (object, not array). `enrollFromQuizResult` has a new required param.
+  capture-action.spec now creates one fresh result per claiming test
+  (first-claim-wins makes the old shared-result pattern invalid). The
+  quiz-submit per-IP cap is 20/hour — a manual dev session that submits a
+  lot clears `rate_limits` or waits.
+
+## BS-7 — launch safety: no mock ever faces a customer (2026-08-21)
+
+Closes the review's mock-in-prod family (`docs/REVIEW-2026-08-21.md` C-1,
+H-5, H-7, H-8, H-9, H-10, L-11). One live signal everywhere:
+`EMAIL_DRYRUN === 'false'` means "this env is live" — dev, vitest and e2e all
+run dry, so every mock stays fully usable there.
+
+- **Preflight** (`launchCheckProblems`, `src/lib/server/launch-check.ts`): in
+  a live env it now REQUIRES a present `sk_live_` `STRIPE_SECRET_KEY`
+  (missing / `sk_test_` / other-shaped each get their own message),
+  `CHAT_PROVIDER=anthropic` and `COURIER_PROVIDER=sameday`. The rules sit
+  BEFORE the `--dev` early-return (they are conditional requirements like
+  `RESEND_API_KEY`), so `EMAIL_DRYRUN=false pnpm launch:check --dev` shows
+  them. `STRIPE_SECRET_KEY` is in `env-matrix.ts` now.
+- **Runtime guards** (`modules/shop/live-guard.ts`, pure + spec'd; exported
+  via the shop server barrel): `mockCheckoutBlocked` — the cart `?/checkout`
+  action fails 400 with `cart_payments_disabled` Romanian copy and the page
+  disables the button (load returns `checkoutBlocked`) instead of 303ing to
+  the mock's dead checkout.stripe.com URL; `mockAwbBlocked` — the admin
+  `?/generateAwb` action refuses (`awbError: 'courier-mock-live'`);
+  `stripeSyncEnabled` — see next bullet.
+- **Stripe sync heals** (`modules/shop/sync.ts`): admin product saves skip
+  the Stripe mirror entirely when keyless (both `/admin/products` create and
+  `[id]` save gate on `stripeSyncEnabled`), so `prod_mock_N` ids can no
+  longer persist. Both gateways throw a typed `GatewayResourceMissingError`
+  (`gateway.ts`); sync treats it on update as "create fresh" and on the
+  old-price archive as already-archived — an account/mode switch or mock
+  residue now self-heals on the next save. The MOCK gateway also throws it
+  for unknown update/archive ids (Stripe parity).
+- **Demo content is draft by default** (`src/lib/db/seed.ts`): demo
+  articles/products/quiz seed as `draft`; `status` was dropped from EVERY
+  seed conflict-update set (quizzes included), so operator archive/unpublish
+  decisions survive any re-seed. The archetype quiz still inserts
+  `published` — it is launch content. The e2e global-setup opts back into
+  active/published explicitly and force-resets quiz status (quiz rows
+  persist across runs; everything else it deletes). `pnpm launch:check`'s
+  database pass (skipped on `--dev`/`--no-probe`) now also runs
+  `seededDemoLaunchProblems` — any live `seed-*` demo row is a launch
+  problem; proven on a scratch DB: fresh migrate+seed → exactly 33 active
+  products, demo trio draft. Demo article `cicluri-somn` moved to 07:45Z
+  (L-11 tie with bundle 0010).
+- **Security headers** (`src/lib/server/headers.ts` + `handleHeaders` first
+  in the hooks sequence): `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
+DENY`, CSP `frame-ancestors 'none'`, HSTS only when `PUBLIC_SITE_URL` is
+  https, and a REPORT-ONLY `default-src 'self'` CSP (the path toward an
+  enforced policy backstopping the sanitized `{@html}` routes). Unit spec +
+  `e2e/headers.e2e.ts` (public `/` and `/admin/login`). Note: responses that
+  THROW out of inner handles (hook-level redirects/403s) bypass the outer
+  handle, so the guarantee is for resolved responses — both tested pages
+  resolve normally.
+- **VAT stays a human decision** (H-10): rate unchanged. The admin settings
+  screen renders a hint under `invoice.vatRateBp` (new `fieldHints` seam in
+  `settings/+page.svelte`, `admin_settings_invoice_vat_rate_hint`):
+  supplements are commonly at the reduced RO rate — confirm with the
+  accountant. LAUNCH-CHECKLIST carries the decision. LIMITATION (documented,
+  deliberate): ONE site-wide VAT rate applies to all products AND shipping;
+  per-product `vatRateBp` was not built — it would ripple through invoice
+  lines/e-Factura/shipping and is only needed the day two rates coexist.
+- **Key commands**: `EMAIL_DRYRUN=false pnpm launch:check --dev --no-probe`
+  demonstrates the new provider rules against a dev env; `pnpm db:seed` on a
+  fresh DB yields /magazin = 33 real SKUs.
+- **Next phase must know**: e2e and dev DBs are the same `better_sleep` —
+  global-setup owns demo-row statuses there. The cart page's new
+  `payments-disabled` form error uses `as const` on `checkoutError` (a
+  widened string collapses the ActionData union and erases `companyValues`
+  from the form type). LAUNCH-CHECKLIST's provider/Stripe/demo lines were
+  rewritten to reflect enforcement; DEPLOYMENT.md was NOT touched this phase.
+
+## BS-6 — the real Zenyth catalogue + night-map SKUs (2026-08-20)
+
+The shop now sells the 33 real products captured in
+`.initialData/zenyth-products.json` (real names, real integer-lei prices),
+and the landing night map names the SKUs that support each phase of the
+night — the deck's block-6 loop is closed.
+
+- **Conversion script** (`apps/web/scripts/products-from-initialdata.ts`,
+  `pnpm --filter web products:from-initialdata`): deterministic, rerunnable —
+  the BS-4 article-script pattern. Reads the zenyth capture (slug = last URL
+  segment; name/price as captured; the `blurb` is working copy that must
+  never ship) + the committed Romanian editorial pass
+  `scripts/product-descriptions.ro.json` (fresh 2–4 sentence `description`
+  per slug — edit THIS and regenerate) and writes 33 v2 product bundles
+  `content/sleep/1010-…1330-<slug>.json`, numbered after the article bundles
+  so import order stays articles-then-products. Each: pillar `somn`, status
+  `active`, `priceCents = priceLei * 100`, currency `ron` (lowercase — the
+  schema default and Stripe's code; the phase doc's 'RON' means the same),
+  stock 25 (arbitrary test stock), `coverMediaId: null`, `gallery: []`,
+  Stripe ids untraveled (bundle-excluded), and a trailing
+  `Sursă preț: [zenyth.ro](<url>), 2026-08-20` line in `descriptionMd`.
+  Fails loudly on slug/price/description gaps or a description that copies
+  the captured blurb; stale generated product bundles are deleted on re-run.
+- **Seeding**: no seed-script changes — `pnpm db:seed` / `content:init`
+  import `content/sleep/`. Proven on a scratch DB: fresh migrate+seed
+  imports all 73 bundles (40 articles + 33 products), exit 0; re-run is a
+  no-op (36 products total incl. the 3 demo ones — same precedent as BS-4's
+  43 articles). `sleep-content.spec.ts` re-proves on `TEST_DATABASE_URL`:
+  33 active pillar-tagged products, captured prices in integer bani,
+  stock 25, null Stripe ids, Romanian descriptions with the Sursă-preț
+  line and never the blurb, idempotent re-import, and the 216-lei product
+  formatting as `216,00 lei`.
+- **Night-map SKUs** (`modules/shop/night-map.ts`, universal barrel):
+  `NIGHT_MAP_SKUS` maps the four `NightSegment` keys to 2–3
+  `{ slug, label }` entries chosen from the actual ingredients — adormirea:
+  melatonină 3/10 mg + glicină; somn-profund: magneziu bisglicinat 1000 mg,
+  treonat Magtein, bisglicinat Optimum; fereastra-fragila: PentaMag (Mg+B6),
+  taurat, GABA; rem: L-teanină + ashwagandha KSM-66 Forte. `label` is the
+  product name minus the pack-size suffix. The landing load passes the map
+  into `LandingNightMap`'s BS-5 `segmentExtra` seam; chips under a
+  `home_nightmap_sku_label` ("Susținere în această fază") label link to
+  `/magazin/[slug]`. `night-map.spec.ts` pins every slug+label to a
+  committed ACTIVE product bundle — a catalogue rename/removal fails the
+  suite, not the page.
+- **Money proof** (`night-map.spec.ts`): 216 lei + 2×49 lei = `314,00 lei`
+  crosses a 300-lei free-shipping threshold (`>=` at exactly 30000); minus
+  one item, 265 lei + 19,99 lei standard shipping = `284,99 lei` — all
+  integer bani through `cartTotalCents`/`shippingOptionsForCart`/
+  `formatCents` (money helpers live in `$lib/util/money.ts`).
+- **e2e**: global-setup imports the PRODUCT bundles only into the e2e DB
+  (article bundles stay out so blog listing assumptions hold) → /magazin
+  serves 36 there. landing.e2e: every night-map chip renders per segment in
+  order, each href answers 200, click-through to the first ADORMIREA SKU.
+  shop.e2e: catalogue count 36; a real product's `32,00 lei` price,
+  Romanian description and correct cart total; the demo-mask cover check
+  now scrolls into view first (lazy-load below the fold in the 36-grid).
+- **What remains for a real launch**: live Stripe keys + product sync
+  (`stripe_product_id`/`stripe_price_id` are null by design; admin re-sync
+  exists), real product images (bundles ship `coverMediaId: null` — the
+  /magazin cards render the neutral placeholder block), supplier
+  confirmation of the captured prices/stock (stock 25 is arbitrary; prices
+  are a 2026-08-20 snapshot, see each product's Sursă-preț line), and a
+  decision on retiring the 3 demo products from `db:seed`.
+
+## BS-5 — the landing page: ten deck blocks (2026-08-20)
+
+`/` now implements the copy deck (`.initialData/somnium-landing-copy-deck.md`)
+— ten of its twelve blocks, deck order, Romanian copy verbatim via `home_*`
+Paraglide keys. Blocks 8 (Authority) and 10 (Testimonials) are ABSENT by
+design (deck forbids placeholders); the block-9 "calculator de mai jos"
+sentence was cut (references UI that doesn't exist). Brand renders from site
+config, never hardcoded.
+
+- **Components** — one per block in `lib/components/landing/`: `LandingHero`
+  (min-h-[100dvh] night section; primary CTA → `/quiz/arhetip-somn` via
+  `ARCHETYPE_QUIZ_SLUG`, secondary → `#cum-functioneaza` on the steps block),
+  `LandingCost`, `LandingPatterns`, `LandingReframe`, `LandingSteps`,
+  `LandingNightMap`, `LandingProof`, `LandingObjections` (native `<details>`),
+  `LandingRisk`, `LandingFinalCta`; shared `Eyebrow`/`CtaButton` +
+  `reveal.ts` (IntersectionObserver entry reveals; classes only added by JS,
+  motion rules behind prefers-reduced-motion in `routes/layout.css`).
+- **Patterns → /tipuri.** `+page.server.ts` maps `SLEEP_PATTERNS` ×
+  `ARCHETYPE_PAGES` to 4 cards whose chips link all NINE archetype pages —
+  this is the intended public entry to /tipuri (still not in the nav).
+- **BS-6 seam.** `LandingNightMap` accepts an optional `segmentExtra`
+  snippet (`Snippet<[NightSegment]>`, keys `adormirea`/`somn-profund`/
+  `fereastra-fragila`/`rem`) for per-phase product naming; nothing renders
+  until a caller passes it.
+- **Theme/design.** `sleep.ts` theme gained night tokens (`color-night`,
+  `-raised`, `-ink`, `-muted`, `color-moon`) — dark sections use them via
+  `bg-(--color-…)`. Font is self-hosted Plus Jakarta Sans Variable
+  (`@fontsource-variable/plus-jakarta-sans`, latin-ext) set as `--font-sans`
+  in `routes/layout.css` — same-origin, so the perf no-third-party gate
+  holds. High-end-visual-design skill applied (double-bezel cards, island
+  CTAs, py-24+ rhythm, cubic-bezier(0.32,0.72,0,1) everywhere,
+  transform/opacity-only animation); §2 self-audit recorded in the
+  feat(landing) commit body.
+- **Layout changes.** The (public) layout renders `/` full-bleed (all other
+  pages keep the `max-w-4xl` main, switched on `page.route.id`); the header
+  nav now wraps (360px had 147px of horizontal overflow before).
+- **Tests.** `landing.e2e.ts`: exactly ten `section[data-testid^=landing-]`
+  in deck order (order equality = absence proof for blocks 8/10), hero CTA →
+  quiz, per-card /tipuri click-throughs, accordion opens, no horizontal
+  scroll at 360×740. `landing.spec.ts` (unit, no DB): load shape + all-nine
+  coverage + deck-verbatim ro.json pins. smoke/funnel now assert the hero
+  (pillar grid is gone from `/`). NOTE: `a11y.e2e.ts` audits under
+  `reducedMotion: 'reduce'` — axe's scrolling triggers the reveals and
+  otherwise samples text mid-fade as false contrast violations.
+- Messages: `home_*` rewritten for the deck (old `home_tagline`/
+  `home_pillars_heading` removed); `home_seo_title`/`home_seo_description`
+  carry the deck positioning line.
+
+## BS-4 — 40 articles seeded + /tipuri archetype pages (2026-08-20)
+
+The 40 finished Romanian articles from `.initialData/articles/` are now
+seeded content, and each of the nine archetypes has a public landing page
+with adapted long-form copy and a curated reading list.
+
+- **Conversion script** (`apps/web/scripts/articles-from-initialdata.ts`,
+  `pnpm --filter web articles:from-initialdata`): deterministic, rerunnable.
+  Reads `.initialData/articles/NN-<slug>.md` (line 1 = `# H1` → title, rest
+  → bodyMd — the files have NO frontmatter) + `topics.json` (ONLY `slug` is
+  used; its `title`/`excerpt` are ENGLISH working copy) and writes the 40
+  committed v2 article bundles `content/sleep/0010-…0400-<slug>.json`
+  (pillar `somn`, published, `coverMediaId: null`, publishedAt staggered
+  2 days apart anchored at 2026-08-18 → range 2026-06-01…08-18). Fails
+  loudly on: missing file/topic/meta entry, empty or overlong seo fields,
+  or any field equal to the English topics.json text. Stale generated
+  article bundles (`NNNN-*.json`, `type: article`) are deleted on re-run.
+- **Editorial meta** (`apps/web/scripts/article-meta.ro.json`): committed,
+  keyed by slug — fresh Romanian `excerpt` (deck tone), `seoTitle` (≤60)
+  and `seoDescription` (≤160) for all 40, written from the articles' actual
+  content. Edit THIS file (not the bundles) and regenerate.
+- **Seeding**: no seed-script changes — `pnpm db:seed` / `pnpm content:init`
+  already import `content/sleep/`. Proven on a scratch DB: fresh
+  migrate+seed imports all 40 (exit 0), re-run creates nothing (43 published
+  articles total incl. the 3 demo ones). `sleep-content.spec.ts` re-proves
+  on `TEST_DATABASE_URL`: 40 published + pillar-tagged, idempotent re-run,
+  diacritics/markdown intact, and NO article title/excerpt/seo field equals
+  the English topics.json title/excerpt.
+- **Archetype→articles** (`modules/quiz/archetype-articles.ts`, universal
+  barrel): `ARCHETYPE_ARTICLES` — each of the 9 ids → ≥3 seeded slugs by
+  subject matter (many-to-many). Spec validates against the committed
+  bundles, so a renamed article slug fails the suite.
+- **Archetype page copy** (`modules/quiz/archetype-pages.ts`, universal
+  barrel): `ARCHETYPE_PAGES` / `ARCHETYPE_PAGES_BY_SLUG` — slug (source
+  filenames: `strajerul`…`epuizatul`), name, essence, keyPhrase, 2 intro
+  paragraphs + avoid/start lists, adapted to site voice from the
+  archetype-copy ALARMA sections (doctor persona removed). Also
+  `ARCHETYPE_QUIZ_SLUG` (= `arhetip-somn`, spec-pinned to the seed) so
+  client code never imports the full seed config.
+- **Route `(public)/tipuri/[archetype]`**: header (kicker/name/essence/
+  quoted key phrase), intro, two list cards, curated article grid, CTA into
+  the quiz. Unknown slug → 404. Loads via `listPublishedBySlugs` (NEW blog
+  service: published articles from an explicit slug list, newest first,
+  unknown/unpublished slugs silently absent) + `imgSources`. Pages are in
+  `sitemap.xml` (static-path list; spec asserts all nine). NOT in the nav —
+  BS-5's landing patterns section is the intended entry point.
+- **`modules/blog/ArticleCards.svelte`** (universal barrel): the /blog card
+  grid extracted as a shared component (`cards`, optional `testid` — /blog
+  keeps `blog-card`, tipuri uses `archetype-article-card`); /blog was
+  refactored to use it, pillar pages keep their own h3 variant.
+- **Tests**: `archetype-articles.spec.ts` (coverage, no dead slugs, quiz-slug
+  pin), `sleep-content.spec.ts`, `tipuri.spec.ts` (route-level with real
+  bundles: all 9 resolve with ≥1 article, 404 on unknown), blog.spec
+  `listPublishedBySlugs` cases, sitemap.spec /tipuri assertions.
+- Messages: `tipuri_*` keys (kicker, list headings, articles heading, CTA).
+
+## BS-3 — email capture on the quiz result: the protocol offer (2026-08-20)
+
+The deck's block-5 follow-up ("îți trimitem protocolul complet"): the quiz
+result stays fully ungated; a capture form below it exchanges email +
+newsletter consent for "the full protocol". The footer newsletter plain-form
+path is untouched.
+
+- **Capture form** (`CaptureForm.svelte`, route-local next to the rezultat
+  page): built from BS-1's formcomp pieces — `TextInput` (email question,
+  `questionStatus` gives the invalid/missing distinction), `ConsentCheckbox`
+  (label = the footer's `newsletter_consent_label`, required), and the
+  off-screen honeypot (`HONEYPOT_FIELD` = `website`, always posted, empty for
+  humans). It submits as a PLAIN form POST to the route's `?/email` action —
+  SvelteKit actions only take form-encoded bodies, so `MultiStepForm`'s JSON
+  submit is NOT used; the component intercepts submit for client validation
+  and mimics formcomp's silent bot drop (filled honeypot ⇒ fake success, no
+  POST). The trusted field `newsletter_consent=yes` is a hidden input that
+  exists only while the box is ticked (checkbox itself posts a decoy name).
+  The old name + profile-consent inputs are GONE (and `profile_emails` can no
+  longer be granted from this route).
+- **Hardened `?/email` action** ("never trust the browser", newsletter-action
+  pattern), gate order: honeypot missing-or-non-empty → silent fake
+  `{ sent: true }` (nothing written, no budget spent) → consent ≠ 'yes' →
+  `fail(400, { error: 'consent' })` → `consumePublicEmailBudget('quiz-email')`
+  → 429 → `claimQuizResult` (email validity → 400 `invalid-email`, unknown
+  result → 404, always `newsletter: true` / `profileEmails: false`) →
+  `enrollFromQuizResult`. The throttle spec's quiz events now carry
+  consent + empty honeypot.
+- **Nurture `{{resultUrl}}` token** (`RESULT_URL_TOKEN`, definition.ts,
+  exported from the universal barrel): a step `cta.url` that is EXACTLY the
+  token resolves at send time to the subscriber's own latest result for the
+  sequence's trigger quiz (`/quiz/<slug>/rezultat/<id>` absolutized); result
+  erased ⇒ cta dropped, email still sent. Validation confines it to
+  quiz-completed sequences and refuses any other `{{…}}` (typos can't ship).
+- **`protocol-arhetip-somn` sequence** in `config/sites/sleep.ts`: trigger
+  `quiz-completed`/`arhetip-somn`, consent `newsletter`; step 0 same-day
+  "Protocolul tău de somn" with the `{{resultUrl}}` CTA, step +3d 09:00 a
+  follow-up with a retake CTA. Seeded by the existing `seedNurtureSequences`
+  upsert (operator `active` flag untouched). NOTE: `sleep.ts` imports the
+  token via a RELATIVE path to the nurture universal barrel (plain-node seed).
+- **Tests.** `capture-action.spec.ts` (route-level, real seeded quiz + real
+  sleep nurture config): consent missing/'no'/'on' → 400; honeypot filled or
+  absent → success-shaped no-op (no subscriber, no email); invalid email →
+  400; fresh email → 1 subscriber + both dry-run emails + NO enrollment
+  before confirm; confirmed subscriber → exactly 1 subscriber + 1 enrollment
+  in `protocol-arhetip-somn`, resubmit a no-op (1 result email total);
+  spent budget → 429 before anything. nurture.spec: token resolves to the
+  subscriber's own URL; erased result drops the cta. schedule.spec: token
+  validation. e2e: archetype walk now submits email+consent and asserts both
+  dry-run emails; funnel/quiz e2e use the new capture-form selectors
+  (`capture-form` testid, `input[name="email"]`,
+  `input[name="newsletter_consent_box"]`).
+- Messages: `quiz_capture_*` keys added; `quiz_email_heading/blurb/
+name_placeholder/submit/sent` and `quiz_consent_profile_label` removed;
+  consent errors reuse `newsletter_consent_required`.
+
+## BS-2 — the archetype quiz `/quiz/arhetip-somn` (2026-08-20)
+
+The site's central conversion device: a 12-question ro quiz that identifies
+the visitor's sleep archetype. The seeded `evaluare-somn` band quiz is
+untouched. All in `modules/quiz`:
+
+- **Scoring engine (additive, `scoring.ts`).** Two orthogonal extensions:
+  - `resultMode?: 'band' | 'archetype'` (+ `archetypes?: Record<key,
+{ label, essence, advice }>`): in archetype mode every dimension key IS
+    an archetype key (validated 1:1 both ways, ≥2 dimensions required) and
+    `scoreQuiz` adds `profile.winner`/`profile.runnerUp` (full copy
+    snapshotted into the stored profile, like bands). Tie-break: higher
+    score wins; equal scores → earlier declaration order in `dimensions`
+    (stable sort). Bands stay REQUIRED in archetype mode — configs carry one
+    catch-all band so band consumers (result email `bandLabel` fallback,
+    admin results table) keep working. Band-mode profiles carry none of the
+    new fields; all old tests untouched.
+  - New question-scoring kind `weights`: `{ kind: 'weights', weights:
+{ optionValue: { dimensionKey: points } } }` — the PICKED option decides
+    which dimension(s) score (map/numeric attribute a whole question to one
+    dimension, which cannot express "each option names a different
+    archetype"). Multi-select sums selected values; validation checks option
+    values, declared dimensions, numeric points.
+- **Patterns (`patterns.ts`, exported from the universal barrel).**
+  `SLEEP_PATTERNS`: the deck's four block-3 patterns (adormitul-imposibil,
+  trezirea-de-la-3, somnul-care-nu-odihneste, ritmul-dat-peste-cap) → lists
+  of `ArchetypeId` (`'ST'|'MN'|'RU'|'VU'|'SA'|'PE'|'AN'|'FU'|'EP'`,
+  many-to-many, union covers all nine). BS-4/BS-5 consume this.
+- **Seed (`seed-archetype-quiz.ts`).** `/quiz/arhetip-somn`, "Testul de
+  somn", 12 required questions / 3 steps (Seara, Noaptea, Ziua și tu; 11
+  single-select + 1 multi-select), per-question `uuid`s, pillar `somn`,
+  published. Options name lived experiences (+2 main / +1 secondary signal);
+  the closing key-phrase question gives +3 so every archetype is reachable.
+  `archetypes` result copy adapted from `.initialData/archetype-copy/`
+  (~2 paragraphs each, blank-line separated). Wired into `pnpm db:seed` AND
+  the e2e global-setup via `seedArchetypeQuiz(db)` (idempotent
+  upsert-by-slug like the demo quiz; both now share `upsertSeedQuiz`).
+- **Result rendering.** `(public)/quiz/[slug]/rezultat/[resultId]` branches
+  on `profile.winner` (snapshot-consistent — old stored results keep the
+  band view): archetype kicker + winner name + essence, "Ce înseamnă asta"
+  paragraphs from `winner.advice`, runner-up card (name + essence). NO
+  score/band/dimension-bars UI in archetype mode (deck tone: no clinical
+  numbers). Result stays fully visible WITHOUT email; the optional email
+  form below is unchanged. The transactional quiz-result email now uses
+  `winner.label` as `bandLabel` when present.
+- **Tests.** `scoring.spec.ts`: weights scoring/max/validation, archetype
+  winner/runnerUp/tie-break, archetype validation refusals.
+  `seed-archetype-quiz.spec.ts`: publishability, 12 scored+required+uuid'd
+  questions, and the reachability proof — for each of the 9 archetypes an
+  answer set constructed from the scoring map makes it the strict winner;
+  plus the patterns↔archetypes coverage test. e2e (`quiz.e2e.ts`): walks
+  all 12 questions → rendered Ruminatorul result, asserts no band UI, email
+  optional, noindex.
+
+## BS-1 — formcomp 0.3.0: email validation, consent, honeypot (2026-08-20)
+
+`packages/formcomp` bumped 0.2.1 → **0.3.0** with three additive extensions
+that unblock lead capture (BS-2+ will use them on the quiz result form).
+Nothing existing changed shape; all previous configs keep working.
+
+- **Email-format validation.** A `text-input` question with
+  `inputType: 'email'` now fails as `reason: 'invalid'` (red ring +
+  `settings.invalidMessage`) unless a non-empty value matches a conservative
+  pattern: one `@`, non-empty local part, domain with a dot, no whitespace.
+  Empty + not required stays valid. Rule lives in `questionStatus()`
+  (`src/lib/validation/validator.ts`), so both Next-blocking and the
+  red-ring UX use it; `isValidEmail()` is exported for reuse.
+- **`consent` question type.** Single checkbox, boolean answer; when
+  `required`, ONLY `true` validates (reported as 'missing' — GDPR's "this
+  specific box must be ticked", which multi-select + required cannot say).
+  Full consent sentence goes in the question's `label`, rendered next to the
+  box by the new `ConsentCheckbox.svelte` (exported from the barrel).
+  `formatAnswer` → `translate('Yes')` / `'—'` (host localizes 'Yes' → 'Da');
+  `validateConfig` warns if a consent question carries `options`.
+- **Opt-in honeypot.** `settings.honeypot: true` renders an off-screen text
+  input named `website` (`HONEYPOT_FIELD` export) — `aria-hidden`,
+  `tabindex="-1"`, `autocomplete="off"`, NOT display:none. Filled at submit
+  ⇒ the client shows the normal success flow (or navigates to
+  `submit.successUrl`) WITHOUT POSTing and without firing submit callbacks.
+  `buildSubmitPayload(config, get, translate, honeypotValue?)` always adds
+  `payload.honeypot = { field, value }` when the setting is on — a server
+  should reject when the key is absent or the value non-empty (BS phase that
+  builds the capture endpoint must implement that check).
+- **Tests.** `tests/unit/email-consent-honeypot.test.ts` (all cases verified
+  to fail against 0.2.1 by stashing src); new `/examples/lead-capture` +
+  `tests/lead-capture.spec.ts` (playwright: invalid-email block, consent
+  block, payload contents, silent bot drop with zero requests). Suites:
+  formcomp 41 unit + 19 e2e green; root gate green (web 769 unit tests, so
+  the seeded `evaluare-somn` quiz still renders/submits unchanged).
+- README documents all three (config shape + example each); CHANGELOG 0.3.0.
+  Remember `pnpm --filter formcomp package` (root `prepare`) rebuilds `dist/`
+  consumed by apps/web.
+
+## BS-0 — single brand, single locale (2026-08-20)
+
+This repo is now **betterSleep only** (cloned from better-base, which served
+two sites from one codebase). Everything below this section describes the
+inherited platform; where it says "both sites" / "life", read it historically.
+
+- **One site.** `config/sites/life.ts`, the `life-coach` persona, `content/life/`
+  and the `better_life` bootstrap database are gone. `SITES` holds only
+  `sleep` (`resolveSiteConfig('life')` now throws — asserted in
+  `config.spec.ts`). `sleepSite`: `id: 'sleep'`, `name: 'Better Sleep'`,
+  `domain: 'bettersleep.ro'`, and the nav gained
+  `{ label: 'Testul de somn', href: '/quiz/arhetip-somn' }` — the quiz slug
+  BS-2 will seed (404 until then).
+- **One locale.** `project.inlang/settings.json` and `sleepSite.locales` are
+  `['ro']`; `messages/en.json` is deleted. The public layout emits one
+  self-referential `ro` hreflang plus `x-default` (no `en` alternate —
+  `frontend.e2e.ts` asserts its absence).
+- **E2E harness is single-site.** `playwright.config.ts` runs ONE project
+  (`sleep`) against ONE preview server on :4173; `e2e/env.ts` `SITE_DB_NAMES`
+  has only `sleep`; `funnel-life.e2e.ts` is deleted (`funnel.ts` +
+  `funnel-sleep.e2e.ts` remain). Test conventions otherwise unchanged.
+- **Specs that needed "all 9 pillars like better-life"** (blog, content
+  export/import, shop, seed idempotency) now seed
+  `CANONICAL_PILLARS.map((p) => p.slug)` — the canonical pillar registry in
+  `config/pillars.ts` is untouched and still has all 9.
+- **Identity.** Root `package.json` name is `better-sleep`; a root `README.md`
+  describes the repo and key commands. Phase plans for this project:
+  `docs/phases/BS-*.md`.
+
+Verified for this phase: `pnpm lint && pnpm check && pnpm test:unit` green;
+fresh volume → `docker compose up -d --wait` → `pnpm db:migrate &&
+pnpm storage:init && pnpm db:seed` clean; `pnpm test:e2e` green on the single
+site.
+
+---
+
+# Inherited platform state (better-base, up to 2026-08-19)
+
+# STATE — after launch polish (2026-08-08, branch `feat/vercel-neon`)
+
 ## Image delivery is a provider seam; Cloudflare replaces imgproxy (2026-08-19)
 
 Motivation: the Vercel deploy needed one always-on box purely for imgproxy
