@@ -59,9 +59,11 @@ origin check with the RFC 8058 one-click-unsubscribe exemption) →
 ## What exists
 
 - **pnpm workspace**: `apps/web` (SvelteKit 2, Svelte 5 runes, TS strict, Tailwind v4,
-  Paraglide with base locale `ro` + `en`, adapter-node) and `packages/formcomp`
-  (vendored quiz form library, consumed as `formcomp` workspace dep; its `dist/` is
-  built by the root `prepare` script on `pnpm install`).
+  Paraglide with the single locale `ro`, adapter-node) and `packages/formcomp`
+  (vendored from formComp releases — 0.4.0 since BS-11 — consumed as the `formcomp`
+  workspace dep; its `dist/` is built by the root `prepare` script on `pnpm install`;
+  `formcomp/conditions` and `formcomp/config-check` are pure subpaths for server code
+  and scripts, where the main barrel's Svelte components cannot load).
 - **Site config system** (`apps/web/src/lib/config/`):
   - `pillars.ts` — the 9 canonical pillars (ro slugs: `somn`, `nutritie`, `miscare`,
     `stres`, `relatii`, `scop`, `mediu`, `minte`, `finante`).
@@ -459,7 +461,7 @@ filename, mime, size}` (validates, returns `{key, uploadUrl}`) → browser PUTs
   anthropic ONLY when `CHAT_PROVIDER=anthropic` AND a key is set. Dev, vitest
   and e2e all run on the mock — an ambient key alone never activates the live
   provider (unit-tested; playwright forces `CHAT_PROVIDER=mock` +
-  `ANTHROPIC_API_KEY=''` into both preview servers).
+  `ANTHROPIC_API_KEY=''` into the preview server).
 - **Personas** (`src/lib/config/personas/{sleep-coach,life-coach}.ts`): ro
   system prompts keyed by the site config's `chatPersonaKey`, resolved via
   `resolvePersona()` (throws on unknown). Prompts take `{ siteName }` at
@@ -587,6 +589,71 @@ Not run in CI/agent runs — do this by hand when you have keys:
   accounts, lawyer review of the seeded legal skeletons, RO e-commerce
   requirements (ANPC/SOL, company id), DNS/TLS, live-Stripe test, Resend DNS,
   content review, ops drills).
+
+## betterSleep surfaces (BS-0…BS-10, on top of the platform)
+
+The product layer this repository adds to better-base; the platform modules
+above are unchanged in shape. History: `docs/CHANGELOG.md` § "betterSleep
+BS-0…BS-10".
+
+- **Single site, single locale** (BS-0): `config/sites/sleep.ts` is the only
+  site config; `resolveSiteConfig` throws for any other id (`config.spec.ts`
+  pins it). `messages/ro.json` is the only catalog; `project.inlang` lists
+  exactly `ro`; `src/lib/messages.spec.ts` pins both. No hreflang alternates
+  are emitted (`hreflangAlternates` needs >1 locale AND the `url` strategy).
+- **Landing page** (BS-5/BS-6): `routes/(public)/+page.svelte` composes the
+  ten copy-deck blocks from `src/lib/components/landing/` (`LandingHero`,
+  `LandingReframe`, `LandingPatterns`, `LandingNightMap`, `LandingSteps`,
+  `LandingProof`, `LandingCost`, `LandingObjections`, `LandingRisk`,
+  `LandingFinalCta` + `BezelCard`/`CtaButton`/`Eyebrow`/`reveal.ts`). Copy is
+  verbatim from `.initialData/somnium-landing-copy-deck.md` (brand →
+  betterSleep) through the `landing_*` Paraglide namespace and pinned by
+  `routes/(public)/landing-copy.pinned.json` + `landing.spec.ts`
+  (`landing-render.spec.ts` renders the page). The night map names real
+  catalogue SKUs per phase (`modules/shop/night-map.ts`, chips checked against
+  the live catalogue — M-5).
+- **Archetype quiz** (BS-2/BS-3): `/quiz/arhetip-somn`, 12 questions, seeded
+  by `modules/quiz/seed-archetype-quiz.ts` as BASE content (published on
+  first seed, create-only after). Scoring kind `weights` spreads one
+  question's points across the 9 archetype dimensions
+  (`scoring.ts`: `weightPoints`, deterministic winner/runner-up tie-break,
+  ordered dimension array — H-1); `patterns.ts`, `archetype-pages.ts`,
+  `archetype-articles.ts` carry the result copy and the archetype → article
+  mapping. The result page shows the profile WITHOUT an email; the protocol
+  offer (`rezultat/[resultId]/CaptureForm.svelte`, formcomp `TextInput` +
+  `ConsentCheckbox` + honeypot) posts to the `?/email` action, which
+  re-checks consent, honeypot, throttle and validity server-side, records the
+  FIX-13 consent evidence (ip, user agent, `consentTextVersion` =
+  `<key>@<version>:sha256:<label hash>` — M-11) and starts the double
+  opt-in; the `protocol` nurture sequence resolves `{{resultUrl}}` per
+  subscriber at send time from the enrollment's originating `result_id`
+  (M-1). The public submit endpoint is throttled and validated (H-6/M-2);
+  unclaimed results are swept by the retention cron.
+- **`/tipuri/[archetype]`** (BS-4): one public page per archetype
+  (`routes/(public)/tipuri/[archetype]`, `tipuri.spec.ts`), curated article
+  lists via `blog` `listPublishedBySlugs`; in the sitemap.
+- **Content from `.initialData/`** (BS-4/BS-6): `scripts/articles-from-initialdata.ts`
+  and `scripts/products-from-initialdata.ts` convert the vendored articles
+  (40) and the Zenyth catalogue (33 products, integer lei → bani) into
+  committed v2 bundles under `content/sleep/` (`generated-manifest.spec.ts`
+  owns the sweep, `english-leak.spec.ts` guards against English sentences,
+  `sleep-content.spec.ts` is the acceptance suite). Bundles carry a stable
+  `importKey` (M-7): the import identity, with slug as the legacy fallback;
+  `--overwrite` is the policy (FIX-15) and a byte-identical overwrite writes
+  nothing (M-8). `pnpm seed:base` imports them.
+- **Launch safety** (BS-7/BS-8): `modules/shop/live-guard.ts` — in a live
+  env (`EMAIL_DRYRUN=false`) the checkout action fails 400 on the mock
+  gateway and no AWB is issued on the mock courier; mock Stripe ids never
+  persist and `resource_missing` heals to create-fresh (H-8, `sync.ts`);
+  `launch:check` requires `ADDRESS_HEADER` on a live node deploy (H-4) and
+  refuses live `seed-*` demo rows (H-9, `seededDemoLaunchProblems`).
+  Demo content (`seed:demo`) lands draft/inactive.
+- **SEO** (BS-9/BS-10): product JSON-LD, per-product meta descriptions and
+  the branded og:image fallback (`modules/shop/product-seo.ts`, M-6); blog
+  `?page=` past the end 404s (L-8); published quizzes and the `/tipuri`
+  pages are in the sitemap.
+- **GDPR** (BS-10): `pnpm subscriber:export -- --email …` — the
+  subject-access export (`modules/gdpr/export.ts`, M-10).
 
 ## Seams and conventions for the next phase
 

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Unit + integration (vitest, `server` project) | `pnpm test:unit` (repo root; runs web AND formcomp) | `docker compose up -d` (Postgres + MinIO) and `TEST_DATABASE_URL` in `.env`. Integration specs drop and re-migrate `better_test`, so the server project runs with `fileParallelism: false`. |
 | The same suite on the neon driver | `docker compose --profile neon up -d --build` then `pnpm test:neon` | The local Neon-protocol proxy; the setup file fails loudly (never skips) when it is down. |
-| E2E (playwright) | `pnpm test:e2e` | The compose stack; builds, then drives two preview servers (4173 = sleep, 4174 = life) on the mock providers with `EMAIL_DRYRUN=true`. Both site databases must be migrated. In this container export `LD_LIBRARY_PATH` for chromium (`docs/RUNBOOK.md`). |
+| E2E (playwright) | `pnpm test:e2e` | The compose stack; builds, then drives the single preview server (4173 = sleep) on the mock providers with `EMAIL_DRYRUN=true`. Both site databases must be migrated. In this container export `LD_LIBRARY_PATH` for chromium (`docs/RUNBOOK.md`). |
 | The gate | `pnpm lint && pnpm check && pnpm test:unit` | What CI's `gate` job runs on every PR/push (`.github/workflows/ci.yml`), plus `db:migrate` on a fresh database, `db:check`, both builds and `launch:check --target=vercel`. |
 | One spec while iterating | `cd apps/web && pnpm exec vitest run <path> --reporter=dot` | Keep the full run for the end. |
 
@@ -188,3 +188,32 @@ their `docs/CHANGELOG.md` entries.
   cart/chat), perf gate (`perf.e2e.ts` — imgproxy-only images, width/height
   everywhere, no third-party requests). Playwright pre-dismisses the cookie
   banner via storageState; specs that audit the banner clear cookies first.
+
+### betterSleep (BS-0…BS-10; full records in `docs/CHANGELOG.md`)
+
+- Unit: landing copy pinned verbatim against the deck
+  (`routes/(public)/landing.spec.ts`, `landing-copy.pinned.json`) and rendered
+  (`landing-render.spec.ts`); night-map chips vs the catalogue
+  (`modules/shop/night-map.spec.ts`); product JSON-LD / meta descriptions
+  (`modules/shop/product-seo.spec.ts`); live-env mock guards
+  (`modules/shop/live-guard.spec.ts`); archetype scoring, tie-break and
+  dimension order (`modules/quiz/scoring.spec.ts`), the archetype seed and
+  its article mapping (`seed-archetype-quiz.spec.ts`,
+  `archetype-articles.spec.ts`), both seeded quizzes under formComp 0.4.0's
+  `validateConfig` (`seed-quizzes.spec.ts`); the single message catalog
+  (`src/lib/messages.spec.ts`); `/tipuri` pages (`routes/(public)/tipuri/tipuri.spec.ts`);
+  blog `?page=` past the end (`routes/(public)/blog/blog-page.spec.ts`).
+- Integration: the quiz submit endpoint's throttle + validation
+  (`routes/(public)/quiz/[slug]/submit/submit-endpoint.spec.ts`), the result
+  page's `?/email` capture action — consent, honeypot, throttle, validity,
+  first-claim-wins, one subscriber + one enrollment
+  (`rezultat/[resultId]/capture-action.spec.ts`); the 40-article + 33-product
+  corpus acceptance and the import identity / updated_at rules
+  (`modules/content/sleep-content.spec.ts`, `generated-manifest.spec.ts`,
+  `english-leak.spec.ts`); GDPR export (`modules/gdpr/export.spec.ts`).
+- E2E: the ten landing blocks (`landing.e2e.ts`), the archetype quiz walk
+  with tied answers → deterministic winner (`quiz.e2e.ts`), plus the
+  platform's `perf` / `a11y` gates over the betterSleep pages. Since formComp
+  0.4.0 the quiz answer helpers select `input[name$="-<questionId>"]` (radio
+  names are prefixed with the form instance id) and the quiz form mounts
+  client-only, so specs wait for the form, not the server HTML.

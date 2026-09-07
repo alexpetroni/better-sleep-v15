@@ -20,14 +20,29 @@ pnpm dev                               # http://localhost:5173, SITE_ID from .en
 A fresh compose volume creates `better_sleep`, `better_test` and
 `better_test_b` (`docker/postgres-init/`). Single site: `SITE_ID=sleep` is the
 only valid value (BS-0); this project's stack publishes 5434 (Postgres),
-9010 / 9011 (MinIO API / console) — see `.env`.
+9010 / 9011 (MinIO API / console) — see `.env`. `.env` also needs
+`S3_INVOICE_BUCKET=bettersleep-fiscal` (the private fiscal bucket
+`storage:init` creates and `launch:check --dev` expects).
+
+**Recreating the dev database** (done once in BS-11; needed again only if a
+volume carries a migration history the journal no longer knows — e.g. the
+pre-BS-11 local `0020`/`0021` files): the integration specs re-migrate
+`better_test` from scratch on every run, so only `better_sleep` needs it —
+this project's compose volume only, never better-base's stack:
+
+```bash
+docker compose exec -T db psql -U better -d postgres -v ON_ERROR_STOP=1 \
+  -c "DROP DATABASE better_sleep;" -c "CREATE DATABASE better_sleep OWNER better;"
+pnpm db:migrate && pnpm db:check && pnpm storage:init && pnpm db:seed
+pnpm db:migrate && pnpm db:status     # second run is a no-op, status clean
+```
 
 ## Commands (repo root)
 
 | Command | What / notes |
 | --- | --- |
 | `pnpm gate` (= `pnpm lint && pnpm check && pnpm test:unit && pnpm audit --prod --audit-level=high`) | The gate. Also CI's `gate` job. The audit step fails on any high/critical advisory in production dependencies; advisories with no upstream fix are accepted by id in `pnpm-workspace.yaml` (`auditConfig.ignoreGhsas`) with the reason in `docs/STATE.md` — never by lowering the level. |
-| `pnpm test:e2e` | Builds, runs both preview servers (4173 sleep / 4174 life), playwright. Needs both databases migrated. |
+| `pnpm test:e2e` | Builds, runs the single preview server (4173, `sleep`), playwright. Needs `better_sleep` migrated; the global setup truncates and re-seeds it (demo rows + the `content/sleep` bundles). Chromium: `pnpm --filter web exec playwright install chromium`. |
 | `pnpm test:neon` | The unit/integration suite on `DB_DRIVER=neon` over the local proxy. |
 | `pnpm build` / `DEPLOY_TARGET=vercel pnpm build` | adapter-node (`apps/web/build/`) / adapter-vercel (`.vercel/output`). |
 | `pnpm db:migrate` | `scripts/migrate.ts`: advisory lock → `drizzle-kit migrate` → `CREATE INDEX CONCURRENTLY` runner. Prefers `DIRECT_DATABASE_URL`. `docs/MIGRATIONS.md`. |
@@ -37,6 +52,8 @@ only valid value (BS-0); this project's stack publishes 5434 (Postgres),
 | `pnpm db:role-timeout [--timeout=30s]` | `ALTER ROLE current_user SET statement_timeout` — Neon deploy order step; idempotent. |
 | `pnpm --filter web db:generate` | New migration from the schema barrel. Review the SQL; large-table indexes go to `concurrent-indexes.ts`. |
 | `pnpm db:seed` / `seed:base` / `seed:demo` | Pillars + pages + settings + initial content (`content/common`, `content/<site>`) / the same without demo rows / demo articles, quiz, products (never on production). |
+| `pnpm --filter web articles:from-initialdata` / `products:from-initialdata` | Regenerate the committed `content/sleep/` bundles from `.initialData/` (40 articles, 33 products). Deterministic; the manifest spec owns the sweep. |
+| `pnpm subscriber:export -- --email …` | GDPR subject-access export (JSON to stdout). |
 | `pnpm content export|import|import-dir` | Cross-site content bundles (`content/README.md`). `content:init` = import-dir of the site's initial content. |
 | `pnpm media:blurhash` | Backfill placeholders; needs a TRANSFORMING provider (`cloudflare` or `imgproxy`) — not `direct`. |
 | `pnpm user:create -- --email … --role admin|editor [--name …]` | Prompts for the password (no echo). Piped: `printf '%s\n' "$PW" \| pnpm user:create -- … --password-stdin`. `--password` is refused on a terminal. |
@@ -61,7 +78,7 @@ nightly 02:23 UTC, or the same script from a VPS cron.
 
 ## CI (`.github/workflows/ci.yml`)
 
-`gate` on every PR/push → `migrate` (main, per site from
+`gate` on every PR/push (+ the `neon` job: `pnpm test:neon` through the compose wsproxy) → `migrate` (main, per site from
 `deploy/sites.json`, environment `production`, fails closed without the
 site's `DIRECT_DATABASE_URL_<SITE>` secret) → `deploy` (`vercel build` +
 `vercel deploy --prebuilt --prod` with `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
@@ -101,7 +118,7 @@ SHAs and images. Node comes from `.node-version` (22).
   refuses it for a deploy). `CHAT_PROVIDER` defaults to `mock`;
   `anthropic` requires `ANTHROPIC_API_KEY` at boot. `EMAIL_DRYRUN` defaults
   to true. `COURIER_PROVIDER` defaults to `mock`. Playwright forces all
-  mocks into both preview servers.
+  mocks into the preview server.
 - `DB_DRIVER=neon` is for Vercel only (one WebSocket per function instance;
   `DB_POOL_MAX` defaults to 1 there, 10 on `pg`); launch:check refuses it on
   the node target. `DB_POOL_CONNECTION_TIMEOUT_MS=15000` on Vercel + Neon.
