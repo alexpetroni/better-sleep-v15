@@ -9,7 +9,6 @@ import { storageConfigFromEnv } from '../modules/media/env.ts';
 import { media } from '../modules/media/schema.ts';
 import { createStorage } from '../modules/media/storage.ts';
 import { quizzes } from '../modules/quiz/schema.ts';
-import { DEMO_PRODUCTS } from '../modules/shop/seed-products.ts';
 import { productPillars, products } from '../modules/shop/schema.ts';
 import { DEMO_PRODUCTS } from '../modules/shop/seed-products.ts';
 import { pillars } from './schema/core.ts';

@@ -513,6 +513,7 @@ describe('imported SVGs go through the upload finalize step', () => {
 			article: {
 				slug: 'articol-svg-importat',
 				title: 'SVG importat',
+				importKey: null,
 				excerpt: '',
 				bodyMd: '',
 				coverMediaId: 'content-evil-svg',

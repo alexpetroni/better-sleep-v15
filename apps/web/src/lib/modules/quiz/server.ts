@@ -20,7 +20,6 @@ export {
 	getQuiz,
 	getQuizBySlug,
 	getResultWithQuiz,
-	listPublishedQuizzesForSitemap,
 	latestResults,
 	latestResultsWithEmail,
 	listPublishedQuizzesForSitemap,

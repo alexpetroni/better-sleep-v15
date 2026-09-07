@@ -183,9 +183,12 @@ describe('pillar visibility follows the site config', () => {
 
 		expect(await getBySlug(deps, foreign.slug, { pillarSlugs: sleepPillars })).toBeNull();
 		expect(await getBySlug(deps, untagged.slug, { pillarSlugs: sleepPillars })).toBeNull();
-		expect(await getBySlug(deps, untagged.slug, { pillarSlugs: lifePillars })).toBeNull();
-		const onLife = await getBySlug(deps, foreign.slug, { pillarSlugs: lifePillars });
-		expect(onLife?.article.id).toBe(foreign.id);
+		// A site that DOES activate nutritie (the removed second site did) sees
+		// the article; the untagged one stays invisible everywhere.
+		const nutritieActive = ['somn', 'nutritie'];
+		expect(await getBySlug(deps, untagged.slug, { pillarSlugs: nutritieActive })).toBeNull();
+		const onNutritie = await getBySlug(deps, foreign.slug, { pillarSlugs: nutritieActive });
+		expect(onNutritie?.article.id).toBe(foreign.id);
 		// The admin editor (no pillar filter) still opens it.
 		const admin = await getBySlug(deps, foreign.slug, { includeDrafts: true });
 		expect(admin?.article.id).toBe(foreign.id);

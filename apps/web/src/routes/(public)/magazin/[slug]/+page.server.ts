@@ -3,7 +3,12 @@ import { getDb } from '$lib/db';
 import { renderArticleHtml } from '$lib/modules/blog/server';
 import type { ImageSources } from '$lib/modules/media';
 import { getImageProvider, imgSources, imgUrl } from '$lib/modules/media/server';
-import { addToCart, clampLineToStock, productJsonLd, productMetaDescription } from '$lib/modules/shop';
+import {
+	addToCart,
+	clampLineToStock,
+	productJsonLd,
+	productMetaDescription
+} from '$lib/modules/shop';
 import { getProductBySlug, isPurchasable } from '$lib/modules/shop/server';
 import { canonicalUrl } from '$lib/seo';
 import { readCart, writeCart } from '$lib/server/cart';

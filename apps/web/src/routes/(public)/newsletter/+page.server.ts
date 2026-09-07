@@ -1,7 +1,11 @@
 import { fail } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { getDb } from '$lib/db';
-import { getTokenSecret, requestNewsletterSignup } from '$lib/modules/crm/server';
+import {
+	currentConsentTextVersions,
+	getTokenSecret,
+	requestNewsletterSignup
+} from '$lib/modules/crm/server';
 import { getEmailSender } from '$lib/modules/email/server';
 import { consumePublicEmailBudget } from '$lib/server/rate-limit';
 import { getSite } from '$lib/server/site';

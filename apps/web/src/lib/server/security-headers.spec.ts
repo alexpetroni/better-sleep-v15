@@ -75,7 +75,11 @@ describe('applySecurityHeaders', () => {
 	it('always sets the nosniff / referrer / frame-denial family', () => {
 		for (const isAdmin of [false, true]) {
 			const response = new Response('x');
-			applySecurityHeaders(response, { ...PROD_ENV, PUBLIC_SITE_URL: 'http://localhost:5173' }, { isAdmin });
+			applySecurityHeaders(
+				response,
+				{ ...PROD_ENV, PUBLIC_SITE_URL: 'http://localhost:5173' },
+				{ isAdmin }
+			);
 			expect(response.headers.get('x-content-type-options')).toBe('nosniff');
 			expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
 			expect(response.headers.get('x-frame-options')).toBe('DENY');

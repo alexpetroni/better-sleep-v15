@@ -49,9 +49,9 @@
 
 	// Per-field guidance shown under the input — for settings where the right
 	// VALUE needs a human decision the form itself cannot make (review H-10).
-	const fieldHints: Partial<Record<SettingKey, () => string>> = {
-		'invoice.vatRateBp': m.admin_settings_invoice_vat_rate_hint
-	};
+	// Empty since FIX-12 moved the VAT decision to the per-product rate (the
+	// hint now sits in the product editor); kept as the seam for the next one.
+	const fieldHints: Partial<Record<SettingKey, () => string>> = {};
 
 	const errorLabels: Record<string, () => string> = {
 		required: m.admin_settings_err_required,

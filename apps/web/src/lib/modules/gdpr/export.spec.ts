@@ -30,7 +30,12 @@ beforeAll(async () => {
 		id: 'sar-sub',
 		email: EMAIL,
 		consents: {
-			newsletter: { granted: true, at: '2026-07-01T00:00:00Z', source: 'footer', consentTextVersion: 'newsletter_consent_label@1:sha256:x' }
+			newsletter: {
+				granted: true,
+				at: '2026-07-01T00:00:00Z',
+				source: 'footer',
+				consentTextVersion: 'newsletter_consent_label@1:sha256:x'
+			}
 		},
 		unsubscribeToken: 'sar-spec-token'
 	});

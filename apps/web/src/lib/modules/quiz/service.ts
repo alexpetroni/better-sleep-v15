@@ -217,25 +217,6 @@ export async function listQuizzes(
 	return rows;
 }
 
-/**
- * Published quizzes visible on the site, for the sitemap (review M-13): the
- * funnel's primary CTA (`/quiz/arhetip-somn`) must be crawler-discoverable.
- * Visibility mirrors the public quiz page: published AND pillar-tagged to
- * the active site. Result pages stay out — they are personal and noindexed.
- */
-export async function listPublishedQuizzesForSitemap(
-	deps: QuizDeps,
-	sitePillarSlugs: string[]
-): Promise<Array<{ slug: string; updatedAt: Date }>> {
-	if (sitePillarSlugs.length === 0) return [];
-	return deps.db
-		.select({ slug: quizzes.slug, updatedAt: quizzes.updatedAt })
-		.from(quizzes)
-		.innerJoin(pillars, eq(quizzes.pillarId, pillars.id))
-		.where(and(eq(quizzes.status, 'published'), inArray(pillars.slug, sitePillarSlugs)))
-		.orderBy(asc(quizzes.slug));
-}
-
 /** Free-text answers are bounded so a hostile payload can't balloon the row. */
 const MAX_TEXT_ANSWER_CHARS = 2000;
 
@@ -446,7 +427,9 @@ export async function getResultWithQuiz(
 
 /**
  * Published quizzes visible on a site (tagged to one of its active pillars),
- * for sitemap.xml (FIX-15 — quizzes were missing from it).
+ * for sitemap.xml (FIX-15; the same fix landed locally as review M-13 — the
+ * funnel's primary CTA `/quiz/arhetip-somn` must be crawler-discoverable;
+ * result pages stay out, they are personal and noindexed).
  */
 export async function listPublishedQuizzesForSitemap(
 	deps: QuizDeps,

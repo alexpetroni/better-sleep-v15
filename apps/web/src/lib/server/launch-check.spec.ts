@@ -260,7 +260,7 @@ const CASES: Array<{
 	{
 		name: 'a live env (EMAIL_DRYRUN=false) still on the mock chat provider',
 		mutate: (env) => {
-			liveEnv(env);
+			makeLive(env);
 			delete env.CHAT_PROVIDER;
 		},
 		message: /CHAT_PROVIDER is "mock" in a live env \(EMAIL_DRYRUN=false\)/
@@ -268,7 +268,7 @@ const CASES: Array<{
 	{
 		name: 'a live env (EMAIL_DRYRUN=false) still on the mock courier',
 		mutate: (env) => {
-			liveEnv(env);
+			makeLive(env);
 			env.COURIER_PROVIDER = 'mock';
 		},
 		message: /COURIER_PROVIDER is "mock" in a live env \(EMAIL_DRYRUN=false\)/
@@ -319,7 +319,7 @@ const CASES: Array<{
 ];
 
 /** Flip a prod-shaped env to live mode with real providers everywhere. */
-function liveEnv(env: Record<string, string | undefined>): void {
+function makeLive(env: Record<string, string | undefined>): void {
 	env.EMAIL_DRYRUN = 'false';
 	env.RESEND_API_KEY = 're_live';
 	env.STRIPE_SECRET_KEY = 'sk_live_123';
@@ -338,13 +338,13 @@ describe('launch:check mock-provider rule (FIX-14)', () => {
 
 	it('passes a live env on real providers', () => {
 		const env = prodEnv();
-		liveEnv(env);
+		makeLive(env);
 		expect(launchCheckProblems(env, { target: 'node' })).toEqual([]);
 	});
 
 	it('reports both mock providers in one pass', () => {
 		const env = prodEnv();
-		liveEnv(env);
+		makeLive(env);
 		env.CHAT_PROVIDER = 'mock';
 		env.COURIER_PROVIDER = 'mock';
 		const problems = mockProviderProblems(launchCheckProblems(env, { target: 'node' }));
@@ -354,7 +354,7 @@ describe('launch:check mock-provider rule (FIX-14)', () => {
 
 	it('--allow-mock-providers acknowledges mocks in a live env', () => {
 		const env = prodEnv();
-		liveEnv(env);
+		makeLive(env);
 		env.CHAT_PROVIDER = 'mock';
 		env.COURIER_PROVIDER = 'mock';
 		expect(launchCheckProblems(env, { target: 'node', allowMockProviders: true })).toEqual([]);
@@ -397,7 +397,7 @@ describe('launch:check dry-run email rule (FIX-18)', () => {
 
 	it('is silent once the env is live (EMAIL_DRYRUN=false) and under --dev', () => {
 		const env = prodEnv();
-		liveEnv(env);
+		makeLive(env);
 		expect(dryRunProblems(launchCheckProblems(env, { target: 'node' }))).toEqual([]);
 		expect(dryRunProblems(launchCheckProblems(devEnv(), { target: 'node', dev: true }))).toEqual(
 			[]
@@ -505,7 +505,11 @@ describe('launch:check rules', () => {
 	// ADDRESS_HEADER rule holds even under --dev — EMAIL_DRYRUN=false is never
 	// a dev state.
 	it('--dev still enforces ADDRESS_HEADER on a live node env', () => {
-		const env = { ...devEnv(), EMAIL_DRYRUN: 'false', RESEND_API_KEY: 're_x' };
+		const env: Record<string, string | undefined> = {
+			...devEnv(),
+			EMAIL_DRYRUN: 'false',
+			RESEND_API_KEY: 're_x'
+		};
 		delete env.ADDRESS_HEADER;
 		const problems = launchCheckProblems(env, { target: 'node', dev: true });
 		expect(problems.join('\n')).toMatch(/ADDRESS_HEADER is not set in a live env/);

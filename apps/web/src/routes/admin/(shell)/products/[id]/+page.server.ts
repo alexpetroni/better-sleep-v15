@@ -114,7 +114,7 @@ export const actions: Actions = {
 			slug: result.value.slug,
 			// The form re-bases its stock buffer on what was actually saved.
 			stock: result.value.stock,
-			syncError: sync.ok ? '' : (sync.detail ?? sync.error)
+			syncError: sync && !sync.ok ? (sync.detail ?? sync.error) : ''
 		};
 	}
 };

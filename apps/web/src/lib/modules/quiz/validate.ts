@@ -26,7 +26,8 @@ const QUESTION_TYPES = new Set<string>(
 		'text-input': true,
 		textarea: true,
 		likert: true,
-		scale: true
+		scale: true,
+		consent: true
 	} satisfies Record<QuestionType, true>)
 );
 

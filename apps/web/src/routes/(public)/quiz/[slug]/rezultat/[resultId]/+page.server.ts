@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import { HONEYPOT_FIELD } from 'formcomp';
 import { getDb } from '$lib/db';
+import { currentConsentTextVersions } from '$lib/modules/crm/server';
 import { enrollFromQuizResult } from '$lib/modules/nurture/server';
 import { ARCHETYPE_PAGES } from '$lib/modules/quiz';
 import {

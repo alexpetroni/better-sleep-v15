@@ -3,7 +3,6 @@ import type { FormConfig } from 'formcomp';
 import {
 	answersFromSubmitAnswers,
 	DEFAULT_NUMERIC_BOUND,
-	flattenStepResponses,
 	pickBand,
 	scoreQuiz,
 	validateScoringConfig,

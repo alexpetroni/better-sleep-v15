@@ -34,9 +34,10 @@ describe('messages/*.json', () => {
 	});
 
 	it('every key has a non-empty string value (no silent blanks)', () => {
-		const catalog = JSON.parse(
-			readFileSync(path.join(messagesDir, 'ro.json'), 'utf8')
-		) as Record<string, unknown>;
+		const catalog = JSON.parse(readFileSync(path.join(messagesDir, 'ro.json'), 'utf8')) as Record<
+			string,
+			unknown
+		>;
 		const blank = Object.entries(catalog)
 			.filter(([k]) => k !== '$schema')
 			.filter(([, v]) => typeof v !== 'string' || v.trim() === '')
