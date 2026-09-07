@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { getDb } from '$lib/db';
 import { parseLeiToCents } from '$lib/util/money';
+import { isAllowedVatRateBp } from '$lib/util/vat-rates';
 import type { ProductStatus } from '$lib/modules/shop';
 import {
 	getProduct,
@@ -11,7 +12,8 @@ import {
 	updateProduct,
 	type ProductPatch
 } from '$lib/modules/shop/server';
-import { failResult, formStr, formStrAll } from '$lib/server/forms';
+import { imgSources } from '$lib/modules/media/server';
+import { failResult, formStr, formStrAll, requireAdmin } from '$lib/server/forms';
 import { loadLibraryImages } from '$lib/server/media-library';
 import { resolveSitePillars } from '$lib/server/site';
 import type { Actions, PageServerLoad } from './$types';
@@ -20,10 +22,16 @@ export const load: PageServerLoad = async ({ params }) => {
 	const found = await getProduct({ db: getDb() }, params.id);
 	if (!found) error(404);
 
+	// Thumbs for the product's own cover + gallery, so the editor does not
+	// depend on the (paginated) library containing them.
+	const productThumbs = [...(found.cover ? [found.cover] : []), ...found.galleryMedia]
+		.filter((row) => row.key)
+		.map((row) => ({ id: row.id, thumb: imgSources(row, { w: 240, h: 180, fit: 'fill' }) }));
 	return {
 		product: found.product,
 		pillarSlugs: found.pillarSlugs,
 		sitePillars: resolveSitePillars(),
+		productThumbs,
 		library: await loadLibraryImages()
 	};
 };
@@ -36,11 +44,35 @@ function patchFrom(form: FormData): ProductPatch | ParseError {
 	const priceCents = parseLeiToCents(formStr(form, 'price'));
 	if (priceCents === null) return { error: 'invalid-price', detail: '' };
 
+	// Stock (audit P2 — the absolute write raced the webhook decrement):
+	// a relative "adaugă N bucăți" is `stock + N` in SQL; an absolute edit is
+	// written only when the operator actually changed the field, guarded by
+	// the value the form was loaded with (a sale in between → stock-changed).
 	const stockRaw = formStr(form, 'stock').trim();
-	let stock: number | null = null;
-	if (stockRaw !== '') {
-		stock = Number(stockRaw);
-		if (!Number.isInteger(stock) || stock < 0) return { error: 'invalid-stock', detail: '' };
+	const loadedRaw = formStr(form, 'stockLoaded').trim();
+	const deltaRaw = formStr(form, 'stockDelta').trim();
+	let stockPatch: Pick<ProductPatch, 'stock' | 'expectedStock' | 'stockDelta'> = {};
+	if (deltaRaw !== '') {
+		const delta = Number(deltaRaw);
+		if (!Number.isInteger(delta) || delta <= 0) return { error: 'invalid-stock', detail: '' };
+		stockPatch = { stockDelta: delta };
+	} else if (stockRaw !== loadedRaw) {
+		let stock: number | null = null;
+		if (stockRaw !== '') {
+			stock = Number(stockRaw);
+			if (!Number.isInteger(stock) || stock < 0) return { error: 'invalid-stock', detail: '' };
+		}
+		const loaded = loadedRaw === '' ? null : Number(loadedRaw);
+		if (loaded !== null && !Number.isInteger(loaded)) return { error: 'invalid-stock', detail: '' };
+		stockPatch = { stock, expectedStock: loaded };
+	}
+
+	// VAT rate (FIX-12): '' = the standard rate; anything else must be an
+	// allowlisted RO rate in basis points (the select offers exactly those).
+	const vatRaw = formStr(form, 'vatRateBp').trim();
+	const vatRateBp = vatRaw === '' ? null : Number(vatRaw);
+	if (vatRateBp !== null && !isAllowedVatRateBp(vatRateBp)) {
+		return { error: 'invalid-vat-rate', detail: vatRaw };
 	}
 
 	const statusRaw = formStr(form, 'status');
@@ -49,7 +81,8 @@ function patchFrom(form: FormData): ProductPatch | ParseError {
 		slug: formStr(form, 'slug'),
 		descriptionMd: formStr(form, 'descriptionMd'),
 		priceCents,
-		stock,
+		vatRateBp,
+		...stockPatch,
 		status: STATUSES.includes(statusRaw as ProductStatus)
 			? (statusRaw as ProductStatus)
 			: undefined,
@@ -60,7 +93,8 @@ function patchFrom(form: FormData): ProductPatch | ParseError {
 }
 
 export const actions: Actions = {
-	save: async ({ request, params }) => {
+	save: async ({ request, params, locals }) => {
+		requireAdmin(locals);
 		const form = await request.formData();
 		const patch = patchFrom(form);
 		if ('error' in patch) return fail(400, patch);
@@ -78,7 +112,9 @@ export const actions: Actions = {
 		return {
 			saved: true,
 			slug: result.value.slug,
-			syncError: sync && !sync.ok ? (sync.detail ?? sync.error) : ''
+			// The form re-bases its stock buffer on what was actually saved.
+			stock: result.value.stock,
+			syncError: sync.ok ? '' : (sync.detail ?? sync.error)
 		};
 	}
 };

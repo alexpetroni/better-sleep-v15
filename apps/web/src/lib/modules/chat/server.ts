@@ -16,7 +16,14 @@ export {
 export { CHAT_ERRORS } from './copy.ts';
 export { chatSseStream } from './sse.ts';
 export { createMockChatProvider, mockReplyFor } from './mock-provider.ts';
-export type { ChatMessage, ChatProvider, ChatRole, ChatStreamOptions } from './provider.ts';
+export type {
+	ChatMessage,
+	ChatProvider,
+	ChatRole,
+	ChatStopReason,
+	ChatStreamEvent,
+	ChatStreamOptions
+} from './provider.ts';
 export { CHAT_RATE_LIMIT, ipRateKey, sessionRateKey } from './rate-limit.ts';
 export {
 	chatMessages,
@@ -55,6 +62,9 @@ export function getChatProvider(): ChatProvider {
 						timeoutMs: positiveIntEnv(env.ANTHROPIC_TIMEOUT_MS, ANTHROPIC_TIMEOUT_MS_DEFAULT)
 					})
 				: createMockChatProvider();
+		// One boot line so a mock provider in production is visible in the logs
+		// (FIX-14); /api/health carries the same kind.
+		console.log(`chat provider: ${providerInstance.kind}`);
 	}
 	return providerInstance;
 }

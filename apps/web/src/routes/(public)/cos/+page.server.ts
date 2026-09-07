@@ -4,18 +4,24 @@ import { env } from '$env/dynamic/public';
 import { getDb } from '$lib/db';
 import type { ImageSources } from '$lib/modules/media';
 import { imgSources, media } from '$lib/modules/media/server';
-import { removeFromCart, setCartQty, shippingOptionsForCart } from '$lib/modules/shop';
+import {
+	clampLineToStock,
+	removeFromCart,
+	setCartQty,
+	shippingOptionsForCart
+} from '$lib/modules/shop';
 import {
 	createCheckoutFromCart,
 	getStripeGateway,
 	loadCartDetails,
 	mockCheckoutBlocked,
-	parseBuyerCompanyForm
+	parseBuyerCompanyForm,
+	products
 } from '$lib/modules/shop/server';
 import { readCart, writeCart } from '$lib/server/cart';
 import { formStr } from '$lib/server/forms';
 import { getSite } from '$lib/server/site';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
 export interface CartPageLine {
@@ -27,8 +33,8 @@ export interface CartPageLine {
 	qty: number;
 	lineTotalCents: number;
 	available: boolean;
-	/** Qty was clamped down to the tracked stock (M-3); qty is the clamped value. */
-	stockLimited: boolean;
+	/** Units in stock (the input's cap); null = untracked. */
+	maxQty: number | null;
 	cover: ImageSources | null;
 }
 
@@ -59,7 +65,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			qty: line.qty,
 			lineTotalCents: line.lineTotalCents,
 			available: line.available,
-			stockLimited: line.stockLimited,
+			maxQty: line.maxQty,
 			cover: cover?.key ? imgSources(cover, { w: 160, h: 120, fit: 'fill' }) : null
 		};
 	});
@@ -83,7 +89,20 @@ export const actions: Actions = {
 		const productId = String(form.get('productId') ?? '');
 		const qty = Number(form.get('qty'));
 		if (!productId || !Number.isFinite(qty)) return fail(400);
-		writeCart(cookies, setCartQty(readCart(cookies), productId, Math.trunc(qty)));
+		// Clamp to the tracked stock: the page shows the cap, the cookie never
+		// carries more than can ship (audit P1 "quantity vs stock").
+		const [row] = await getDb()
+			.select({ stock: products.stock })
+			.from(products)
+			.where(eq(products.id, productId));
+		writeCart(
+			cookies,
+			clampLineToStock(
+				setCartQty(readCart(cookies), productId, Math.trunc(qty)),
+				productId,
+				row?.stock ?? null
+			)
+		);
 		return { updated: true };
 	},
 
@@ -106,22 +125,21 @@ export const actions: Actions = {
 		const site = getSite();
 		// Optional B2B fields for the invoice; empty inputs mean a consumer sale.
 		const form = await request.formData();
-		const company = parseBuyerCompanyForm({
+		const companyValues = {
 			name: formStr(form, 'companyName'),
 			cui: formStr(form, 'companyCui'),
-			regCom: formStr(form, 'companyRegCom')
-		});
+			regCom: formStr(form, 'companyRegCom'),
+			// The company seat (FIX-12): the invoice's buyer address for B2B.
+			street: formStr(form, 'companyStreet'),
+			city: formStr(form, 'companyCity'),
+			county: formStr(form, 'companyCounty'),
+			postalCode: formStr(form, 'companyPostalCode')
+		};
+		const company = parseBuyerCompanyForm(companyValues);
 		if (!company.ok) {
-			return fail(400, {
-				checkoutError: company.error,
-				detail: '',
-				companyValues: {
-					name: formStr(form, 'companyName'),
-					cui: formStr(form, 'companyCui'),
-					regCom: formStr(form, 'companyRegCom')
-				}
-			});
+			return fail(400, { checkoutError: company.error, detail: '', companyValues });
 		}
+		const settings = await locals.settings();
 		const outcome = await createCheckoutFromCart(
 			{
 				db: getDb(),
@@ -131,10 +149,12 @@ export const actions: Actions = {
 			{
 				items: readCart(cookies),
 				sitePillarSlugs: site.pillars,
-				shippingSettings: await locals.settings(),
+				shippingSettings: settings,
 				// The standard option is the no-JS form's pre-checked default.
 				shippingOptionId: formStr(form, 'shippingOption') || 'standard',
-				buyerCompany: company.value
+				buyerCompany: company.value,
+				// Card-only unless the operator opened all methods in settings.
+				paymentSettings: settings
 			}
 		);
 		if (!outcome.ok) {

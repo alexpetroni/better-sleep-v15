@@ -6,13 +6,16 @@ import { isHttpError } from '@sveltejs/kit';
 import { createDb, type Db } from '../../../lib/db/client.ts';
 import { signInvoiceDocToken, type InvoiceDocFormat } from '../../../lib/modules/invoice/access.ts';
 import { invoiceLines, invoices } from '../../../lib/modules/invoice/schema.ts';
-import { storageConfigFromEnv } from '../../../lib/modules/media/env.ts';
-import { createStorage } from '../../../lib/modules/media/storage.ts';
+import {
+	invoiceStorageConfigFromEnv,
+	storageConfigFromEnv
+} from '../../../lib/modules/media/env.ts';
+import { createStorage, type Storage } from '../../../lib/modules/media/storage.ts';
 import { createSettingsLoader } from '../../../lib/modules/settings/service.ts';
 import { orders } from '../../../lib/modules/shop/schema.ts';
 import { tokenSecretFrom } from '../../../lib/server/secrets.ts';
 import { validateEFacturaXml } from '../../../lib/modules/invoice/efactura-validate.ts';
-import { loadInvoiceModel } from '../../../lib/modules/invoice/documents.ts';
+import { invoiceDocumentKey, loadInvoiceModel } from '../../../lib/modules/invoice/documents.ts';
 
 // The classic leak, tested on the REAL route module against the real MinIO
 // bucket: an invoice document must be reachable by its owner's fresh signed
@@ -35,6 +38,8 @@ vi.mock('$lib/db', async (importOriginal) => {
 
 let db: Db;
 let secret: string;
+let mediaStorage: Storage;
+let fiscalStorage: Storage;
 type Route = typeof import('./[id]/[format]/+server.ts');
 let get: Route['GET'];
 
@@ -88,8 +93,20 @@ beforeAll(async () => {
 	await db.execute(sql`create schema public`);
 	await migrate(db, { migrationsFolder: path.resolve(import.meta.dirname, '../../../../drizzle') });
 
-	// A fresh compose stack has no bucket yet (same bootstrap as storage:init).
-	await createStorage(storageConfigFromEnv(process.env)).ensureBucket();
+	// A fresh compose stack has no buckets yet (same bootstrap as storage:init):
+	// the media bucket and the PRIVATE fiscal bucket documents live in (FIX-12).
+	mediaStorage = createStorage(storageConfigFromEnv(process.env));
+	fiscalStorage = createStorage(invoiceStorageConfigFromEnv(process.env));
+	await mediaStorage.ensureBucket();
+	await fiscalStorage.ensureBucket();
+	// The buckets outlive test runs: drop the fixture's documents so this run
+	// exercises the current renderer, not a stored render from an older one.
+	for (const id of [INVOICE_ID, OTHER_INVOICE_ID]) {
+		for (const format of ['pdf', 'xml'] as const) {
+			await mediaStorage.deleteObject(invoiceDocumentKey(id, format));
+			await fiscalStorage.deleteObject(invoiceDocumentKey(id, format));
+		}
+	}
 
 	await db.insert(orders).values(
 		['route-order-1', 'route-order-2'].map((id, i) => ({
@@ -108,12 +125,22 @@ beforeAll(async () => {
 		dueAt: new Date('2026-08-07T10:00:00Z'),
 		currency: 'ron',
 		issuerName: 'Șosete Țesute SRL',
-		issuerCui: 'RO12345678',
+		issuerCui: 'RO12345676',
 		issuerVatRegistered: true,
 		issuerRegCom: 'J40/1234/2025',
-		issuerAddress: 'Str. Somnului 10, București',
+		issuerAddress: 'Str. Somnului 10\n030167 Sector 3\nBucurești',
+		issuerStreet: 'Str. Somnului 10',
+		issuerCity: 'Sector 3',
+		issuerCounty: 'RO-B',
+		issuerPostalCode: '030167',
+		issuerCountry: 'RO',
 		issuerPlace: 'București',
-		buyerAddress: 'Str. Viselor 1\nBucurești',
+		buyerAddress: 'Str. Viselor 1\n020001 Sector 2\nBucurești',
+		buyerStreet: 'Str. Viselor 1',
+		buyerCity: 'Sector 2',
+		buyerCounty: 'RO-B',
+		buyerPostalCode: '020001',
+		buyerCountry: 'RO',
 		netTotalCents: 4124,
 		vatTotalCents: 866,
 		grossTotalCents: 4990
@@ -188,6 +215,17 @@ describe('GET /api/invoices/[id]/[format]', () => {
 		const xml = await response.text();
 		const model = await loadInvoiceModel({ db }, INVOICE_ID);
 		expect(validateEFacturaXml(xml, model!)).toEqual([]);
+	});
+
+	// FIX-12 (audit P0 #4): the media bucket is bound to a public domain under
+	// the default provider, so a fiscal document must never be written there.
+	it('stores the rendered documents in the fiscal bucket, never the media bucket', async () => {
+		for (const format of ['pdf', 'xml'] as const) {
+			const key = invoiceDocumentKey(INVOICE_ID, format);
+			expect(await fiscalStorage.statObject(key)).not.toBeNull();
+			expect(await mediaStorage.statObject(key)).toBeNull();
+		}
+		expect(fiscalStorage.bucket).not.toBe(mediaStorage.bucket);
 	});
 
 	it('refuses anonymous requests without a token', async () => {

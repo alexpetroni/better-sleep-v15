@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { isActionFailure, isHttpError } from '@sveltejs/kit';
 import { createDb, type Db } from '../../../../lib/db/client.ts';
@@ -11,15 +11,23 @@ import {
 	transitionFulfillment
 } from '../../../../lib/modules/shop/fulfillment-service.ts';
 import type { FulfillmentStatus } from '../../../../lib/modules/shop/fulfillment.ts';
-import { invoices } from '../../../../lib/modules/invoice/schema.ts';
+import {
+	invoiceLines,
+	invoices,
+	invoiceSubmissions
+} from '../../../../lib/modules/invoice/schema.ts';
+import { EFACTURA_MAX_ATTEMPTS } from '../../../../lib/modules/invoice/submissions.ts';
 import { siteSettings } from '../../../../lib/modules/settings/schema.ts';
 import {
 	orderEvents,
+	orderItems,
 	orders,
 	shipments,
-	type OrderRow
+	type OrderRow,
+	type ShippingAddress
 } from '../../../../lib/modules/shop/schema.ts';
 import { listOrders } from '../../../../lib/modules/shop/webhook.ts';
+import { ISSUER_ADDRESS_SETTINGS } from '../../../../../tests/helpers/issuer-settings.ts';
 
 // Route-level integration: the REAL /admin/orders work queue and the REAL
 // /admin/orders/[id] transition action, invoked the way SvelteKit invokes
@@ -64,9 +72,23 @@ let transitionAction: (event: {
 }) => Promise<unknown>;
 let issueInvoiceAction: (event: { params: { id: string }; locals: App.Locals }) => Promise<unknown>;
 let generateAwbAction: (event: { params: { id: string }; locals: App.Locals }) => Promise<unknown>;
+let stornoPartialAction: (event: {
+	params: { id: string };
+	locals: App.Locals;
+}) => Promise<unknown>;
+let updateShippingAddressAction: (event: {
+	request: Request;
+	params: { id: string };
+	locals: App.Locals;
+}) => Promise<unknown>;
+let requeueAction: (event: {
+	request: Request;
+	params: { id: string };
+	locals: App.Locals;
+}) => Promise<unknown>;
 
 function locals(user: typeof ADMIN | typeof EDITOR | null): App.Locals {
-	return { user, settings: createSettingsLoader(() => db) };
+	return { user, settings: createSettingsLoader(() => db), requestId: 'spec' };
 }
 
 function transitionEvent(
@@ -91,21 +113,37 @@ async function insertOrder(input: {
 	status?: OrderRow['status'];
 	fulfillment?: FulfillmentStatus;
 	oversold?: boolean;
+	/** Stripe's cumulative refunded amount, as the webhook would have recorded it. */
+	refundedCents?: number;
+	/** Item snapshots (the invoice lines derive from them); none by default. */
+	items?: Array<{ name: string; qty: number; priceCents: number }>;
+	/** Delivery address as the webhook stored it; none by default. */
+	shippingAddress?: ShippingAddress;
 }): Promise<OrderRow> {
 	orderSeq += 1;
+	const items = input.items ?? [];
 	const [row] = await db
 		.insert(orders)
 		.values({
 			id: `order-q-${orderSeq}`,
 			email: `client${orderSeq}@example.ro`,
 			stripeSessionId: `cs_queue_${orderSeq}`,
-			amountTotalCents: 4990,
+			amountTotalCents: items.length
+				? items.reduce((sum, item) => sum + item.qty * item.priceCents, 0)
+				: 4990,
 			currency: 'ron',
 			status: input.status ?? 'paid',
 			fulfillmentStatus: input.fulfillment ?? 'unfulfilled',
-			oversold: input.oversold ?? false
+			oversold: input.oversold ?? false,
+			refundedCents: input.refundedCents ?? 0,
+			shippingAddress: input.shippingAddress ?? null
 		})
 		.returning();
+	if (items.length) {
+		await db
+			.insert(orderItems)
+			.values(items.map((item, i) => ({ id: `${row.id}-item-${i}`, orderId: row.id, ...item })));
+	}
 	return row;
 }
 
@@ -143,6 +181,10 @@ beforeAll(async () => {
 	transitionAction = detailPage.actions.transition as unknown as typeof transitionAction;
 	issueInvoiceAction = detailPage.actions.issueInvoice as unknown as typeof issueInvoiceAction;
 	generateAwbAction = detailPage.actions.generateAwb as unknown as typeof generateAwbAction;
+	stornoPartialAction = detailPage.actions.stornoPartial as unknown as typeof stornoPartialAction;
+	updateShippingAddressAction = detailPage.actions
+		.updateShippingAddress as unknown as typeof updateShippingAddressAction;
+	requeueAction = detailPage.actions.requeue as unknown as typeof requeueAction;
 });
 
 afterAll(async () => {
@@ -376,9 +418,11 @@ describe('/admin/orders/[id] ?/issueInvoice — the one-click fiscal retry', () 
 			.values(
 				Object.entries({
 					'company.legalName': 'Better Sleep SRL',
-					'company.cui': 'RO12345678',
+					'company.cui': 'RO12345676',
+					'company.vatRegistered': true,
 					'company.regCom': 'J40/1234/2025',
 					'company.address': 'Str. Somnului 10, București',
+					...ISSUER_ADDRESS_SETTINGS,
 					'invoice.seriesPrefix': 'QUE'
 				}).map(([key, value]) => ({ key, value }))
 			)
@@ -400,9 +444,135 @@ describe('/admin/orders/[id] ?/issueInvoice — the one-click fiscal retry', () 
 	});
 });
 
+// FIX-17 (FIX-12 review, medium): the operator's way back into the e-Factura
+// queue for a document parked after EFACTURA_MAX_ATTEMPTS.
+describe('/admin/orders/[id] ?/requeue — re-queue a parked e-Factura submission', () => {
+	function requeueEvent(
+		orderId: string,
+		user: typeof ADMIN | typeof EDITOR | null,
+		invoiceId?: string
+	) {
+		const body = new FormData();
+		if (invoiceId !== undefined) body.set('invoiceId', invoiceId);
+		return {
+			request: new Request(`http://localhost/admin/orders/${orderId}?/requeue`, {
+				method: 'POST',
+				body
+			}),
+			params: { id: orderId },
+			locals: locals(user)
+		};
+	}
+
+	/** An issued invoice whose submission row is parked. */
+	async function parkedInvoice(): Promise<{ orderId: string; invoiceId: string }> {
+		const order = await insertOrder({});
+		expect(await issueInvoiceAction({ params: { id: order.id }, locals: locals(ADMIN) })).toEqual({
+			invoiceIssued: true
+		});
+		const [invoice] = await db.select().from(invoices).where(eq(invoices.orderId, order.id));
+		await db
+			.update(invoiceSubmissions)
+			.set({ status: 'failed', attempts: EFACTURA_MAX_ATTEMPTS, error: 'SPV answered 500' })
+			.where(eq(invoiceSubmissions.invoiceId, invoice.id));
+		return { orderId: order.id, invoiceId: invoice.id };
+	}
+
+	it('editor: 403 before anything is written', async () => {
+		const { orderId, invoiceId } = await parkedInvoice();
+		try {
+			await requeueAction(requeueEvent(orderId, EDITOR, invoiceId));
+			expect.unreachable('the action must throw');
+		} catch (err) {
+			if (!isHttpError(err)) throw err;
+			expect(err.status).toBe(403);
+		}
+		const [row] = await db
+			.select()
+			.from(invoiceSubmissions)
+			.where(eq(invoiceSubmissions.invoiceId, invoiceId));
+		expect(row).toMatchObject({ status: 'failed', attempts: EFACTURA_MAX_ATTEMPTS });
+	});
+
+	it('admin: the load lists the parked document, requeue resets it, a second click is a 400', async () => {
+		const { orderId, invoiceId } = await parkedInvoice();
+		const before = (await detailLoad({
+			params: { id: orderId }
+		} as Parameters<DetailPage['load']>[0])) as {
+			parkedSubmissions: Array<{ invoiceId: string; attempts: number; error: string | null }>;
+		};
+		expect(before.parkedSubmissions).toEqual([
+			{ invoiceId, attempts: EFACTURA_MAX_ATTEMPTS, error: 'SPV answered 500' }
+		]);
+
+		expect(await requeueAction(requeueEvent(orderId, ADMIN, invoiceId))).toEqual({
+			requeued: true
+		});
+		const [row] = await db
+			.select()
+			.from(invoiceSubmissions)
+			.where(eq(invoiceSubmissions.invoiceId, invoiceId));
+		expect(row).toMatchObject({ status: 'pending', attempts: 0, error: null, nextAttemptAt: null });
+		const after = (await detailLoad({
+			params: { id: orderId }
+		} as Parameters<DetailPage['load']>[0])) as { parkedSubmissions: unknown[] };
+		expect(after.parkedSubmissions).toEqual([]);
+
+		const again = await requeueAction(requeueEvent(orderId, ADMIN, invoiceId));
+		if (!isActionFailure(again)) throw new Error('expected an ActionFailure');
+		expect(again.status).toBe(400);
+		expect(again.data).toMatchObject({ requeueError: 'not-found' });
+	});
+
+	it('a missing invoiceId is a 400; a document of ANOTHER order is not re-queued through this page', async () => {
+		const { orderId } = await parkedInvoice();
+		const other = await parkedInvoice();
+		const invalid = await requeueAction(requeueEvent(orderId, ADMIN));
+		if (!isActionFailure(invalid)) throw new Error('expected an ActionFailure');
+		expect(invalid.status).toBe(400);
+		expect(invalid.data).toMatchObject({ requeueError: 'invalid' });
+
+		const foreign = await requeueAction(requeueEvent(orderId, ADMIN, other.invoiceId));
+		if (!isActionFailure(foreign)) throw new Error('expected an ActionFailure');
+		expect(foreign.data).toMatchObject({ requeueError: 'not-found' });
+		const [row] = await db
+			.select()
+			.from(invoiceSubmissions)
+			.where(eq(invoiceSubmissions.invoiceId, other.invoiceId));
+		expect(row.status).toBe('failed');
+	});
+});
+
+describe('/admin/orders/[id] ?/transition — the sync-only edge is not operator-reachable', () => {
+	it('shipped → packed by an admin is an illegal transition (400), the order stays shipped', async () => {
+		const order = await insertOrder({ fulfillment: 'shipped' });
+		const result = await transitionAction(transitionEvent(order.id, ADMIN, { to: 'packed' }));
+		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
+		expect(result.status).toBe(400);
+		expect(result.data).toMatchObject({
+			error: 'illegal-transition',
+			from: 'shipped',
+			to: 'packed'
+		});
+		const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(row.fulfillmentStatus).toBe('shipped');
+	});
+});
+
+/** Everything the courier needs: phone and county included (FIX-11). */
+const RECIPIENT: ShippingAddress = {
+	name: 'Ana Pop',
+	phone: '+40723000111',
+	line1: 'Str. Somnului 10',
+	city: 'Cluj-Napoca',
+	state: 'Cluj',
+	postalCode: '400001',
+	country: 'RO'
+};
+
 describe('/admin/orders/[id] ?/generateAwb — courier AWB from the detail page', () => {
 	it('editor: 403 before anything is written', async () => {
-		const order = await insertOrder({});
+		const order = await insertOrder({ shippingAddress: RECIPIENT });
 		try {
 			await generateAwbAction({ params: { id: order.id }, locals: locals(EDITOR) });
 			expect.unreachable('the action must throw');
@@ -416,7 +586,7 @@ describe('/admin/orders/[id] ?/generateAwb — courier AWB from the detail page'
 	});
 
 	it('admin: registers the AWB via the (mock) courier, ships the order, and a re-click is a no-op', async () => {
-		const order = await insertOrder({});
+		const order = await insertOrder({ shippingAddress: RECIPIENT });
 		const result = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
 		expect(result).toEqual({ awbGenerated: true, awbExisting: false });
 
@@ -441,11 +611,328 @@ describe('/admin/orders/[id] ?/generateAwb — courier AWB from the detail page'
 	});
 
 	it('an unpaid order is a 400, not a shipment', async () => {
-		const order = await insertOrder({ status: 'pending' });
+		const order = await insertOrder({ status: 'pending', shippingAddress: RECIPIENT });
 		const result = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
 		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
 		expect(result.status).toBe(400);
 		expect(result.data).toMatchObject({ awbError: 'order-not-paid' });
 		expect(await db.select().from(shipments).where(eq(shipments.orderId, order.id))).toEqual([]);
+	});
+
+	// Audit 2026-09-03 P1 "Sameday adapter": an order without a phone or
+	// county must be refused with the fields named, not sent to the courier.
+	it('missing recipient data is a 400 naming the fields — no courier call, no shipment', async () => {
+		const order = await insertOrder({
+			shippingAddress: { name: 'Ana Pop', line1: 'Str. Somnului 10', city: 'Cluj-Napoca' }
+		});
+		const result = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
+		expect(result.status).toBe(400);
+		expect(result.data).toMatchObject({ awbError: 'missing-recipient-data' });
+		expect(
+			String((result.data as unknown as { awbDetail: string }).awbDetail)
+				.split(', ')
+				.sort()
+		).toEqual(['county', 'phone']);
+		expect(await db.select().from(shipments).where(eq(shipments.orderId, order.id))).toEqual([]);
+		const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(row.fulfillmentStatus).toBe('unfulfilled');
+	});
+
+	// FIX-11: a refused AWB is not a dead end — the row is `failed` with the
+	// courier's reason, the page shows it, and the next click retries.
+	it('a courier refusal is a 400 with the reason; the re-click registers the AWB', async () => {
+		const order = await insertOrder({ shippingAddress: RECIPIENT });
+		const { getCourierProvider } = await import('../../../../lib/modules/shop/server.ts');
+		const courier =
+			getCourierProvider() as import('../../../../lib/modules/shop/mock-courier.ts').MockCourierProvider;
+		courier.failNextCreate = new Error('Sameday AWB creation failed (HTTP 400): county unknown');
+
+		const refused = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		if (!isActionFailure(refused)) throw new Error('expected an ActionFailure');
+		expect(refused.status).toBe(400);
+		expect(refused.data).toMatchObject({ awbError: 'courier' });
+		expect(String((refused.data as unknown as { awbDetail: string }).awbDetail)).toContain(
+			'county unknown'
+		);
+		let data = (await detailLoad({
+			params: { id: order.id }
+		} as Parameters<DetailPage['load']>[0])) as {
+			order: OrderRow;
+			shipment: { status: string; awb: string | null; lastError: string | null } | null;
+		};
+		expect(data.order.fulfillmentStatus).toBe('unfulfilled');
+		expect(data.shipment).toMatchObject({ status: 'failed', awb: null });
+		expect(data.shipment!.lastError).toContain('county unknown');
+
+		const retry = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		expect(retry).toEqual({ awbGenerated: true, awbExisting: false });
+		data = (await detailLoad({
+			params: { id: order.id }
+		} as Parameters<DetailPage['load']>[0])) as typeof data;
+		expect(data.order.fulfillmentStatus).toBe('shipped');
+		expect(data.shipment!.status).toBe('registered');
+		expect(data.shipment!.awb).toMatch(/^MOCKAWB/);
+	});
+});
+
+function addressEvent(
+	orderId: string,
+	user: typeof ADMIN | typeof EDITOR | null,
+	fields: Record<string, string>
+): { request: Request; params: { id: string }; locals: App.Locals } {
+	const body = new FormData();
+	for (const [key, value] of Object.entries(fields)) body.set(key, value);
+	return {
+		request: new Request(`http://localhost/admin/orders/${orderId}?/updateShippingAddress`, {
+			method: 'POST',
+			body
+		}),
+		params: { id: orderId },
+		locals: locals(user)
+	};
+}
+
+// FIX-11: the way out of `missing-recipient-data` — orders placed before phone
+// collection existed, or whose Stripe address lacks a county, get the data
+// typed in by the operator (admin-only, trail event without the values).
+describe('/admin/orders/[id] ?/updateShippingAddress — recipient data for the courier', () => {
+	const FORM = {
+		name: 'Ana Pop',
+		phone: '+40 723 000 111',
+		line1: 'Str. Somnului 10',
+		line2: '',
+		city: 'Cluj-Napoca',
+		state: 'Cluj',
+		postalCode: '400001',
+		country: 'ro'
+	};
+
+	it('editor: 403 before anything is written', async () => {
+		const order = await insertOrder({
+			shippingAddress: { name: 'Ana Pop', line1: 'Str. Somnului 10', city: 'Cluj-Napoca' }
+		});
+		try {
+			await updateShippingAddressAction(addressEvent(order.id, EDITOR, FORM));
+			expect.unreachable('the action must throw');
+		} catch (err) {
+			if (!isHttpError(err)) throw err;
+			expect(err.status).toBe(403);
+		}
+		const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(row.shippingAddress?.phone).toBeUndefined();
+	});
+
+	it('admin: fills in phone and county, the trail names the changed fields only, and the AWB then succeeds', async () => {
+		const order = await insertOrder({
+			shippingAddress: { name: 'Ana Pop', line1: 'Str. Somnului 10', city: 'Cluj-Napoca' }
+		});
+		const result = await updateShippingAddressAction(addressEvent(order.id, ADMIN, FORM));
+		expect(result).toEqual({ addressUpdated: true });
+
+		const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(row.shippingAddress).toEqual({
+			name: 'Ana Pop',
+			phone: '+40 723 000 111',
+			line1: 'Str. Somnului 10',
+			city: 'Cluj-Napoca',
+			state: 'Cluj',
+			postalCode: '400001',
+			country: 'RO'
+		});
+		const events = await listOrderEvents({ db }, order.id);
+		const edit = events.find((e) => e.kind === 'shipping-address-updated');
+		expect(edit?.actor).toBe(ADMIN.email);
+		expect(edit?.note.split(', ').sort()).toEqual(['country', 'phone', 'postalCode', 'state']);
+		expect(edit?.note).not.toContain('723');
+
+		const awb = await generateAwbAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		expect(awb).toEqual({ awbGenerated: true, awbExisting: false });
+	});
+
+	it('refuses an address the courier still could not use, naming the fields', async () => {
+		const order = await insertOrder({ shippingAddress: RECIPIENT });
+		const result = await updateShippingAddressAction(
+			addressEvent(order.id, ADMIN, { ...FORM, phone: '   ', state: '' })
+		);
+		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
+		expect(result.status).toBe(400);
+		expect(result.data).toMatchObject({ addressError: 'missing-recipient-data' });
+		expect(
+			String((result.data as unknown as { addressDetail: string }).addressDetail)
+				.split(', ')
+				.sort()
+		).toEqual(['county', 'phone']);
+		// Nothing written.
+		const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(row.shippingAddress).toEqual(RECIPIENT);
+	});
+
+	it('unknown order is a 404', async () => {
+		try {
+			await updateShippingAddressAction(addressEvent('no-such-order', ADMIN, FORM));
+			expect.unreachable('the action must throw');
+		} catch (err) {
+			if (!isHttpError(err)) throw err;
+			expect(err.status).toBe(404);
+		}
+	});
+});
+
+describe('/admin/orders/[id] ?/stornoPartial — the fiscal side of a partial refund (FIX-10)', () => {
+	beforeAll(async () => {
+		await db
+			.insert(siteSettings)
+			.values(
+				Object.entries({
+					'company.legalName': 'Better Sleep SRL',
+					'company.cui': 'RO12345676',
+					'company.vatRegistered': true,
+					'company.regCom': 'J40/1234/2025',
+					'company.address': 'Str. Somnului 10, București',
+					...ISSUER_ADDRESS_SETTINGS,
+					'invoice.seriesPrefix': 'QUE',
+					'invoice.vatStandardRates': '2025-08-01 21'
+				}).map(([key, value]) => ({ key, value }))
+			)
+			.onConflictDoNothing();
+	});
+
+	async function docsOf(orderId: string) {
+		return db
+			.select()
+			.from(invoices)
+			.where(eq(invoices.orderId, orderId))
+			.orderBy(asc(invoices.number));
+	}
+
+	it('editor: 403 before anything is written', async () => {
+		const order = await insertOrder({
+			refundedCents: 1500,
+			items: [{ name: 'Pernă', qty: 2, priceCents: 4990 }]
+		});
+		await issueInvoiceAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		try {
+			await stornoPartialAction({ params: { id: order.id }, locals: locals(EDITOR) });
+			expect.unreachable('the action must throw');
+		} catch (err) {
+			if (!isHttpError(err)) throw err;
+			expect(err.status).toBe(403);
+		}
+		expect((await docsOf(order.id)).map((d) => d.kind)).toEqual(['invoice']);
+	});
+
+	it('admin: reverses exactly the refunded-but-unreversed amount as one line at the original rate; a second click has nothing to storno', async () => {
+		// Stripe refunded 15,00 lei of a 99,80 lei order (the webhook recorded it).
+		const order = await insertOrder({
+			refundedCents: 1500,
+			items: [{ name: 'Pernă', qty: 2, priceCents: 4990 }]
+		});
+		await issueInvoiceAction({ params: { id: order.id }, locals: locals(ADMIN) });
+
+		const result = await stornoPartialAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		expect(result).toEqual({ stornoIssued: true });
+
+		const docs = await docsOf(order.id);
+		expect(docs.map((d) => d.kind)).toEqual(['invoice', 'storno']);
+		const [original, storno] = docs;
+		expect(storno.stornoOfInvoiceId).toBe(original.id);
+		// Gross = the refunded amount; VAT extracted at 21%: 1500 → 260 VAT, 1240 net.
+		expect(storno.grossTotalCents).toBe(-1500);
+		expect(storno.vatTotalCents).toBe(-260);
+		expect(storno.netTotalCents).toBe(-1240);
+		const lines = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, storno.id));
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatchObject({
+			qty: -1,
+			unitPriceCents: 1500,
+			vatRateBp: 2100,
+			grossCents: -1500,
+			vatCents: -260,
+			netCents: -1240
+		});
+		expect(lines[0].description).toContain(original.displayNumber);
+		// The original is untouched and the order stays paid.
+		const [after] = await db.select().from(orders).where(eq(orders.id, order.id));
+		expect(after.status).toBe('paid');
+		expect(after.refundedCents).toBe(1500);
+		const trail = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+		expect(trail.some((e) => e.kind === 'storno-issued' && e.actor === ADMIN.email)).toBe(true);
+
+		// Nothing left to reverse: the second click is a typed 400, not a document.
+		const again = await stornoPartialAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		if (!isActionFailure(again)) throw new Error('expected an ActionFailure');
+		expect(again.status).toBe(400);
+		expect(again.data).toMatchObject({ stornoError: 'nothing-to-storno' });
+		expect(await docsOf(order.id)).toHaveLength(2);
+
+		// A later, larger cumulative refund reverses only the difference.
+		await db.update(orders).set({ refundedCents: 4000 }).where(eq(orders.id, order.id));
+		expect(await stornoPartialAction({ params: { id: order.id }, locals: locals(ADMIN) })).toEqual({
+			stornoIssued: true
+		});
+		const three = await docsOf(order.id);
+		expect(three.map((d) => d.grossTotalCents)).toEqual([9980, -1500, -2500]);
+	});
+
+	it('an order without a refund or without an invoice is a typed 400', async () => {
+		const noRefund = await insertOrder({ items: [{ name: 'Pernă', qty: 1, priceCents: 4990 }] });
+		await issueInvoiceAction({ params: { id: noRefund.id }, locals: locals(ADMIN) });
+		const a = await stornoPartialAction({ params: { id: noRefund.id }, locals: locals(ADMIN) });
+		if (!isActionFailure(a)) throw new Error('expected an ActionFailure');
+		expect(a.data).toMatchObject({ stornoError: 'nothing-to-storno' });
+
+		const noInvoice = await insertOrder({
+			refundedCents: 1000,
+			items: [{ name: 'Pernă', qty: 1, priceCents: 4990 }]
+		});
+		const b = await stornoPartialAction({ params: { id: noInvoice.id }, locals: locals(ADMIN) });
+		if (!isActionFailure(b)) throw new Error('expected an ActionFailure');
+		expect(b.data).toMatchObject({ stornoError: 'no-invoice-to-reverse' });
+		expect(await docsOf(noInvoice.id)).toEqual([]);
+	});
+
+	it('work queue: a partially refunded order stays in the action view and the row carries the amount', async () => {
+		const order = await insertOrder({
+			refundedCents: 1500,
+			items: [{ name: 'Pernă', qty: 2, priceCents: 4990 }]
+		});
+		const { ids } = await loadIds('http://localhost/admin/orders');
+		expect(ids).toContain(order.id);
+		const row = (await listOrders({ db }, 'action')).find((o) => o.id === order.id);
+		expect(row?.refundedCents).toBe(1500);
+		expect(row?.status).toBe('paid');
+	});
+
+	// FIX-10's dropped medium finding (review 2026-09-05 #11): a SHIPPED order
+	// with a partial refund has left the action view, and the invoice-missing
+	// predicate ignored `refunded_cents > Σ stornos` — the owed storno never
+	// surfaced anywhere.
+	it('?f=invoice-missing: a shipped, partially refunded order without a storno is listed until the storno covers the refund', async () => {
+		const order = await insertOrder({
+			fulfillment: 'shipped',
+			refundedCents: 1500,
+			items: [{ name: 'Pernă', qty: 2, priceCents: 4990 }]
+		});
+		await issueInvoiceAction({ params: { id: order.id }, locals: locals(ADMIN) });
+		expect((await docsOf(order.id)).map((d) => d.kind)).toEqual(['invoice']);
+
+		const owed = await loadIds('http://localhost/admin/orders?f=invoice-missing');
+		expect(owed.filter).toBe('invoice-missing');
+		expect(owed.ids).toContain(order.id);
+		const row = (await listOrders({ db }, 'invoice-missing')).find((o) => o.id === order.id);
+		expect(row?.fiscalIncomplete).toBe(true);
+		// Not in the action view (shipped) — the queue is its only surface.
+		expect((await loadIds('http://localhost/admin/orders')).ids).not.toContain(order.id);
+
+		expect(await stornoPartialAction({ params: { id: order.id }, locals: locals(ADMIN) })).toEqual({
+			stornoIssued: true
+		});
+		expect((await loadIds('http://localhost/admin/orders?f=invoice-missing')).ids).not.toContain(
+			order.id
+		);
+		const settled = (await listOrders({ db }, 'all')).find((o) => o.id === order.id);
+		expect(settled?.fiscalIncomplete).toBe(false);
+		expect(settled?.reversedCents).toBe(1500);
 	});
 });

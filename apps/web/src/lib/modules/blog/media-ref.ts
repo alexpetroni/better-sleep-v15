@@ -1,5 +1,6 @@
-import { eq, like, or, sql } from 'drizzle-orm';
+import { eq, or, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
+import { mediaRefPattern } from '../../util/media-refs.ts';
 import { media } from '../media/schema.ts';
 import { articles } from './schema.ts';
 
@@ -12,8 +13,8 @@ export const articlesMediaReferenceCheck = {
 	name: 'articles',
 	async isReferenced(db: Db, mediaId: string): Promise<boolean> {
 		const [row] = await db.select({ key: media.key }).from(media).where(eq(media.id, mediaId));
-		const bodyRefs = [like(articles.bodyMd, `%(media:${mediaId})%`)];
-		if (row?.key) bodyRefs.push(like(articles.bodyMd, `%(media:${row.key})%`));
+		const bodyRefs = [sql`${articles.bodyMd} ~ ${mediaRefPattern(mediaId)}`];
+		if (row?.key) bodyRefs.push(sql`${articles.bodyMd} ~ ${mediaRefPattern(row.key)}`);
 		const [hit] = await db
 			.select({ one: sql`1` })
 			.from(articles)

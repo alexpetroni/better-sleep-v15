@@ -1,5 +1,8 @@
-import { CUI_PATTERN } from '../../util/cui.ts';
+import { cuiPrefixMismatch, isValidCui } from '../../util/cui.ts';
+import { ibanMod97, normalizeIban } from '../../util/iban.ts';
 import { parseLeiToCents } from '../../util/money.ts';
+import { BUCHAREST_COUNTY_CODE, bucharestSector, isRoCountyCode } from '../../util/ro-counties.ts';
+import { parseVatRateSchedule } from '../../util/vat-rates.ts';
 
 /**
  * THE registry of site settings: every key the app may read or the operator
@@ -23,7 +26,16 @@ import { parseLeiToCents } from '../../util/money.ts';
 export type SettingJsonValue = string | number | boolean;
 
 export type SettingErrorCode =
-	'required' | 'invalid-value' | 'invalid-url' | 'invalid-email' | 'invalid-number' | 'invalid-cui';
+	| 'required'
+	| 'invalid-value'
+	| 'invalid-url'
+	| 'invalid-email'
+	| 'invalid-number'
+	| 'invalid-cui'
+	| 'invalid-iban'
+	| 'invalid-vat-rate'
+	| 'invalid-county'
+	| 'too-long';
 
 /**
  * `kind` drives both the admin form control and the validators:
@@ -31,12 +43,12 @@ export type SettingErrorCode =
  * - `url` / `email`: string with shape validation;
  * - `boolean`: checkbox;
  * - `int`: plain integer typed as-is;
- * - `bani`: integer bani, entered as lei ("49,90" → 4990);
- * - `percentBp`: integer basis points, entered as percent ("21" → 2100) —
- *   VAT math stays integer math, the form never stores a float.
+ * - `bani`: integer bani, entered as lei ("49,90" → 4990) — money stays
+ *   integer math, the form never stores a float.
+ * Text kinds may add a `validate` hook for rules a regex cannot express
+ * (the CUI checksum, the VAT rate schedule).
  */
-export type SettingKind =
-	'text' | 'multiline' | 'url' | 'email' | 'boolean' | 'int' | 'bani' | 'percentBp';
+export type SettingKind = 'text' | 'multiline' | 'url' | 'email' | 'boolean' | 'int' | 'bani';
 
 interface BaseSpec {
 	/** Must be set (and not the seeded placeholder) before launch — enforced by `pnpm launch:check`. */
@@ -58,13 +70,28 @@ export type SettingSpec = BaseSpec &
 				default: string;
 				pattern?: RegExp;
 				patternCode?: SettingErrorCode;
+				/** Upper bound on the stored (trimmed) length; `too-long` beyond it. */
+				maxLength?: number;
+				/** Rule beyond a regex, on the trimmed non-empty value; returns the error code or null. */
+				validate?: (value: string) => SettingErrorCode | null;
+				/** Canonical stored form of the trimmed input (the IBAN: upper case, no spaces). */
+				normalize?: (value: string) => string;
 		  }
 		| { kind: 'url' | 'email'; default: string }
 		| { kind: 'boolean'; default: boolean }
-		| { kind: 'int' | 'bani' | 'percentBp'; default: number; min: number; max?: number }
+		| { kind: 'int' | 'bani'; default: number; min: number; max?: number }
 	);
 
 export const SETTINGS_PLACEHOLDER_PREFIX = 'PLACEHOLDER';
+
+/**
+ * Shipping option name / ETA caps (audit 2026-09-03 P2): Stripe rejects a
+ * shipping rate whose display name exceeds 100 characters, which would fail
+ * EVERY checkout. The name and the ETA are composed as `name (eta)` and the
+ * composer trims at Stripe's limit as the last line of defense.
+ */
+export const SHIPPING_NAME_MAX_LENGTH = 60;
+export const SHIPPING_ETA_MAX_LENGTH = 40;
 
 const ph = (hint: string) => `${SETTINGS_PLACEHOLDER_PREFIX} — ${hint}`;
 
@@ -77,14 +104,15 @@ export const SETTINGS_REGISTRY = {
 		clientSafe: true,
 		placeholder: ph('denumirea legală a companiei (ex. Exemplu SRL)')
 	},
+	// Shape AND mod-11 checksum (FIX-12); the RO prefix must agree with
+	// `company.vatRegistered` — a cross-key rule, see settingsConsistencyProblems.
 	'company.cui': {
 		kind: 'text',
 		default: '',
 		launchRequired: true,
 		clientSafe: true,
-		pattern: CUI_PATTERN,
-		patternCode: 'invalid-cui',
-		placeholder: ph('CUI / codul fiscal (ex. RO12345678)')
+		validate: (value) => (isValidCui(value) ? null : 'invalid-cui'),
+		placeholder: ph('CUI / codul fiscal (ex. RO12345676)')
 	},
 	'company.vatRegistered': {
 		kind: 'boolean',
@@ -99,12 +127,56 @@ export const SETTINGS_REGISTRY = {
 		clientSafe: true,
 		placeholder: ph('nr. Registrul Comerțului (ex. J40/1234/2024)')
 	},
+	// The public display form of the seat (footer, legal pages)…
 	'company.address': {
 		kind: 'multiline',
 		default: '',
 		launchRequired: true,
 		clientSafe: true,
 		placeholder: ph('adresa sediului social')
+	},
+	// …and its STRUCTURED fiscal form (FIX-12): CIUS-RO wants street, city,
+	// the ISO 3166-2:RO county code and the postal code on the seller party;
+	// for a București seat the city is the sector (cross-key rule below).
+	'company.street': {
+		kind: 'text',
+		default: '',
+		launchRequired: true,
+		clientSafe: false,
+		placeholder: ph('strada și numărul sediului social (ex. Str. Exemplu nr. 1)')
+	},
+	'company.city': {
+		kind: 'text',
+		default: '',
+		launchRequired: true,
+		clientSafe: false,
+		placeholder: ph('localitatea sediului (pentru București: Sector 1…6)')
+	},
+	'company.county': {
+		kind: 'text',
+		default: '',
+		launchRequired: true,
+		clientSafe: false,
+		validate: (value) => (isRoCountyCode(value) ? null : 'invalid-county'),
+		placeholder: ph('județul sediului ca și cod ISO 3166-2:RO (ex. RO-B, RO-CJ)')
+	},
+	'company.postalCode': {
+		kind: 'text',
+		default: '',
+		launchRequired: true,
+		clientSafe: false,
+		pattern: /^[0-9A-Za-z][0-9A-Za-z -]{2,11}$/,
+		patternCode: 'invalid-value',
+		placeholder: ph('codul poștal al sediului (ex. 010101)')
+	},
+	// Legea 31/1990 art. 74: an SRL/SA states its share capital on every
+	// document. Printed under Reg. Com.; a PFA/II states that it does not apply.
+	'company.shareCapital': {
+		kind: 'text',
+		default: '',
+		launchRequired: true,
+		clientSafe: false,
+		placeholder: ph('capitalul social subscris și vărsat (ex. 200 lei; PFA/II: „nu se aplică”)')
 	},
 	'company.contactEmail': {
 		kind: 'email',
@@ -120,7 +192,16 @@ export const SETTINGS_REGISTRY = {
 		clientSafe: true,
 		placeholder: ph('telefonul de contact')
 	},
-	'company.iban': { kind: 'text', default: '', launchRequired: false, clientSafe: false },
+	// Printed on every invoice/PDF and carried as the e-Factura
+	// PayeeFinancialAccount — checksummed like the CUI (FIX-18).
+	'company.iban': {
+		kind: 'text',
+		default: '',
+		launchRequired: false,
+		clientSafe: false,
+		validate: (value) => (ibanMod97(value) ? null : 'invalid-iban'),
+		normalize: normalizeIban
+	},
 	'company.bank': { kind: 'text', default: '', launchRequired: false, clientSafe: false },
 
 	// --- legal.* — consumer-protection links the footer must carry ----------
@@ -167,22 +248,20 @@ export const SETTINGS_REGISTRY = {
 		clientSafe: false,
 		placeholder: ph('locul emiterii facturilor (ex. București)')
 	},
-	// VAT rate in basis points; the default is the RO STANDARD rate (21% since
-	// 2025-08), but food supplements — the whole catalogue — are commonly at
-	// the REDUCED rate: the admin UI shows a confirm-with-the-accountant hint
-	// (review H-10) and LAUNCH-CHECKLIST.md carries the decision. ONE site-wide
-	// rate by design: per-product rates would ripple through invoice lines,
-	// e-Factura XML and the shipping row — build it only the day two rates
-	// genuinely coexist in the catalogue. Launch-required with no placeholder:
-	// the operator must consciously save the rate that applies to THIS entity
-	// before launch:check goes green.
-	'invoice.vatRateBp': {
-		kind: 'percentBp',
-		default: 2100,
-		min: 0,
-		max: 10_000,
+	// The STANDARD VAT rate, effective-dated (FIX-12, replaces the single
+	// `invoice.vatRateBp`): one `YYYY-MM-DD percent` line per rate change,
+	// validated against the RO rate allowlist (never zero — a registered
+	// issuer's 0 % line would be category Z by accident). Issuance selects
+	// the rate in force on the ORDER date. Launch-required with no
+	// placeholder: the operator must consciously save the schedule that
+	// applies to THIS entity before launch:check goes green. Per-product
+	// reduced rates live on `products.vat_rate_bp`.
+	'invoice.vatStandardRates': {
+		kind: 'multiline',
+		default: '2025-08-01 21',
 		launchRequired: true,
-		clientSafe: false
+		clientSafe: false,
+		validate: (value) => (parseVatRateSchedule(value) ? null : 'invalid-vat-rate')
 	},
 	'invoice.paymentTermsNote': {
 		kind: 'multiline',
@@ -214,10 +293,11 @@ export const SETTINGS_REGISTRY = {
 	'shop.shippingStandardName': {
 		kind: 'text',
 		default: 'Curier standard',
+		maxLength: SHIPPING_NAME_MAX_LENGTH,
 		launchRequired: false,
 		clientSafe: true
 	},
-	// Launch-required with no placeholder (like invoice.vatRateBp): shipping
+	// Launch-required with no placeholder (like invoice.vatStandardRates): shipping
 	// must be a conscious pricing decision, not free by accident — the operator
 	// has to save the rate (0 is a valid, deliberate "we ship free") before
 	// launch:check goes green.
@@ -231,12 +311,14 @@ export const SETTINGS_REGISTRY = {
 	'shop.shippingStandardEta': {
 		kind: 'text',
 		default: '1-3 zile lucrătoare',
+		maxLength: SHIPPING_ETA_MAX_LENGTH,
 		launchRequired: false,
 		clientSafe: true
 	},
 	'shop.shippingExpressName': {
 		kind: 'text',
 		default: '',
+		maxLength: SHIPPING_NAME_MAX_LENGTH,
 		launchRequired: false,
 		clientSafe: true
 	},
@@ -247,8 +329,25 @@ export const SETTINGS_REGISTRY = {
 		launchRequired: false,
 		clientSafe: true
 	},
-	'shop.shippingExpressEta': { kind: 'text', default: '', launchRequired: false, clientSafe: true },
-	'shop.shippingNote': { kind: 'multiline', default: '', launchRequired: false, clientSafe: true }
+	'shop.shippingExpressEta': {
+		kind: 'text',
+		default: '',
+		maxLength: SHIPPING_ETA_MAX_LENGTH,
+		launchRequired: false,
+		clientSafe: true
+	},
+	'shop.shippingNote': { kind: 'multiline', default: '', launchRequired: false, clientSafe: true },
+	// Payment methods Stripe Checkout may offer (FIX-10). Off = every session
+	// is pinned to `card`, so a delayed method (bank debit, voucher…) enabled
+	// in the Stripe dashboard can never put orders on the async-payment path
+	// by accident; on = the dashboard configuration decides (the async events
+	// are handled either way — this is the operator's conscious choice).
+	'shop.allowAllPaymentMethods': {
+		kind: 'boolean',
+		default: false,
+		launchRequired: false,
+		clientSafe: false
+	}
 } as const satisfies Record<string, SettingSpec>;
 
 export type SettingKey = keyof typeof SETTINGS_REGISTRY;
@@ -328,7 +427,6 @@ export function validateSettingValue(key: SettingKey, value: unknown): SettingEr
 			return typeof value === 'boolean' ? null : 'invalid-value';
 		case 'int':
 		case 'bani':
-		case 'percentBp':
 			if (typeof value !== 'number' || !Number.isInteger(value)) return 'invalid-number';
 			if (value < spec.min || (spec.max !== undefined && value > spec.max)) {
 				return 'invalid-number';
@@ -343,9 +441,59 @@ export function validateSettingValue(key: SettingKey, value: unknown): SettingEr
 			if ('pattern' in spec && spec.pattern && !spec.pattern.test(trimmed)) {
 				return spec.patternCode ?? 'invalid-value';
 			}
+			if ('maxLength' in spec && spec.maxLength !== undefined && trimmed.length > spec.maxLength) {
+				return 'too-long';
+			}
+			if ('validate' in spec && spec.validate) return spec.validate(trimmed);
 			return null;
 		}
 	}
+}
+
+export interface SettingConsistencyProblem {
+	key: SettingKey;
+	code: 'cui-prefix-mismatch' | 'bucharest-sector';
+	/** Operator-facing explanation, appended after the key by launch:check. */
+	message: string;
+}
+
+/**
+ * Rules that span two keys, which per-key validation cannot see. Applied by
+ * the launch preflight and by invoice issuance (both refuse on a hit) so the
+ * two can never disagree. Today: the RO prefix on `company.cui` must agree
+ * with `company.vatRegistered` — the prefix IS the VAT registration marker,
+ * and an invoice must neither claim nor deny a registration the entity's
+ * own flag contradicts (audit 2026-09-03 P1).
+ */
+export function settingsConsistencyProblems(
+	settings: Pick<
+		SiteSettings,
+		'company.cui' | 'company.vatRegistered' | 'company.city' | 'company.county'
+	>
+): SettingConsistencyProblem[] {
+	const problems: SettingConsistencyProblem[] = [];
+	if (cuiPrefixMismatch(settings['company.cui'], settings['company.vatRegistered'])) {
+		problems.push({
+			key: 'company.cui',
+			code: 'cui-prefix-mismatch',
+			message: settings['company.vatRegistered']
+				? 'lacks the RO prefix while "company.vatRegistered" is on — the prefix is the VAT registration marker; add it, or untick the flag'
+				: 'carries the RO prefix while "company.vatRegistered" is off — the prefix is the VAT registration marker; remove it, or tick the flag'
+		});
+	}
+	// CIUS-RO BR-RO-A20: under RO-B the city IS the sector.
+	if (
+		settings['company.county'] === BUCHAREST_COUNTY_CODE &&
+		bucharestSector(settings['company.city']) === null
+	) {
+		problems.push({
+			key: 'company.city',
+			code: 'bucharest-sector',
+			message:
+				'names no sector while "company.county" is RO-B — e-Factura wants "Sector 1"…"Sector 6" as the București city'
+		});
+	}
+	return problems;
 }
 
 export type ParsedSettingInput =
@@ -353,9 +501,8 @@ export type ParsedSettingInput =
 
 /**
  * Convert an admin-form input into the stored primitive: lei strings become
- * bani, percent strings become basis points (integer math via
- * `parseLeiToCents` — two decimals is exactly the bp scale), checkboxes become
- * booleans. Bounds/shape checks stay in `validateSettingValue`.
+ * bani (integer math via `parseLeiToCents`), checkboxes become booleans,
+ * text is trimmed. Bounds/shape checks stay in `validateSettingValue`.
  */
 export function parseSettingInput(key: SettingKey, raw: string | boolean): ParsedSettingInput {
 	const spec: SettingSpec = SETTINGS_REGISTRY[key];
@@ -365,20 +512,37 @@ export function parseSettingInput(key: SettingKey, raw: string | boolean): Parse
 			: { ok: false, code: 'invalid-value' };
 	}
 	if (typeof raw !== 'string') return { ok: false, code: 'invalid-value' };
-	const trimmed = raw.trim();
+	// Browsers submit textarea content with CRLF line ends; store LF.
+	const trimmed = raw.replace(/\r\n?/g, '\n').trim();
 	switch (spec.kind) {
 		case 'int': {
 			if (!/^\d{1,9}$/.test(trimmed)) return { ok: false, code: 'invalid-number' };
 			return { ok: true, value: Number(trimmed) };
 		}
-		case 'bani':
-		case 'percentBp': {
+		case 'bani': {
 			const value = parseLeiToCents(trimmed);
 			return value === null ? { ok: false, code: 'invalid-number' } : { ok: true, value };
 		}
 		default:
-			return { ok: true, value: trimmed };
+			return {
+				ok: true,
+				value: 'normalize' in spec && spec.normalize && trimmed ? spec.normalize(trimmed) : trimmed
+			};
 	}
+}
+
+/**
+ * A stored jsonb value as the registry means it. node-postgres already
+ * parses jsonb, and drizzle's jsonb column parses the result AGAIN when it
+ * is a string — so a text setting that happens to look like JSON (a bare
+ * CUI such as "12345676") comes back as a NUMBER. For a text kind that is
+ * unambiguous (the registry never stores numbers under a text key), so it
+ * is coerced back; every other kind is left to the type guard below.
+ */
+export function storedSettingValue(key: SettingKey, value: unknown): unknown {
+	const kind = SETTINGS_REGISTRY[key].kind;
+	const textKind = kind === 'text' || kind === 'multiline' || kind === 'url' || kind === 'email';
+	return textKind && typeof value === 'number' ? String(value) : value;
 }
 
 /**
@@ -390,9 +554,10 @@ export function mergeSettings(rows: Array<{ key: string; value: unknown }>): Sit
 	const settings = settingsDefaults();
 	for (const row of rows) {
 		if (!isSettingKey(row.key)) continue;
-		if (typeof row.value !== typeof settings[row.key]) continue;
+		const value = storedSettingValue(row.key, row.value);
+		if (typeof value !== typeof settings[row.key]) continue;
 		// The typeof guard above proves the primitive matches the spec's default.
-		(settings as Record<SettingKey, SettingJsonValue>)[row.key] = row.value as SettingJsonValue;
+		(settings as Record<SettingKey, SettingJsonValue>)[row.key] = value as SettingJsonValue;
 	}
 	return settings;
 }

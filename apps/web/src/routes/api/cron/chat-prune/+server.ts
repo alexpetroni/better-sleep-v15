@@ -11,6 +11,11 @@ import type { RequestHandler } from './$types';
  * `Authorization: Bearer $CRON_SECRET`. Same work as the script — both call
  * `runRetentionSweep`.
  */
+// Serverless budget (audit 2026-09-03 "Ops & platform"): a bounded batch with
+// one provider round trip per row needs more than Vercel's 10 s default; 60 s
+// is the ceiling every plan allows. adapter-node ignores this export.
+export const config = { maxDuration: 60 };
+
 export const GET: RequestHandler = async ({ request }) => {
 	const auth = authorizeCron(request.headers.get('authorization'), env.CRON_SECRET);
 	if (!auth.ok) {
@@ -21,7 +26,9 @@ export const GET: RequestHandler = async ({ request }) => {
 	// One structured line in the function logs — the only place this job's
 	// output is visible on a serverless deploy.
 	console.log(formatRetentionSweep(result));
-	return json(result, { headers: NO_STORE });
+	// A pruner that threw is already logged; answer 500 so the cron run is
+	// marked failed instead of silently green (FIX-14).
+	return json(result, { status: result.failures.length ? 500 : 200, headers: NO_STORE });
 };
 
 const NO_STORE = { 'cache-control': 'no-store' };

@@ -139,7 +139,35 @@ function drawTableHeader(r: Renderer): void {
 	drawRule(r, 12);
 }
 
+/**
+ * "Achitat cu cardul la 07.08.2026 (ref. pi_…)" on a settled invoice — the
+ * document is prepaid, nothing is due; a storno reports the refund the same
+ * way. '' while the document is still payable.
+ */
+function paymentLine(invoice: InvoiceDocumentModel['invoice']): string {
+	if (!invoice.paidAt) return '';
+	const verb = invoice.kind === 'storno' ? 'Rambursat' : 'Achitat';
+	const means =
+		invoice.paymentMethod === 'card'
+			? invoice.kind === 'storno'
+				? 'pe card'
+				: 'cu cardul'
+			: invoice.paymentMethod
+				? 'online'
+				: '';
+	const reference = invoice.paymentReference ? ` (ref. ${invoice.paymentReference})` : '';
+	return `${[verb, means].filter(Boolean).join(' ')} la ${invoiceDateRo(invoice.paidAt)}${reference}`;
+}
+
 /** Render the stored snapshot to PDF bytes. Async only because pdf-lib is. */
+/**
+ * Bumped whenever the PDF layout changes: the stored document key carries it
+ * (documents.ts), so a renderer fix re-renders instead of serving a frozen
+ * defective file. 1 = the pre-FIX-12 layout; 2 = FIX-12 (share capital,
+ * structured addresses, "Achitat cu cardul", order/payment references).
+ */
+export const INVOICE_PDF_RENDERER_VERSION = 2;
+
 export async function renderInvoicePdf(model: InvoiceDocumentModel): Promise<Uint8Array> {
 	const { invoice, lines, stornoOf } = model;
 	const isStorno = invoice.kind === 'storno';
@@ -192,6 +220,8 @@ export async function renderInvoicePdf(model: InvoiceDocumentModel): Promise<Uin
 	const issuerLines = [
 		`CUI: ${invoice.issuerCui}`,
 		`Nr. Reg. Com.: ${invoice.issuerRegCom}`,
+		// Legea 31/1990 art. 74: the share capital under the Reg. Com. number.
+		invoice.issuerCapital ? `Capital social: ${invoice.issuerCapital}` : '',
 		...wrapText(font, invoice.issuerAddress, 9, 280),
 		[invoice.issuerEmail, invoice.issuerPhone].filter(Boolean).join(' · '),
 		invoice.issuerIban
@@ -278,8 +308,10 @@ export async function renderInvoicePdf(model: InvoiceDocumentModel): Promise<Uin
 		r.y -= size + 5;
 	}
 
-	// --- Legal mentions (VAT-unregistered mention, payment terms) + place.
+	// --- Order + payment references, legal mentions, place of issue.
 	const mentionLines = [
+		invoice.orderReference ? `Comandă: ${invoice.orderReference}` : '',
+		paymentLine(invoice),
 		...invoice.mentions.split('\n').filter(Boolean),
 		invoice.issuerPlace ? `Emisă la ${invoice.issuerPlace}` : ''
 	].filter(Boolean);

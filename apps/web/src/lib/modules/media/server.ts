@@ -1,7 +1,7 @@
 // Server module barrel: signing, storage, db schema and services. Importing
 // this from client code fails the build ($env/dynamic/private) — by design.
 import { env } from '$env/dynamic/private';
-import { imageProviderFromEnv, storageConfigFromEnv } from './env.ts';
+import { imageProviderFromEnv, invoiceStorageConfigFromEnv, storageConfigFromEnv } from './env.ts';
 import {
 	imageSources,
 	type ImageProvider,
@@ -27,6 +27,7 @@ export {
 	imageProviderFromEnv,
 	imageProviderNameFromEnv,
 	imgproxyConfigFromEnv,
+	invoiceStorageConfigFromEnv,
 	isImageProviderName,
 	storageConfigFromEnv
 } from './env.ts';
@@ -56,15 +57,22 @@ export {
 	deleteMedia,
 	getMedia,
 	listMedia,
+	MEDIA_PAGE_SIZE,
 	requestUpload,
 	updateMediaAlt,
 	type MediaDeleteDeps,
 	type MediaDeps,
 	type MediaError,
+	type MediaPage,
 	type MediaReferenceCheck,
 	type Result,
 	type UploadTicket
 } from './service.ts';
+export {
+	finalizeMediaObject,
+	IMMUTABLE_CACHE_CONTROL,
+	type MediaObjectSource
+} from '../../server/media-objects.ts';
 export { createStorage, type Storage, type StorageConfig } from './storage.ts';
 export { looksLikeSvg, sanitizeSvg } from './svg.ts';
 export {
@@ -81,6 +89,7 @@ function requireEnv(names: string[]): void {
 }
 
 let storageInstance: Storage | undefined;
+let invoiceStorageInstance: Storage | undefined;
 let providerInstance: ImageProvider | undefined;
 
 export function getStorage(): Storage {
@@ -89,6 +98,15 @@ export function getStorage(): Storage {
 		storageInstance = createStorage(storageConfigFromEnv(env));
 	}
 	return storageInstance;
+}
+
+/** The private fiscal-document bucket (invoice PDFs + e-Factura XML). */
+export function getInvoiceStorage(): Storage {
+	if (!invoiceStorageInstance) {
+		requireEnv(['S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET']);
+		invoiceStorageInstance = createStorage(invoiceStorageConfigFromEnv(env));
+	}
+	return invoiceStorageInstance;
 }
 
 /**
@@ -109,7 +127,7 @@ export function imgUrl(key: string, opts: ImgOptions = {}): string {
 /** `ImageSources` for the <Img> component, using the app's env config. */
 export function imgSources(
 	source: ImageSourceInput,
-	opts: Omit<ImgOptions, 'format' | 'dpr'> & { w: number }
+	opts: Omit<ImgOptions, 'format' | 'dpr'> & { w: number; placeholder?: boolean }
 ): ImageSources {
 	return imageSources(getImageProvider(), source, opts);
 }

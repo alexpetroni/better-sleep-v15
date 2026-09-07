@@ -1,10 +1,16 @@
 import { desc, eq, ilike, or } from 'drizzle-orm';
+import { CSV_BOM, csvField } from '../../util/csv.ts';
 import type { Db } from '../../db/client.ts';
 import { normalizeEmail } from '../../util/email.ts';
 import type { Result } from '../../util/result.ts';
 import type { EmailSender, SendEmailOutcome } from '../email/service.ts';
-import { currentConsentCopyRefs } from './consent-copy.ts';
-import { applyConsents, hasConsent, revokeAllConsents, type ConsentChanges } from './consent.ts';
+import {
+	applyConsents,
+	hasConsent,
+	revokeAllConsents,
+	type ConsentChanges,
+	type ConsentEvidence
+} from './consent.ts';
 import { subscribers, type SubscriberRow } from './schema.ts';
 import { signToken, verifyToken } from './token.ts';
 
@@ -28,6 +34,8 @@ export interface UpsertSubscriberInput {
 	grants: ConsentChanges;
 	/** Recorded on every consent change, e.g. `quiz:evaluare-somn`, `footer`. */
 	source: string;
+	/** Visitor-made change: ip, user agent, the consent copy seen (per key). */
+	evidence?: ConsentEvidence;
 }
 
 export async function upsertSubscriber(
@@ -45,13 +53,7 @@ export async function upsertSubscriber(
 			.set({
 				name: input.name?.trim() || existing.name,
 				locale: input.locale ?? existing.locale,
-				consents: applyConsents(
-					existing.consents,
-					input.grants,
-					input.source,
-					now,
-					currentConsentCopyRefs()
-				),
+				consents: applyConsents(existing.consents, input.grants, input.source, now, input.evidence),
 				updatedAt: now
 			})
 			.where(eq(subscribers.id, existing.id))
@@ -66,7 +68,7 @@ export async function upsertSubscriber(
 			email,
 			name: input.name?.trim() || null,
 			locale: input.locale ?? 'ro',
-			consents: applyConsents({}, input.grants, input.source, now, currentConsentCopyRefs()),
+			consents: applyConsents({}, input.grants, input.source, now, input.evidence),
 			unsubscribeToken: crypto.randomUUID()
 		})
 		.onConflictDoNothing({ target: subscribers.email })
@@ -98,6 +100,7 @@ export interface NewsletterSignupInput {
 	name?: string;
 	locale?: string;
 	source: string;
+	evidence?: ConsentEvidence;
 }
 
 export type NewsletterSignupOutcome =
@@ -139,6 +142,9 @@ export async function sendNewsletterConfirmEmail(
 /**
  * Newsletter opt-in: record consent (timestamped, sourced), then start double
  * opt-in with a signed confirm link — unless this address already confirmed.
+ * The caller must NOT distinguish the two outcomes toward the visitor: the
+ * "already subscribed" answer was a confirmed-status oracle (audit
+ * 2026-09-03), so the public form says "check your inbox" either way.
  */
 export async function requestNewsletterSignup(
 	deps: NewsletterSignupDeps,
@@ -157,6 +163,18 @@ export async function requestNewsletterSignup(
 export type ConfirmOutcome =
 	| { ok: true; subscriber: SubscriberRow; already: boolean }
 	| { ok: false; error: 'invalid-token' | 'expired' | 'not-found' };
+
+/** Read-only check of a confirm link (the GET page): valid, expired or invalid. Writes nothing. */
+export async function verifyNewsletterConfirmToken(
+	deps: CrmDeps,
+	secret: string,
+	token: string,
+	now = new Date()
+): Promise<'valid' | 'expired' | 'invalid'> {
+	const verified = verifyToken(secret, token, NEWSLETTER_CONFIRM_PURPOSE, now);
+	if (!verified.ok) return verified.reason === 'expired' ? 'expired' : 'invalid';
+	return (await getSubscriber(deps, verified.sub)) ? 'valid' : 'invalid';
+}
 
 /** Double opt-in confirm: verify the signed link and stamp confirmed_at once. */
 export async function confirmSubscriber(
@@ -181,34 +199,69 @@ export async function confirmSubscriber(
 }
 
 /**
- * One-click unsubscribe by the stored (non-expiring) token: revokes ALL
- * consents AND clears `confirmedAt`. Confirmation is per-grant, not
- * per-address-forever (review 2026-08-21 H-2): after a withdrawal, anyone
- * re-entering this address on a public form starts a FRESH double opt-in —
- * `sendNewsletterConfirmEmail`'s `already-confirmed` fast path and the
- * nurture `isMailable` gate both key on `confirmedAt`, so no marketing email
- * can resume until the mailbox owner clicks a new confirm link.
+ * Withdrawal: every consent revoked AND the double opt-in cleared. Keeping
+ * `confirmed_at` let anyone re-opt-in a withdrawn address without a fresh
+ * confirmation (audit 2026-09-03 P1); with it cleared, a later grant needs
+ * its own DOI email again (`sendNewsletterConfirmEmail` keys on the grant).
  */
-export async function unsubscribeByToken(
+async function withdrawAllConsents(
 	deps: CrmDeps,
-	token: string
-): Promise<SubscriberRow | null> {
-	const [existing] = await deps.db
-		.select()
-		.from(subscribers)
-		.where(eq(subscribers.unsubscribeToken, token));
-	if (!existing) return null;
-	const now = new Date();
+	existing: SubscriberRow,
+	source: string,
+	now: Date
+): Promise<SubscriberRow> {
 	const [updated] = await deps.db
 		.update(subscribers)
 		.set({
-			consents: revokeAllConsents(existing.consents, now),
+			consents: revokeAllConsents(existing.consents, now, source),
 			confirmedAt: null,
 			updatedAt: now
 		})
 		.where(eq(subscribers.id, existing.id))
 		.returning();
 	return updated;
+}
+
+/** The subscriber behind an unsubscribe link, for the confirmation page (no side effect). */
+export async function findSubscriberByUnsubscribeToken(
+	deps: CrmDeps,
+	token: string
+): Promise<SubscriberRow | null> {
+	const [row] = await deps.db
+		.select()
+		.from(subscribers)
+		.where(eq(subscribers.unsubscribeToken, token));
+	return row ?? null;
+}
+
+/** Unsubscribe by the stored (non-expiring) token: revokes ALL consents, clears confirmation. */
+export async function unsubscribeByToken(
+	deps: CrmDeps,
+	token: string
+): Promise<SubscriberRow | null> {
+	const existing = await findSubscriberByUnsubscribeToken(deps, token);
+	if (!existing) return null;
+	return withdrawAllConsents(deps, existing, 'unsubscribe', new Date());
+}
+
+/**
+ * Provider feedback (a hard bounce or a spam complaint reported by the mail
+ * provider's webhook): the address is withdrawn exactly like an unsubscribe,
+ * with the feedback kind as the consent source.
+ */
+export async function revokeConsentsByEmail(
+	deps: CrmDeps,
+	email: string,
+	source: 'bounce' | 'complaint'
+): Promise<SubscriberRow | null> {
+	const normalized = normalizeEmail(email);
+	if (!normalized) return null;
+	const [existing] = await deps.db
+		.select()
+		.from(subscribers)
+		.where(eq(subscribers.email, normalized));
+	if (!existing) return null;
+	return withdrawAllConsents(deps, existing, source, new Date());
 }
 
 /** Admin listing: newest first, optional case-insensitive email/name search. */
@@ -228,12 +281,7 @@ export async function listSubscribers(
 		.orderBy(desc(subscribers.createdAt), desc(subscribers.id));
 }
 
-function csvField(value: string | null): string {
-	const text = value ?? '';
-	return /[",\n\r;]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-/** CSV export for the admin screen. Pure. */
+/** CSV export for the admin screen. Pure. BOM + formula-safe cells (util/csv). */
 export function subscribersCsv(rows: SubscriberRow[]): string {
 	const header = [
 		'email',
@@ -264,8 +312,8 @@ export function subscribersCsv(rows: SubscriberRow[]): string {
 			row.confirmedAt?.toISOString() ?? '',
 			row.createdAt.toISOString()
 		]
-			.map(csvField)
+			.map((value) => csvField(value, ','))
 			.join(',');
 	});
-	return [header.join(','), ...lines].join('\n') + '\n';
+	return CSV_BOM + [header.join(','), ...lines].join('\n') + '\n';
 }

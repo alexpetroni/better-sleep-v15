@@ -3,30 +3,57 @@
 Romanian-market sleep site — landing page, archetype quiz, blog, shop, chat —
 at **bettersleep.ro**. Single brand, single locale (`ro`).
 
-Cloned from the **better-base** platform (its `feat/vercel-neon` tip); this
-repo shapes, extends and populates that platform rather than rebuilding it.
-The architecture log lives in [`docs/STATE.md`](docs/STATE.md) — read the
+Cloned from the **better-base** platform (its `feat/vercel-neon` tip, synced
+up to FIX-18 in BS-11); this repo shapes, extends and populates that platform
+rather than rebuilding it. `docs/STATE.md` says where the project is (short);
+the dated history is `docs/CHANGELOG.md`, the map `docs/ARCHITECTURE.md`,
+commands and quirks `docs/RUNBOOK.md`, tests `docs/TESTING.md` — read the
 section for a module before touching it. The betterSleep phase plans are
 `docs/phases/BS-*.md`; other files under `docs/phases/`, `docs/next/` and
 `docs/fixes/` are better-base's historical build records.
 
 ## Key commands (from the repo root)
 
+Prerequisites: Node 22 (`.node-version`; 24 also works), pnpm 11 (`corepack
+enable`), Docker with compose.
+
 ```sh
-docker compose up -d --wait   # Postgres 16 + MinIO + imgproxy
-pnpm install                  # also builds packages/formcomp (prepare)
-pnpm db:migrate               # Drizzle migrations (additive, committed)
-pnpm storage:init             # create the media bucket (idempotent)
-pnpm db:seed                  # pillars + demo content + content/ bundles
-pnpm dev                      # dev server (apps/web)
+docker compose up -d --wait            # Postgres 16 + MinIO (+ imgproxy profile)
+pnpm install --store-dir .pnpm-store   # also builds packages/formcomp (prepare)
+pnpm db:migrate && pnpm db:check       # Drizzle migrations (additive, committed) + journal check
+pnpm storage:init                      # create the media + fiscal buckets (idempotent)
+pnpm seed:base                         # pillars, pages, settings, nurture, archetype quiz, content/ bundles
+pnpm seed:demo                         # fictional demo rows (draft) — pnpm db:seed = both
+pnpm dev                               # dev server (apps/web)
 
 pnpm lint && pnpm check && pnpm test:unit   # the phase gate
-pnpm test:e2e                 # builds, then playwright against :4173
+pnpm gate                              # the gate + pnpm audit --prod --audit-level=high
+pnpm test:e2e                          # builds, then playwright against :4173
 ```
 
 Environment lives in the root `.env` (see `.env.example`); `SITE_ID=sleep` is
-the only site. See `docs/STATE.md` → "Key commands" and "Env & environment
-quirks" for the full list.
+the only site. This project's compose stack listens on 5434 / 9010 / 9011.
+See `docs/RUNBOOK.md` for the full command list and environment quirks.
+
+## Where to read next
+
+| | |
+| --- | --- |
+| `docs/STATE.md` | Where the project is and what comes next (short). |
+| `docs/ARCHITECTURE.md` | What exists, module boundaries, seams and conventions. |
+| `docs/RUNBOOK.md` | Every command, cron, CI, observability, environment quirks. |
+| `docs/TESTING.md` | Test layers, policy, gotchas. |
+| `docs/MIGRATIONS.md` | The migration contract. |
+| `DEPLOYMENT.md` | Deploying on adapter-node or Vercel + Neon; env matrix. |
+| `LAUNCH-CHECKLIST.md` | What a human must do before launch. |
+| `docs/RESTORE.md` | Backup and restore. |
+| `docs/CHANGELOG.md` | Dated history of every phase (FIX-* and BS-*). |
+| `PROMPT.md` | The engineering constitution every phase is bound by. |
+
+Layout: `apps/web` (the app), `packages/formcomp` (the quiz form library,
+vendored from formComp releases — 0.4.0), `content/` (initial content
+bundles), `deploy/` (site matrix + imgproxy config), `scripts/` (backup, host
+helpers), `.github/workflows/` (gate → migrate → deploy; nightly backup).
 
 ## Running on Vercel (Neon + Cloudflare R2)
 

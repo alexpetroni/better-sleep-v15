@@ -24,7 +24,36 @@
 
 	const transitions = $derived(legalTransitions(data.order.fulfillmentStatus));
 
+	// `missing-recipient-data` names fields as language-neutral tokens.
+	const recipientFieldLabels: Record<string, () => string> = {
+		phone: m.admin_order_recipient_phone,
+		county: m.admin_order_recipient_county,
+		city: m.admin_order_recipient_city,
+		line1: m.admin_order_recipient_line1
+	};
+	function recipientFields(detail: string): string {
+		return detail
+			.split(', ')
+			.filter(Boolean)
+			.map((field) => (recipientFieldLabels[field] ?? (() => field))())
+			.join(', ');
+	}
+
+	// The address editor's fields, in form order; `state` is the county.
+	const ADDRESS_FIELDS: Array<{ name: keyof NonNullable<typeof shipping>; label: () => string }> = [
+		{ name: 'name', label: m.admin_order_address_name },
+		{ name: 'phone', label: m.admin_order_address_phone },
+		{ name: 'line1', label: m.admin_order_address_line1 },
+		{ name: 'line2', label: m.admin_order_address_line2 },
+		{ name: 'city', label: m.admin_order_address_city },
+		{ name: 'state', label: m.admin_order_address_state },
+		{ name: 'postalCode', label: m.admin_order_address_postal_code },
+		{ name: 'country', label: m.admin_order_address_country }
+	];
+
 	const shipmentStatusLabels: Record<string, () => string> = {
+		creating: m.admin_order_shipment_status_creating,
+		failed: m.admin_order_shipment_status_failed,
 		registered: m.admin_order_shipment_status_registered,
 		'in-transit': m.admin_order_shipment_status_in_transit,
 		delivered: m.admin_order_shipment_status_delivered,
@@ -35,6 +64,9 @@
 	function eventLabel(event: (typeof data.events)[number]): string {
 		if (event.kind === 'created') return m.admin_order_event_created();
 		if (event.kind === 'refund-marked') return m.admin_order_event_refund_marked();
+		if (event.kind === 'refund-partial') return m.admin_order_event_refund_partial();
+		if (event.kind === 'payment-succeeded') return m.admin_order_event_payment_succeeded();
+		if (event.kind === 'payment-failed') return m.admin_order_event_payment_failed();
 		if (event.kind === 'invoice-issued') return m.admin_order_event_invoice_issued();
 		if (event.kind === 'invoice-failed') return m.admin_order_event_invoice_failed();
 		if (event.kind === 'storno-issued') return m.admin_order_event_storno_issued();
@@ -44,6 +76,12 @@
 		if (event.kind === 'shipment-cancelled') return m.admin_order_event_shipment_cancelled();
 		if (event.kind === 'shipment-cancel-failed')
 			return m.admin_order_event_shipment_cancel_failed();
+		if (event.kind === 'awb-failed') return m.admin_order_event_awb_failed();
+		if (event.kind === 'awb-cancelled-externally')
+			return m.admin_order_event_awb_cancelled_externally();
+		if (event.kind === 'shipment-sync-error') return m.admin_order_event_shipment_sync_error();
+		if (event.kind === 'shipping-address-updated')
+			return m.admin_order_event_shipping_address_updated();
 		if (event.kind === 'fulfillment-transition' && event.fromStatus && event.toStatus) {
 			return m.admin_order_event_fulfillment({
 				from: fulfillmentLabels[event.fromStatus](),
@@ -53,11 +91,38 @@
 		return event.kind;
 	}
 
+	// Fiscal state: the original's gross, what stornos reverse so far, and
+	// what a partial storno would reverse now (refunded − already reversed).
+	const invoiceGrossCents = $derived(
+		data.invoices.find((doc) => doc.kind === 'invoice')?.grossTotalCents ?? null
+	);
+	const stornoDueCents = $derived(Math.max(0, data.order.refundedCents - data.reversedCents));
+	// Mirrors listOrders' `fiscalIncomplete` (shop/webhook.ts): no invoice, a
+	// refund not fully reversed, or (paid) a partial refund still owing storno.
+	const fiscalIncomplete = $derived(
+		invoiceGrossCents === null ||
+			(data.order.status === 'refunded'
+				? data.reversedCents < invoiceGrossCents
+				: data.order.refundedCents > data.reversedCents)
+	);
+
 	const shipping = $derived(data.order.shippingAddress);
+	// A cancelled or failed row (or a stale claim) no longer holds an AWB: the
+	// button offers a (re)generation while the order is still shippable.
+	const canGenerateAwb = $derived(
+		data.order.status === 'paid' &&
+			(data.order.fulfillmentStatus === 'unfulfilled' ||
+				data.order.fulfillmentStatus === 'packed') &&
+			(!data.shipment || ['cancelled', 'failed', 'creating'].includes(data.shipment.status))
+	);
+	const addressEditorOpen = $derived(
+		form?.awbError === 'missing-recipient-data' || !!form?.addressError
+	);
 	const shippingLines = $derived(
 		shipping
 			? [
 					shipping.name,
+					shipping.phone,
 					shipping.line1,
 					shipping.line2,
 					[shipping.postalCode, shipping.city].filter(Boolean).join(' '),
@@ -96,6 +161,14 @@
 	>
 		{fulfillmentLabels[data.order.fulfillmentStatus]()}
 	</span>
+	{#if data.order.status === 'paid' && data.order.refundedCents > 0}
+		<span
+			data-testid="order-detail-refund-partial"
+			class="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+		>
+			{m.admin_order_refund_partial()}
+		</span>
+	{/if}
 	{#if data.order.oversold}
 		<span
 			data-testid="order-detail-oversold"
@@ -144,6 +217,14 @@
 						{formatCents(data.order.amountTotalCents, data.order.currency)}
 					</strong>
 				</li>
+				{#if data.order.refundedCents > 0}
+					<li class="flex items-center justify-between gap-4 px-4 py-3 text-amber-800">
+						<span>{m.admin_order_refunded_amount()}</span>
+						<span class="font-semibold" data-testid="order-detail-refunded">
+							−{formatCents(data.order.refundedCents, data.order.currency)}
+						</span>
+					</li>
+				{/if}
 			</ul>
 		</div>
 
@@ -222,6 +303,7 @@
 			{:else}
 				<ul class="space-y-2">
 					{#each data.invoices as doc (doc.id)}
+						{@const parked = data.parkedSubmissions.find((row) => row.invoiceId === doc.id)}
 						<li data-testid="order-invoice" data-kind={doc.kind}>
 							<p class="font-mono font-semibold">{doc.displayNumber}</p>
 							<p class="text-xs text-(--color-ink)/60">
@@ -247,6 +329,24 @@
 									{m.admin_order_invoice_xml()}
 								</a>
 							</p>
+							{#if parked}
+								<p class="mt-1 text-xs text-red-700" data-testid="order-efactura-parked">
+									{m.admin_order_efactura_parked({
+										attempts: parked.attempts,
+										error: parked.error ?? '—'
+									})}
+								</p>
+								<form method="POST" action="?/requeue" class="mt-1">
+									<input type="hidden" name="invoiceId" value={doc.id} />
+									<button
+										type="submit"
+										data-testid="order-efactura-requeue"
+										class="rounded bg-(--color-brand-soft) px-3 py-1 text-xs font-semibold hover:opacity-90"
+									>
+										{m.admin_order_efactura_requeue()}
+									</button>
+								</form>
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -262,6 +362,16 @@
 						</button>
 					</form>
 				{/if}
+				{#if form?.requeued}
+					<p class="mt-2 text-xs text-green-700" data-testid="order-efactura-requeued">
+						{m.admin_order_efactura_requeued()}
+					</p>
+				{/if}
+				{#if form?.requeueError}
+					<p class="mt-2 text-xs text-red-700" data-testid="order-efactura-requeue-error">
+						{m.admin_order_efactura_requeue_error()}
+					</p>
+				{/if}
 				{#if form?.invoiceResent}
 					<p class="mt-2 text-xs text-green-700" data-testid="order-invoice-resent">
 						{form.resendSkipped
@@ -275,7 +385,33 @@
 					</p>
 				{/if}
 			{/if}
-			{#if (data.order.status === 'paid' || data.order.status === 'refunded') && (data.invoices.length === 0 || (data.order.status === 'refunded' && !data.invoices.some((d) => d.kind === 'storno')))}
+			{#if invoiceGrossCents !== null && stornoDueCents > 0}
+				<form method="POST" action="?/stornoPartial" class="mt-3">
+					<button
+						type="submit"
+						data-testid="order-storno-partial"
+						class="rounded bg-(--color-brand) px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+					>
+						{m.admin_order_storno_partial({
+							amount: formatCents(stornoDueCents, data.order.currency)
+						})}
+					</button>
+				</form>
+			{/if}
+			{#if form?.stornoIssued}
+				<p class="mt-2 text-xs text-green-700" data-testid="order-storno-partial-issued">
+					{m.admin_order_storno_partial_issued()}
+				</p>
+			{/if}
+			{#if form?.stornoError}
+				<p class="mt-2 text-xs text-red-700" data-testid="order-storno-partial-error">
+					{m.admin_order_storno_partial_error()}
+					{form.stornoDetail
+						? ` (${form.stornoError}: ${form.stornoDetail})`
+						: ` (${form.stornoError})`}
+				</p>
+			{/if}
+			{#if (data.order.status === 'paid' || data.order.status === 'refunded') && fiscalIncomplete}
 				<form method="POST" action="?/issueInvoice" class="mt-3">
 					<button
 						type="submit"
@@ -298,46 +434,58 @@
 			{#if data.shipment}
 				<div data-testid="order-shipment" data-status={data.shipment.status}>
 					<p class="font-mono font-semibold" data-testid="order-shipment-awb">
-						{data.shipment.awb}
+						{data.shipment.awb ?? '—'}
 					</p>
 					<p class="text-xs text-(--color-ink)/60" data-testid="order-shipment-status">
 						{(shipmentStatusLabels[data.shipment.status] ?? (() => data.shipment?.status ?? ''))()}
 						· {formatDate(data.shipment.createdAt, 'medium-time')}
 					</p>
-					<p class="mt-1 flex gap-3 text-xs">
-						<a
-							href={data.shipment.trackingUrl}
-							target="_blank"
-							rel="noopener"
-							data-testid="order-shipment-tracking"
-							class="text-(--color-brand) hover:underline"
+					{#if data.shipment.lastError}
+						<p
+							class="mt-1 text-xs break-words text-red-700"
+							data-testid="order-shipment-last-error"
 						>
-							{m.admin_order_shipment_tracking()}
-						</a>
-						<a
-							href={resolve('/api/shipments/[id]/label', { id: data.shipment.id })}
-							data-testid="order-shipment-label"
-							class="text-(--color-brand) hover:underline"
-						>
-							{m.admin_order_shipment_label()}
-						</a>
-					</p>
+							{data.shipment.lastError}
+						</p>
+					{/if}
+					{#if data.shipment.awb}
+						<p class="mt-1 flex gap-3 text-xs">
+							<a
+								href={data.shipment.trackingUrl}
+								target="_blank"
+								rel="noopener"
+								data-testid="order-shipment-tracking"
+								class="text-(--color-brand) hover:underline"
+							>
+								{m.admin_order_shipment_tracking()}
+							</a>
+							<a
+								href={resolve('/api/shipments/[id]/label', { id: data.shipment.id })}
+								data-testid="order-shipment-label"
+								class="text-(--color-brand) hover:underline"
+							>
+								{m.admin_order_shipment_label()}
+							</a>
+						</p>
+					{/if}
 				</div>
 			{:else}
 				<p class="text-(--color-ink)/70" data-testid="order-shipment-none">
 					{m.admin_order_shipment_none()}
 				</p>
-				{#if data.order.status === 'paid' && (data.order.fulfillmentStatus === 'unfulfilled' || data.order.fulfillmentStatus === 'packed')}
-					<form method="POST" action="?/generateAwb" class="mt-3">
-						<button
-							type="submit"
-							data-testid="order-shipment-generate"
-							class="rounded bg-(--color-brand) px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-						>
-							{m.admin_order_shipment_generate()}
-						</button>
-					</form>
-				{/if}
+			{/if}
+			{#if canGenerateAwb}
+				<form method="POST" action="?/generateAwb" class="mt-3">
+					<button
+						type="submit"
+						data-testid="order-shipment-generate"
+						class="rounded bg-(--color-brand) px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+					>
+						{data.shipment && data.shipment.status !== 'creating'
+							? m.admin_order_shipment_retry()
+							: m.admin_order_shipment_generate()}
+					</button>
+				</form>
 			{/if}
 			{#if form?.awbError}
 				<p class="mt-2 text-xs text-red-700" data-testid="order-shipment-error">
@@ -345,7 +493,16 @@
 						? m.admin_order_shipment_err_not_paid()
 						: form.awbError === 'order-not-shippable'
 							? m.admin_order_shipment_err_not_shippable()
-							: m.admin_order_shipment_err_courier({ detail: form.awbDetail ?? '' })}
+							: form.awbError === 'missing-recipient-data'
+								? m.admin_order_shipment_err_missing_recipient({
+										fields: recipientFields(form.awbDetail ?? '')
+									})
+								: m.admin_order_shipment_err_courier({ detail: form.awbDetail ?? '' })}
+					{#if form.awbError === 'missing-recipient-data'}
+						<a href="#shipping-address" class="underline" data-testid="order-shipment-edit-address">
+							{m.admin_order_shipment_edit_address()}
+						</a>
+					{/if}
 				</p>
 			{/if}
 		</div>
@@ -367,7 +524,7 @@
 				</p>
 			{/if}
 		</div>
-		<div class="rounded-lg border border-(--color-brand-soft) bg-white p-4">
+		<div id="shipping-address" class="rounded-lg border border-(--color-brand-soft) bg-white p-4">
 			<p class="mb-1 text-(--color-ink)/60">{m.admin_order_shipping()}</p>
 			{#if shippingLines.length > 0}
 				<address class="not-italic" data-testid="order-detail-shipping">
@@ -378,6 +535,43 @@
 			{:else}
 				<p>{m.admin_order_no_shipping()}</p>
 			{/if}
+			<details class="mt-3" open={addressEditorOpen} data-testid="order-address-editor">
+				<summary class="cursor-pointer text-xs text-(--color-brand)">
+					{m.admin_order_address_edit()}
+				</summary>
+				<form method="POST" action="?/updateShippingAddress" class="mt-2 space-y-2">
+					{#each ADDRESS_FIELDS as field (field.name)}
+						<label class="block">
+							<span class="mb-1 block text-xs text-(--color-ink)/60">{field.label()}</span>
+							<input
+								name={field.name}
+								value={shipping?.[field.name] ?? (field.name === 'country' ? 'RO' : '')}
+								data-testid={`order-address-${field.name}`}
+								class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+							/>
+						</label>
+					{/each}
+					<button
+						type="submit"
+						data-testid="order-address-save"
+						class="rounded bg-(--color-brand) px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+					>
+						{m.admin_order_address_save()}
+					</button>
+				</form>
+				{#if form?.addressUpdated}
+					<p class="mt-2 text-xs text-green-700" data-testid="order-address-saved">
+						{m.admin_order_address_saved()}
+					</p>
+				{/if}
+				{#if form?.addressError}
+					<p class="mt-2 text-xs text-red-700" data-testid="order-address-error">
+						{m.admin_order_shipment_err_missing_recipient({
+							fields: recipientFields(form.addressDetail ?? '')
+						})}
+					</p>
+				{/if}
+			</details>
 		</div>
 		<div class="rounded-lg border border-(--color-brand-soft) bg-white p-4">
 			<p class="mb-1 text-(--color-ink)/60">{m.admin_order_session()}</p>

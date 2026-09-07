@@ -85,7 +85,17 @@ beforeAll(async () => {
 			stripeSessionId: 'cs_lbl_1',
 			amountTotalCents: 4990,
 			currency: 'ron',
-			status: 'paid'
+			status: 'paid',
+			// The courier needs phone + county (FIX-11) before it registers an AWB.
+			shippingAddress: {
+				name: 'Ana Pop',
+				phone: '+40723000111',
+				line1: 'Str. Somnului 10',
+				city: 'Cluj-Napoca',
+				state: 'Cluj',
+				postalCode: '400001',
+				country: 'RO'
+			}
 		})
 		.returning();
 
@@ -103,6 +113,7 @@ beforeAll(async () => {
 		'admin@example.ro'
 	);
 	if (!created.ok) throw new Error(`shipment setup failed: ${created.error}`);
+	if (!created.value.shipment.awb) throw new Error('shipment setup failed: no AWB');
 	shipmentId = created.value.shipment.id;
 	awb = created.value.shipment.awb;
 
@@ -138,7 +149,8 @@ describe('GET /api/shipments/[id]/label', () => {
 
 	it('refuses editors and anonymous requests before touching anything', async () => {
 		await expect(statusOf(get(requestEvent(shipmentId, EDITOR)))).resolves.toBe(403);
-		await expect(statusOf(get(requestEvent(shipmentId, null)))).resolves.toBe(403);
+		// Anonymous is 401 (unauthenticated), not 403 — requireAdmin semantics.
+		await expect(statusOf(get(requestEvent(shipmentId, null)))).resolves.toBe(401);
 	});
 
 	it('404s an unknown shipment', async () => {

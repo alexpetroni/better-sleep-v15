@@ -19,12 +19,14 @@ export {
 	parseBuyerCompanyForm,
 	parseBuyerCompanyMetadata,
 	parseCartMetadata,
+	paymentMethodTypesFor,
 	type BuyerCompanyParse,
 	type CartDetails,
 	type CartLine,
 	type CartMetadataItem,
 	type CheckoutDeps,
-	type CheckoutOutcome
+	type CheckoutOutcome,
+	type PaymentSettings
 } from './checkout.ts';
 export type {
 	CheckoutLineItem,
@@ -41,6 +43,8 @@ export {
 	type TransitionResult
 } from './fulfillment-service.ts';
 export {
+	CourierAuthError,
+	isCourierAuthError,
 	selectCourierProvider,
 	type CourierProvider,
 	type CourierSelection,
@@ -58,24 +62,40 @@ export {
 export { createMockStripeGateway, type MockStripeGateway } from './mock-gateway.ts';
 export { orderLookupUrl } from './order-link.ts';
 export {
+	classifySamedayStatus,
 	createSamedayCourier,
+	matchSamedayStatusText,
 	normalizeSamedayStatus,
+	SAMEDAY_STATUS_BY_ID,
 	samedayTrackingUrl,
-	type SamedayCourierOptions
+	type SamedayCourierOptions,
+	type SamedayStatusPayload
 } from './sameday-courier.ts';
 export {
 	cancelShipmentBestEffort,
 	createShipmentForOrder,
 	ensureShipmentLabel,
 	getShipmentForOrder,
+	missingRecipientFields,
+	REQUIRED_RECIPIENT_FIELDS,
+	SHIPMENT_CREATING_STALE_MS,
+	SHIPMENT_REPLACEABLE_STATUSES,
 	SHIPMENT_SYNC_ACTOR,
+	SHIPMENT_SYNC_BACKOFF_BASE_MS,
+	SHIPMENT_SYNC_BACKOFF_MAX_MS,
 	SHIPMENT_SYNC_BATCH,
 	shipmentLabelKey,
+	shipmentSyncHealth,
+	syncBackoffMs,
 	syncShipmentStatuses,
+	updateOrderShippingAddress,
 	type CreateShipmentDeps,
 	type CreateShipmentError,
+	type RecipientField,
 	type ShipmentDeps,
-	type ShipmentSyncResult
+	type ShipmentSyncHealth,
+	type ShipmentSyncResult,
+	type UpdateShippingAddressError
 } from './shipment-service.ts';
 export {
 	buildShippingMetadata,
@@ -83,7 +103,16 @@ export {
 	SHIPPING_METADATA_KEY,
 	type ShippingMetadata
 } from './shipping.ts';
-export { orderEvents, orderItems, orders, productPillars, products, shipments } from './schema.ts';
+export {
+	orderEvents,
+	orderItems,
+	orders,
+	pendingRefunds,
+	productPillars,
+	products,
+	shipments,
+	type PendingRefundRow
+} from './schema.ts';
 export {
 	activeNightMapSkus,
 	createProduct,
@@ -107,7 +136,9 @@ export {
 	getOrderBySessionId,
 	getOrderWithItems,
 	isOrderListFilter,
+	listEmptyCartEvents,
 	listOrders,
+	listUnmatchedRefunds,
 	ORDER_LIST_FILTERS,
 	processStripeEvent,
 	verifyStripeEvent,
@@ -117,6 +148,7 @@ export {
 	type WebhookDeps,
 	type WebhookOutcome
 } from './webhook.ts';
+export { pruneMatchedPendingRefunds } from './webhook-prune.ts';
 
 let gatewayInstance: StripeGateway | undefined;
 

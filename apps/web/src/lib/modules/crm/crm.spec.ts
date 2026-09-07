@@ -7,13 +7,14 @@ import { createDb, type Db } from '../../db/client.ts';
 import { createEmailSender, type EmailSender } from '../email/service.ts';
 import { emailLog } from '../email/schema.ts';
 import { isMailable } from '../nurture/service.ts';
-import { consentCopyRef } from './consent-copy.ts';
+import { consentTextRef, currentConsentTextVersions } from './consent-copy.ts';
 import { hasConsent } from './consent.ts';
 import { subscribers } from './schema.ts';
 import {
 	confirmSubscriber,
 	listSubscribers,
 	requestNewsletterSignup,
+	revokeConsentsByEmail,
 	subscribersCsv,
 	unsubscribeByToken,
 	upsertSubscriber,
@@ -70,10 +71,25 @@ describe('upsertSubscriber', () => {
 		expect(result.value.consents.newsletter?.granted).toBe(true);
 		expect(result.value.consents.newsletter?.source).toBe('footer');
 		expect(result.value.consents.newsletter?.at).toBeTruthy();
-		// M-11: the grant records WHICH wording was agreed to — the current
-		// newsletter label's version+hash, resolvable via ro.json's git history.
-		expect(result.value.consents.newsletter?.copy).toBe(
-			consentCopyRef(m.newsletter_consent_label())
+	});
+
+	it('a public grant records WHICH wording was agreed to (M-11 on the FIX-13 evidence)', async () => {
+		// The routes pass currentConsentTextVersions(): upstream's key@version
+		// reference plus the hash of the current label, resolvable via
+		// ro.json's git history — one evidence structure, not two.
+		const result = await upsertSubscriber(deps, {
+			email: 'copy@example.ro',
+			grants: { newsletter: true },
+			source: 'footer',
+			evidence: { consentTextVersion: currentConsentTextVersions() }
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value.consents.newsletter?.consentTextVersion).toBe(
+			consentTextRef('newsletter', m.newsletter_consent_label())
+		);
+		expect(result.value.consents.newsletter?.consentTextVersion).toMatch(
+			/^newsletter_consent_label@1:sha256:[0-9a-f]{16}$/
 		);
 	});
 
@@ -190,39 +206,101 @@ describe('unsubscribe', () => {
 		expect(await unsubscribeByToken(deps, 'no-such-token')).toBeNull();
 	});
 
-	it('unsubscribe revokes confirmation: a third-party re-capture starts a FRESH double opt-in (review H-2)', async () => {
-		// Victim signs up and confirms.
-		const email = 'victima@example.ro';
-		const signup = await requestNewsletterSignup(signupDeps, { email, source: 'footer' });
-		if (!signup.ok) throw new Error('signup failed');
-		const logs = await db.select().from(emailLog).where(eq(emailLog.toEmail, email));
-		const token = (logs[0].data as { confirmUrl: string }).confirmUrl.split(
+	// Audit 2026-09-03 P1: withdrawal kept confirmed_at, so a later re-grant
+	// (by anyone who knows the address) was mailable without double opt-in.
+	it('withdrawal clears confirmed_at; a re-grant needs a fresh double opt-in (mailable before the fix)', async () => {
+		const first = await requestNewsletterSignup(signupDeps, {
+			email: 'again@example.ro',
+			source: 'footer'
+		});
+		if (!first.ok) throw new Error('signup failed');
+		const logsBefore = await db
+			.select()
+			.from(emailLog)
+			.where(eq(emailLog.toEmail, 'again@example.ro'));
+		const token = (logsBefore[0].data as { confirmUrl: string }).confirmUrl.split(
 			'/newsletter/confirm/'
 		)[1];
 		const confirmed = await confirmSubscriber(deps, SECRET, token);
 		expect(confirmed.ok).toBe(true);
 
-		// Victim unsubscribes: confirmation must NOT survive the withdrawal.
-		const withdrawn = await unsubscribeByToken(deps, signup.subscriber.unsubscribeToken);
-		expect(withdrawn!.confirmedAt).toBeNull();
+		const withdrawn = await unsubscribeByToken(deps, first.subscriber.unsubscribeToken);
+		expect(withdrawn?.confirmedAt).toBeNull();
+		// BS-8 (review H-2), folded in: the nurture gate keys on confirmedAt too.
 		expect(isMailable(withdrawn!, 'newsletter')).toBe(false);
 
-		// A third party types the victim's address into a public form again.
-		// Pre-fix this hit the `already-confirmed` fast path — consent silently
-		// re-granted, no confirm email, mail resumed. Now it is a fresh opt-in:
-		// a NEW confirm email goes out and nothing is mailable until it's clicked.
-		const recapture = await requestNewsletterSignup(signupDeps, {
-			email,
+		// Re-submitting the form — a third party typing the address into a
+		// public form counts (H-2): a NEW confirm email, and not mailable until
+		// confirmed. Pre-fix this hit the `already-confirmed` fast path.
+		const second = await requestNewsletterSignup(signupDeps, {
+			email: 'again@example.ro',
 			source: 'quiz:arhetip-somn'
 		});
-		expect(recapture.ok && recapture.confirm).toBe('dryrun');
-		if (!recapture.ok) return;
-		expect(recapture.subscriber.confirmedAt).toBeNull();
-		expect(isMailable(recapture.subscriber, 'newsletter')).toBe(false);
-		const confirms = (await db.select().from(emailLog).where(eq(emailLog.toEmail, email))).filter(
-			(l) => l.template === 'newsletter-confirm'
-		);
-		expect(confirms).toHaveLength(2);
+		if (!second.ok) throw new Error('signup failed');
+		expect(second.confirm).toBe('dryrun');
+		expect(second.subscriber.confirmedAt).toBeNull();
+		expect(isMailable(second.subscriber, 'newsletter')).toBe(false);
+		expect(hasConsent(second.subscriber.consents, 'newsletter')).toBe(true);
+		const logsAfter = await db
+			.select()
+			.from(emailLog)
+			.where(eq(emailLog.toEmail, 'again@example.ro'));
+		expect(logsAfter).toHaveLength(2);
+		expect(logsAfter.every((row) => row.template === 'newsletter-confirm')).toBe(true);
+	});
+
+	it('revokeConsentsByEmail (bounce/complaint feedback) withdraws like unsubscribe, with its own source', async () => {
+		const created = await upsertSubscriber(deps, {
+			email: 'Bounce@Example.RO',
+			grants: { newsletter: true },
+			source: 'footer'
+		});
+		if (!created.ok) throw new Error('upsert failed');
+		await db
+			.update(subscribers)
+			.set({ confirmedAt: new Date() })
+			.where(eq(subscribers.id, created.value.id));
+
+		const revoked = await revokeConsentsByEmail(deps, 'bounce@example.ro', 'bounce');
+		expect(revoked?.id).toBe(created.value.id);
+		expect(hasConsent(revoked!.consents, 'newsletter')).toBe(false);
+		expect(revoked!.consents.newsletter?.source).toBe('bounce');
+		expect(revoked!.confirmedAt).toBeNull();
+		expect(await revokeConsentsByEmail(deps, 'nobody@example.ro', 'bounce')).toBeNull();
+	});
+});
+
+describe('consent evidence', () => {
+	it('records ip, user agent and the consent text version on the changed record only', async () => {
+		const created = await upsertSubscriber(deps, {
+			email: 'evidence@example.ro',
+			grants: { newsletter: true },
+			source: 'footer',
+			evidence: {
+				ip: '203.0.113.7',
+				userAgent: 'Mozilla/5.0 (spec)',
+				consentTextVersion: { newsletter: 'newsletter_consent_label@1' }
+			}
+		});
+		if (!created.ok) throw new Error('upsert failed');
+		expect(created.value.consents.newsletter).toMatchObject({
+			granted: true,
+			source: 'footer',
+			ip: '203.0.113.7',
+			userAgent: 'Mozilla/5.0 (spec)',
+			consentTextVersion: 'newsletter_consent_label@1'
+		});
+		expect(created.value.consents.profile_emails).toBeUndefined();
+
+		// Re-affirming with different evidence is not a change: the original proof stays.
+		const again = await upsertSubscriber(deps, {
+			email: 'evidence@example.ro',
+			grants: { newsletter: true },
+			source: 'quiz:x',
+			evidence: { ip: '198.51.100.1' }
+		});
+		if (!again.ok) throw new Error('upsert failed');
+		expect(again.value.consents.newsletter?.ip).toBe('203.0.113.7');
 	});
 });
 
@@ -254,6 +332,13 @@ describe('admin listing + CSV', () => {
 		const [header, line] = csv.trim().split('\n');
 		expect(header).toContain('newsletter_source');
 		expect(line).toContain('csv@example.ro');
+		// FIX-12 CSV hygiene: BOM for ro-RO Excel; a formula-shaped name is
+		// neutralised with a leading apostrophe instead of executing in a cell.
+		expect(csv.startsWith('\uFEFF')).toBe(true);
+		const hostile = subscribersCsv([
+			{ ...created.value, name: '=HYPERLINK("https://evil.example","x")' }
+		]);
+		expect(hostile.split('\n')[1]).toContain(`"'=HYPERLINK(""https://evil.example"",""x"")"`);
 		expect(line).toContain('"Nume, cu ""virgulă"""');
 		expect(line).toContain('yes');
 		expect(line).toContain('footer');

@@ -3,7 +3,7 @@ import { getDb } from '$lib/db';
 import { renderArticleHtml } from '$lib/modules/blog/server';
 import type { ImageSources } from '$lib/modules/media';
 import { getImageProvider, imgSources, imgUrl } from '$lib/modules/media/server';
-import { addToCart, productJsonLd, productMetaDescription } from '$lib/modules/shop';
+import { addToCart, clampLineToStock, productJsonLd, productMetaDescription } from '$lib/modules/shop';
 import { getProductBySlug, isPurchasable } from '$lib/modules/shop/server';
 import { canonicalUrl } from '$lib/seo';
 import { readCart, writeCart } from '$lib/server/cart';
@@ -79,12 +79,15 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const qty = Math.max(1, Number(form.get('qty')) || 1);
-		// M-3: never put more in the cart than the tracked stock can ship. The
-		// cart page re-checks (and messages) in loadCartDetails — this clamp
-		// just keeps the obvious single-add case honest at the source.
-		const stock = found.product.stock;
-		const capped = stock === null ? qty : Math.min(qty, stock);
-		writeCart(cookies, addToCart(readCart(cookies), found.product.id, capped));
+		// Never more units in the cart than in stock (audit P1).
+		writeCart(
+			cookies,
+			clampLineToStock(
+				addToCart(readCart(cookies), found.product.id, qty),
+				found.product.id,
+				found.product.stock
+			)
+		);
 		redirect(303, '/cos');
 	}
 };

@@ -14,12 +14,14 @@ import {
 	confirmUpload,
 	createVideoEmbed,
 	deleteMedia,
+	listMedia,
 	requestUpload,
 	updateMediaAlt,
 	type MediaDeps,
 	type MediaReferenceCheck
 } from './service.ts';
 import { createStorage } from './storage.ts';
+import { mediaKeyFor } from './validation.ts';
 
 // Integration test against the compose stack: Postgres (TEST_DATABASE_URL,
 // reset + re-migrated fresh) and MinIO — no image transformer, because the
@@ -42,6 +44,19 @@ let images: ImageProvider;
  */
 const uploadedBytes = new Map<string, Uint8Array>();
 
+/**
+ * The served key is minted at confirm (FIX-15: uploads land in quarantine
+ * first), so the fake is keyed by the filename slug the served key embeds —
+ * `uploads/<yyyy>/<mm>/<slug>-<8 hex>.<ext>` — rather than by the key itself.
+ */
+function servedSlug(filename: string): string {
+	const key = mediaKeyFor(filename, 'image/png', { now: new Date(0), id: 'ffffffff' });
+	return key.slice(key.lastIndexOf('/') + 1).replace(/-ffffffff\.png$/, '');
+}
+function slugOfKey(key: string): string {
+	return key.slice(key.lastIndexOf('/') + 1).replace(/-[0-9a-f]{8}\.[a-z0-9]+$/, '');
+}
+
 const TINY_PNG_B64 = (() => {
 	const png = new PNG({ width: 32, height: 20 });
 	png.data.fill(128);
@@ -52,7 +67,7 @@ const fakeTransformer: ImageProvider = {
 	name: 'imgproxy',
 	transforms: true,
 	url(key) {
-		const bytes = uploadedBytes.get(key);
+		const bytes = uploadedBytes.get(slugOfKey(key));
 		// Nothing uploaded under this key: an empty body, which fails to decode
 		// the same way a transformer's 404 would.
 		if (!bytes) return 'data:application/octet-stream;base64,';
@@ -105,10 +120,11 @@ afterAll(async () => {
 	await db?.$client.end();
 });
 
-async function uploadFixture(): Promise<{ key: string; size: number }> {
+/** Presign + PUT the fixture; `filename` is the one the caller confirms with. */
+async function uploadFixture(filename = 'Test Image.png'): Promise<{ key: string; size: number }> {
 	const bytes = await readFile(FIXTURE);
 	const ticket = await requestUpload(deps, {
-		filename: 'Test Image.png',
+		filename,
 		mime: 'image/png',
 		size: bytes.byteLength
 	});
@@ -120,7 +136,7 @@ async function uploadFixture(): Promise<{ key: string; size: number }> {
 		body: bytes
 	});
 	expect(put.status).toBe(200);
-	uploadedBytes.set(ticket.value.key, bytes);
+	uploadedBytes.set(servedSlug(filename), bytes);
 	return { key: ticket.value.key, size: bytes.byteLength };
 }
 
@@ -136,7 +152,6 @@ describe('upload flow (presign → PUT → confirm)', () => {
 		if (!result.ok) return;
 		expect(result.value).toMatchObject({
 			kind: 'image',
-			key,
 			filename: 'Test Image.png',
 			mime: 'image/png',
 			size,
@@ -145,6 +160,8 @@ describe('upload flow (presign → PUT → confirm)', () => {
 			height: 200,
 			createdBy: USER_ID
 		});
+		// The served key is minted at confirm, under uploads/ (FIX-15).
+		expect(result.value.key).toMatch(/^uploads\/\d{4}\/\d{2}\/test-image-[0-9a-f]{8}\.png$/);
 		// Confirm also encoded a blurhash from a tiny render.
 		expect(result.value.blurhash).toMatch(/^.{20,}$/);
 	});
@@ -163,7 +180,7 @@ describe('upload flow (presign → PUT → confirm)', () => {
 			body: garbage
 		});
 		expect(put.status).toBe(200);
-		uploadedBytes.set(ticket.value.key, garbage);
+		uploadedBytes.set(servedSlug('broken.png'), garbage);
 
 		const result = await confirmUpload(deps, {
 			key: ticket.value.key,
@@ -202,6 +219,84 @@ describe('upload flow (presign → PUT → confirm)', () => {
 		expect(put.status).toBe(403);
 	});
 
+	// FIX-15 (audit P1 media): the presigned PUT outlives confirm by up to 10
+	// minutes. When the browser uploaded straight into the served key, a second
+	// PUT after confirm replaced the object the row points at — for an SVG, the
+	// sanitized bytes and the attachment header. Confirm must PRODUCE the served
+	// object under its own key and the upload key must never be the served one.
+	it('presigns into a quarantine key the public origin refuses to serve', async () => {
+		const bytes = await readFile(FIXTURE);
+		const ticket = await requestUpload(deps, {
+			filename: 'quarantine.png',
+			mime: 'image/png',
+			size: bytes.byteLength
+		});
+		if (!ticket.ok) throw new Error(`presign failed: ${ticket.error}`);
+		expect(ticket.value.key).toMatch(/^pending\//);
+
+		const put = await fetch(ticket.value.uploadUrl, {
+			method: 'PUT',
+			headers: { 'content-type': 'image/png' },
+			body: bytes
+		});
+		expect(put.status).toBe(200);
+		// Uploaded, but not readable anonymously: the bucket policy denies pending/.
+		expect((await fetch(images.url(ticket.value.key))).status).toBe(403);
+	});
+
+	it('a PUT to the presigned URL after confirm cannot change the served object', async () => {
+		const bytes = await readFile(FIXTURE);
+		const ticket = await requestUpload(deps, {
+			filename: 'immutable.png',
+			mime: 'image/png',
+			size: bytes.byteLength
+		});
+		if (!ticket.ok) throw new Error(`presign failed: ${ticket.error}`);
+		await fetch(ticket.value.uploadUrl, {
+			method: 'PUT',
+			headers: { 'content-type': 'image/png' },
+			body: bytes
+		});
+		uploadedBytes.set(servedSlug('immutable.png'), bytes);
+
+		const confirmed = await confirmUpload(deps, {
+			key: ticket.value.key,
+			filename: 'immutable.png',
+			createdBy: USER_ID
+		});
+		expect(confirmed.ok).toBe(true);
+		if (!confirmed.ok) return;
+		const servedKey = confirmed.value.key!;
+		expect(servedKey).not.toBe(ticket.value.key);
+		expect(servedKey).toMatch(/^uploads\//);
+		// The quarantine object is gone once the served one exists.
+		expect(await deps.storage.statObject(ticket.value.key)).toBeNull();
+
+		// The attacker's second PUT: same length (the signature pins it), different
+		// bytes — the trailing IEND chunk CRC flipped is enough to tell apart.
+		const tampered = Buffer.from(bytes);
+		tampered[tampered.length - 1] ^= 0xff;
+		const rePut = await fetch(ticket.value.uploadUrl, {
+			method: 'PUT',
+			headers: { 'content-type': 'image/png' },
+			body: tampered
+		});
+		expect(rePut.status).toBe(200);
+
+		const served = await fetch(images.url(servedKey));
+		expect(served.status).toBe(200);
+		expect(Buffer.from(await served.arrayBuffer()).equals(bytes)).toBe(true);
+	});
+
+	it('rasters are served with an immutable cache header', async () => {
+		const { key } = await uploadFixture('c.png');
+		const confirmed = await confirmUpload(deps, { key, filename: 'c.png', createdBy: USER_ID });
+		if (!confirmed.ok) throw new Error(confirmed.error);
+		const served = await fetch(images.url(confirmed.value.key!));
+		expect(served.status).toBe(200);
+		expect(served.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+	});
+
 	it('confirm fails for a key that was never uploaded', async () => {
 		const result = await confirmUpload(deps, {
 			key: 'uploads/2026/07/nothing-here.png',
@@ -210,6 +305,45 @@ describe('upload flow (presign → PUT → confirm)', () => {
 		});
 		expect(result).toMatchObject({ ok: false, error: 'not-found' });
 	});
+
+	// FIX-17 (FIX-15 review, medium): confirm copied whatever key it was handed
+	// into a fresh uploads/ key and then DELETED the original. The signed
+	// ticket binds the key today, but a ticket minted before that deploy for
+	// an `uploads/…` key — or any future caller — would remove a served object
+	// an existing media row points at. Only quarantine keys may be confirmed.
+	it('refuses to confirm a served (uploads/) key: no copy, no delete, no row', async () => {
+		const copies: string[] = [];
+		const deletes: string[] = [];
+		const served = 'uploads/2026/07/already-served-0123abcd.png';
+		const bytes = await readFile(FIXTURE);
+		// A storage where the served object EXISTS — the exact state in which
+		// the old code would have copied it and deleted the original.
+		const recording = {
+			...deps.storage,
+			statObject: async (key: string) =>
+				key === served ? { size: bytes.byteLength, mime: 'image/png' } : null,
+			getObjectBytes: async () => new Uint8Array(bytes),
+			copyObject: async (from: string) => {
+				copies.push(from);
+			},
+			putObject: async (key: string) => {
+				copies.push(key);
+			},
+			deleteObject: async (key: string) => {
+				deletes.push(key);
+			}
+		} as unknown as MediaDeps['storage'];
+
+		const result = await confirmUpload(
+			{ ...deps, storage: recording },
+			{ key: served, filename: 'already-served.png', createdBy: USER_ID }
+		);
+		expect(result).toMatchObject({ ok: false, error: 'not-found', detail: 'not a pending upload' });
+		expect(copies).toEqual([]);
+		expect(deletes).toEqual([]);
+		const rows = await db.select().from(media).where(eq(media.filename, 'already-served.png'));
+		expect(rows).toEqual([]);
+	});
 });
 
 describe('origin serving (the direct/cloudflare source URL)', () => {
@@ -217,10 +351,11 @@ describe('origin serving (the direct/cloudflare source URL)', () => {
 	// object itself, so "is the bucket actually readable without credentials"
 	// became a real, testable precondition rather than an imgproxy detail.
 	it('serves an uploaded image anonymously from the public origin', async () => {
-		const { key } = await uploadFixture();
-		await confirmUpload(deps, { key, filename: 't.png', createdBy: USER_ID });
+		const { key } = await uploadFixture('t.png');
+		const confirmed = await confirmUpload(deps, { key, filename: 't.png', createdBy: USER_ID });
+		if (!confirmed.ok) throw new Error(confirmed.error);
 
-		const res = await fetch(images.url(key));
+		const res = await fetch(images.url(confirmed.value.key!));
 		expect(res.status).toBe(200);
 		expect(res.headers.get('content-type')).toBe('image/png');
 	});
@@ -259,11 +394,22 @@ describe('origin serving (the direct/cloudflare source URL)', () => {
 			createdBy: USER_ID
 		});
 		expect(confirmed.ok).toBe(true);
+		if (!confirmed.ok) return;
 		// SVGs never get a blurhash: nothing rasterizes them.
-		if (confirmed.ok) expect(confirmed.value.blurhash).toBeNull();
+		expect(confirmed.value.blurhash).toBeNull();
+
+		// FIX-15: the uploader re-PUTs the original payload to the still-valid
+		// presigned URL after confirm. The served object must not be that URL's
+		// target — otherwise this PUT restores the script and drops the header.
+		const rePut = await fetch(ticket.value.uploadUrl, {
+			method: 'PUT',
+			headers: { 'content-type': 'image/svg+xml' },
+			body: malicious
+		});
+		expect(rePut.status).toBe(200);
 
 		// Exactly the URL the app embeds for an SVG row.
-		const served = await fetch(images.url(ticket.value.key, { attachment: true }));
+		const served = await fetch(images.url(confirmed.value.key!, { attachment: true }));
 		expect(served.status).toBe(200);
 		expect(served.headers.get('content-disposition')).toContain('attachment');
 
@@ -273,13 +419,34 @@ describe('origin serving (the direct/cloudflare source URL)', () => {
 		expect(body).not.toContain('javascript:');
 		expect(body).toContain('<rect'); // still a usable image, not an empty husk
 	});
+
+	it('refuses to confirm an "SVG" upload that is not an SVG document', async () => {
+		const notSvg = Buffer.from('<html><body><script>alert(1)</script></body></html>', 'utf8');
+		const ticket = await requestUpload(deps, {
+			filename: 'fake.svg',
+			mime: 'image/svg+xml',
+			size: notSvg.byteLength
+		});
+		if (!ticket.ok) throw new Error('presign failed');
+		await fetch(ticket.value.uploadUrl, {
+			method: 'PUT',
+			headers: { 'content-type': 'image/svg+xml' },
+			body: notSvg
+		});
+		const confirmed = await confirmUpload(deps, {
+			key: ticket.value.key,
+			filename: 'fake.svg',
+			createdBy: USER_ID
+		});
+		expect(confirmed).toMatchObject({ ok: false, error: 'invalid-mime' });
+	});
 });
 
 describe('backfillBlurhashes (pnpm media:blurhash)', () => {
 	it('fills legacy rows, skips failures, and is a no-op when re-run', async () => {
 		// Legacy row: confirmed without the imgproxy dep, like every pre-phase upload.
 		const legacyDeps: MediaDeps = { db: deps.db, storage: deps.storage };
-		const { key } = await uploadFixture();
+		const { key } = await uploadFixture('legacy.png');
 		const legacy = await confirmUpload(legacyDeps, {
 			key,
 			filename: 'legacy.png',
@@ -302,7 +469,7 @@ describe('backfillBlurhashes (pnpm media:blurhash)', () => {
 			headers: { 'content-type': 'image/png' },
 			body: garbage
 		});
-		uploadedBytes.set(badTicket.value.key, garbage);
+		uploadedBytes.set(servedSlug('bad.png'), garbage);
 		const bad = await confirmUpload(legacyDeps, {
 			key: badTicket.value.key,
 			filename: 'bad.png',
@@ -317,7 +484,7 @@ describe('backfillBlurhashes (pnpm media:blurhash)', () => {
 		);
 		expect(first.filled).toBeGreaterThanOrEqual(1);
 		expect(first.failed).toBeGreaterThanOrEqual(1);
-		expect(logged.join('\n')).toContain(badTicket.value.key);
+		expect(logged.join('\n')).toContain(bad.value.key); // the served key, not the quarantine one
 
 		const [filledRow] = await db.select().from(media).where(eq(media.id, legacy.value.id));
 		expect(filledRow.blurhash).toMatch(/^.{20,}$/);
@@ -329,9 +496,31 @@ describe('backfillBlurhashes (pnpm media:blurhash)', () => {
 	});
 });
 
+// FIX-15 (audit P2 'admin media library unbounded'): the library and the
+// picker read every row on each editor load. Listing is paginated now.
+describe('listMedia pagination', () => {
+	it('pages newest-first with totals, and an empty page past the end', async () => {
+		const first = await listMedia({ db }, { page: 1, pageSize: 2 });
+		expect(first.items).toHaveLength(2);
+		expect(first.total).toBeGreaterThanOrEqual(3);
+		expect(first.pageCount).toBe(Math.ceil(first.total / 2));
+		expect(first.page).toBe(1);
+		const [a, b] = first.items;
+		expect(a.createdAt.getTime()).toBeGreaterThanOrEqual(b.createdAt.getTime());
+
+		const second = await listMedia({ db }, { page: 2, pageSize: 2 });
+		expect(second.items.map((r) => r.id)).not.toContain(a.id);
+		expect(second.page).toBe(2);
+
+		const beyond = await listMedia({ db }, { page: first.pageCount + 5, pageSize: 2 });
+		expect(beyond.items).toEqual([]);
+		expect(beyond.total).toBe(first.total);
+	});
+});
+
 describe('alt, delete and reference checks', () => {
 	it('updates alt text', async () => {
-		const { key } = await uploadFixture();
+		const { key } = await uploadFixture('a.png');
 		const created = await confirmUpload(deps, { key, filename: 'a.png', createdBy: USER_ID });
 		if (!created.ok) throw new Error('confirm failed');
 		const updated = await updateMediaAlt(deps, created.value.id, 'Un somn liniștit');
@@ -339,7 +528,7 @@ describe('alt, delete and reference checks', () => {
 	});
 
 	it('refuses deletion while referenced, deletes row + object afterwards', async () => {
-		const { key } = await uploadFixture();
+		const { key } = await uploadFixture('b.png');
 		const created = await confirmUpload(deps, { key, filename: 'b.png', createdBy: USER_ID });
 		if (!created.ok) throw new Error('confirm failed');
 		const id = created.value.id;

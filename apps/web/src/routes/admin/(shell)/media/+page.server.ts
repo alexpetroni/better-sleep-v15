@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { getDb } from '$lib/db';
 import {
 	ALLOWED_IMAGE_MIMES,
@@ -13,8 +13,10 @@ import {
 	listMedia,
 	updateMediaAlt
 } from '$lib/modules/media/server';
-import { formStr } from '$lib/server/forms';
+import { recordAdminAudit } from '$lib/modules/auth';
+import { formStr, requireStaff } from '$lib/server/forms';
 import { MEDIA_REFERENCE_CHECKS } from '$lib/server/media-library';
+import { parsePageParam, pastLastPage } from '$lib/util/page';
 import type { Actions, PageServerLoad } from './$types';
 
 export interface MediaListItem {
@@ -23,20 +25,28 @@ export interface MediaListItem {
 	thumb: ImageSources | null;
 }
 
-export const load: PageServerLoad = async () => {
-	const rows = await listMedia({ db: getDb() });
-	const items: MediaListItem[] = rows.map((row) => ({
+export const load: PageServerLoad = async ({ url }) => {
+	// Paginated (FIX-15): the library used to read every row and decode a
+	// blurhash PNG per row on every load. Thumbnails skip the placeholder.
+	const page = parsePageParam(url.searchParams.get('page'));
+	const list = await listMedia({ db: getDb() }, { page });
+	if (pastLastPage(page, list.pageCount)) error(404);
+	const items: MediaListItem[] = list.items.map((row) => ({
 		row,
-		thumb: row.key ? imgSources(row, { w: 320, h: 240, fit: 'fill' }) : null
+		thumb: row.key ? imgSources(row, { w: 320, h: 240, fit: 'fill', placeholder: false }) : null
 	}));
 	return {
 		items,
+		page: list.page,
+		pageCount: list.pageCount,
+		total: list.total,
 		constraints: { mimes: Object.keys(ALLOWED_IMAGE_MIMES), maxBytes: MAX_UPLOAD_BYTES }
 	};
 };
 
 export const actions: Actions = {
-	updateAlt: async ({ request }) => {
+	updateAlt: async ({ request, locals }) => {
+		requireStaff(locals);
 		const form = await request.formData();
 		const id = formStr(form, 'id');
 		const alt = formStr(form, 'alt').trim();
@@ -45,7 +55,8 @@ export const actions: Actions = {
 		return { updated: id };
 	},
 
-	delete: async ({ request }) => {
+	delete: async ({ request, locals }) => {
+		const user = requireStaff(locals);
 		const form = await request.formData();
 		const id = formStr(form, 'id');
 		const result = await deleteMedia(
@@ -58,6 +69,7 @@ export const actions: Actions = {
 			}
 			return fail(404, { error: result.error });
 		}
+		await recordAdminAudit(getDb(), { actor: user.email, action: 'media-delete', target: id });
 		return { deleted: id };
 	}
 };

@@ -13,7 +13,12 @@ import { emailLog } from '../email/schema.ts';
 import { settingsDefaults } from '../settings/registry.ts';
 import { createEmailSender, type EmailSender } from '../email/service.ts';
 import { media } from '../media/schema.ts';
-import { buildCartMetadata, createCheckoutFromCart, loadCartDetails } from './checkout.ts';
+import {
+	buildCartMetadata,
+	createCheckoutFromCart,
+	loadCartDetails,
+	parseCartMetadata
+} from './checkout.ts';
 import { productsMediaReferenceCheck } from './media-ref.ts';
 import { createMockStripeGateway, type MockStripeGateway } from './mock-gateway.ts';
 import { orderEvents, orderItems, orders, productPillars, products } from './schema.ts';
@@ -102,6 +107,19 @@ describe('product CRUD', () => {
 		expect(ok.ok && ok.value.priceCents).toBe(12345);
 	});
 
+	it('validates the per-product VAT rate against the RO allowlist; null means the standard rate', async () => {
+		const row = await makeProduct({ name: 'Cotă TVA' });
+		// Not a legal RO rate, a percent instead of basis points, and zero
+		// (category Z by accident) are all refused.
+		expect((await updateProduct(deps, row.id, { vatRateBp: 2200 })).ok).toBe(false);
+		expect((await updateProduct(deps, row.id, { vatRateBp: 21 })).ok).toBe(false);
+		expect((await updateProduct(deps, row.id, { vatRateBp: 0 })).ok).toBe(false);
+		const reduced = await updateProduct(deps, row.id, { vatRateBp: 1100 });
+		expect(reduced.ok && reduced.value.vatRateBp).toBe(1100);
+		const standard = await updateProduct(deps, row.id, { vatRateBp: null });
+		expect(standard.ok && standard.value.vatRateBp).toBeNull();
+	});
+
 	it('retagging is atomic: a failed re-insert keeps the old pillar tags (audit Theme B)', async () => {
 		const row = await makeProduct({ name: 'Retag atomic', pillarSlugs: ['somn'] });
 		const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
@@ -141,13 +159,17 @@ describe('products media reference check (audit data HIGH-3)', () => {
 		await insertImage('pm-desc-id', 'uploads/p/desc-id.png');
 		await insertImage('pm-desc-key', 'uploads/p/desc-key.png');
 		await insertImage('pm-free', 'uploads/p/free.png');
+		await insertImage('pm-titled', 'uploads/p/titled.png');
 
 		const row = await makeProduct({ name: 'Produs cu media' });
 		await updateProduct(deps, row.id, {
 			coverMediaId: 'pm-cover',
 			gallery: ['pm-gallery'],
-			descriptionMd: 'detalii ![a](media:pm-desc-id) și ![b](media:uploads/p/desc-key.png)'
+			descriptionMd:
+				'detalii ![a](media:pm-desc-id) și ![b](media:uploads/p/desc-key.png) ![t](media:pm-titled "Titlu")'
 		});
+		// A titled ref (FIX-15: the LIKE guard missed it).
+		expect(await productsMediaReferenceCheck.isReferenced(db, 'pm-titled')).toBe(true);
 
 		expect(await productsMediaReferenceCheck.isReferenced(db, 'pm-cover')).toBe(true);
 		expect(await productsMediaReferenceCheck.isReferenced(db, 'pm-gallery')).toBe(true);
@@ -396,38 +418,18 @@ describe('cart details and checkout session', () => {
 		);
 	});
 
-	it('clamps a quantity above tracked stock pre-payment and flags the line (M-3)', async () => {
-		const scarce = await makeProduct({ name: 'Stoc limitat', priceCents: 2000, stock: 25 });
-		const details = await loadCartDetails(
-			{ db },
-			[{ productId: scarce.id, qty: 26 }],
-			SLEEP_PILLARS
-		);
-		// The line stays purchasable — at what can actually ship.
-		expect(details.lines[0]).toMatchObject({ qty: 25, available: true, stockLimited: true });
-		expect(details.lines[0].lineTotalCents).toBe(50_000);
-		expect(details.totalCents).toBe(50_000);
+	it('the cart snapshot carries each product VAT rate, so the order items inherit it (FIX-12)', async () => {
+		const standard = await makeProduct({ name: 'Checkout TVA standard', priceCents: 4990 });
+		const reduced = await makeProduct({ name: 'Checkout TVA redusă', priceCents: 1150 });
+		expect((await updateProduct(deps, reduced.id, { vatRateBp: 1100 })).ok).toBe(true);
 
-		// Untracked stock (null) is never clamped; exact-stock qty is not flagged.
-		const untracked = await makeProduct({ name: 'Neurmărit nelimitat', priceCents: 1000 });
-		const exact = await loadCartDetails(
-			{ db },
-			[
-				{ productId: untracked.id, qty: 99 },
-				{ productId: scarce.id, qty: 25 }
-			],
-			SLEEP_PILLARS
-		);
-		expect(exact.lines.map((l) => l.stockLimited)).toEqual([false, false]);
-		expect(exact.lines[0].qty).toBe(99);
-	});
-
-	it('checkout charges the clamped quantity, not the requested one (M-3)', async () => {
-		const scarce = await makeProduct({ name: 'Stoc cinci', priceCents: 2000, stock: 5 });
 		const outcome = await createCheckoutFromCart(
 			{ db, gateway, baseUrl: 'https://example.ro' },
 			{
-				items: [{ productId: scarce.id, qty: 8 }],
+				items: [
+					{ productId: standard.id, qty: 1 },
+					{ productId: reduced.id, qty: 2 }
+				],
 				sitePillarSlugs: SLEEP_PILLARS,
 				shippingSettings: settingsDefaults(),
 				shippingOptionId: 'standard'
@@ -436,11 +438,31 @@ describe('cart details and checkout session', () => {
 		expect(outcome.ok).toBe(true);
 		if (!outcome.ok) return;
 		const session = gateway.sessions.get(outcome.sessionId)!;
-		// 5 × 20 lei goods — the paid snapshot in metadata carries qty 5 too,
-		// so the webhook decrements exactly what was sold.
-		expect(session.input.lineItems).toMatchObject([{ qty: 5, unitAmountCents: 2000 }]);
-		expect(session.metadata.cart).toBe(
-			buildCartMetadata([{ productId: scarce.id, qty: 5, priceCents: 2000 }])
+		expect(parseCartMetadata(session.metadata.cart)).toEqual([
+			{ i: standard.id, q: 1, p: 4990 },
+			{ i: reduced.id, q: 2, p: 1150, v: 1100 }
+		]);
+
+		// Through the webhook, the rate lands on the order items (null = standard).
+		const payload = completedSessionEvent({
+			id: 'cs_vat_snapshot',
+			cart: [
+				{ productId: standard.id, qty: 1, priceCents: 4990 },
+				{ productId: reduced.id, qty: 2, priceCents: 1150, vatRateBp: 1100 }
+			],
+			amountTotal: 7290
+		});
+		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
+		const created = await processStripeEvent(webhookDeps, event);
+		if (created.kind !== 'order-created') throw new Error(`unexpected ${created.kind}`);
+		const items = await db.select().from(orderItems).where(eq(orderItems.orderId, created.orderId));
+		expect(
+			items.map((item) => [item.productId, item.vatRateBp]).sort((x, y) => (x[0]! < y[0]! ? -1 : 1))
+		).toEqual(
+			[
+				[standard.id, null],
+				[reduced.id, 1100]
+			].sort((x, y) => (x[0]! < y[0]! ? -1 : 1))
 		);
 	});
 
@@ -473,10 +495,16 @@ describe('cart details and checkout session', () => {
 
 interface SessionOverrides {
 	id: string;
-	cart: Array<{ productId: string; qty: number; priceCents: number }>;
+	cart: Array<{ productId: string; qty: number; priceCents: number; vatRateBp?: number | null }>;
 	amountTotal: number;
 	paymentIntent?: string;
 	email?: string;
+	/** Stripe `customer_details.phone` (collected by Checkout since FIX-11). */
+	phone?: string;
+	/** Stripe `customer_details.name` — the payer, whom the B2C invoice names (FIX-12). */
+	customerName?: string;
+	/** Stripe `payment_method_types` of the session; absent = the card-pinned default. */
+	paymentMethodTypes?: string[];
 	/** Provider event id; defaults to one derived from the session id. */
 	eventId?: string;
 	/** `unpaid` models a delayed payment method mid-flight (M-4). */
@@ -503,7 +531,14 @@ function sessionEvent(type: SessionEventType, overrides: SessionOverrides): stri
 				currency: 'ron',
 				payment_intent: overrides.paymentIntent ?? 'pi_test_1',
 				payment_status: overrides.paymentStatus ?? 'paid',
-				customer_details: { email: overrides.email ?? 'client@example.ro', name: 'Ana Pop' },
+				customer_details: {
+					email: overrides.email ?? 'client@example.ro',
+					name: overrides.customerName ?? 'Ana Pop',
+					...(overrides.phone ? { phone: overrides.phone } : {})
+				},
+				...(overrides.paymentMethodTypes
+					? { payment_method_types: overrides.paymentMethodTypes }
+					: {}),
 				collected_information: {
 					shipping_details: {
 						name: 'Ana Pop',
@@ -548,6 +583,68 @@ describe('webhook: signature verification', () => {
 });
 
 describe('webhook: checkout.session.completed', () => {
+	it('stores the order email lowercased, however Stripe delivers it (GDPR erase match)', async () => {
+		const product = await makeProduct({ name: 'Comandă mixed-case', priceCents: 4990 });
+		const payload = completedSessionEvent({
+			id: 'cs_mixed_email',
+			cart: [{ productId: product.id, qty: 1, priceCents: 4990 }],
+			amountTotal: 4990,
+			email: 'Ion.Popescu@Gmail.com'
+		});
+		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
+		const outcome = await processStripeEvent(webhookDeps, event);
+		expect(outcome.kind).toBe('order-created');
+		if (outcome.kind !== 'order-created') return;
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.email).toBe('ion.popescu@gmail.com');
+	});
+
+	it('persists the recipient phone from customer_details into the shipping address', async () => {
+		const product = await makeProduct({ name: 'Comandă cu telefon', priceCents: 1000 });
+		const payload = completedSessionEvent({
+			id: 'cs_phone',
+			cart: [{ productId: product.id, qty: 1, priceCents: 1000 }],
+			amountTotal: 1000,
+			phone: '+40 723 000 111'
+		});
+		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
+		const outcome = await processStripeEvent(webhookDeps, event);
+		if (outcome.kind !== 'order-created') throw new Error(`unexpected ${outcome.kind}`);
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.shippingAddress?.phone).toBe('+40 723 000 111');
+		expect(order.shippingAddress?.city).toBe('Cluj-Napoca');
+	});
+
+	it('stores the payer name and the payment method for the invoice (FIX-12)', async () => {
+		const product = await makeProduct({ name: 'Comandă cu nume', priceCents: 1000 });
+		const payload = completedSessionEvent({
+			id: 'cs_customer_name',
+			cart: [{ productId: product.id, qty: 1, priceCents: 1000 }],
+			amountTotal: 1000,
+			customerName: 'Ana-Maria Popescu',
+			paymentMethodTypes: ['card']
+		});
+		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
+		const outcome = await processStripeEvent(webhookDeps, event);
+		if (outcome.kind !== 'order-created') throw new Error(`unexpected ${outcome.kind}`);
+		const [order] = await db.select().from(orders).where(eq(orders.id, outcome.orderId));
+		expect(order.customerName).toBe('Ana-Maria Popescu');
+		expect(order.paymentMethod).toBe('card');
+
+		// A session opened to every method the dashboard enables is "online".
+		const open = completedSessionEvent({
+			id: 'cs_open_methods',
+			cart: [{ productId: product.id, qty: 1, priceCents: 1000 }],
+			amountTotal: 1000,
+			paymentMethodTypes: ['card', 'link', 'paypal']
+		});
+		const openEvent = await verifyStripeEvent(open, signedHeader(open), WEBHOOK_SECRET);
+		const openOutcome = await processStripeEvent(webhookDeps, openEvent);
+		if (openOutcome.kind !== 'order-created') throw new Error(`unexpected ${openOutcome.kind}`);
+		const [openOrder] = await db.select().from(orders).where(eq(orders.id, openOutcome.orderId));
+		expect(openOrder.paymentMethod).toBe('online');
+	});
+
 	it('creates the order + item snapshots, decrements stock and logs ONE email', async () => {
 		const tracked = await makeProduct({ name: 'Comandă urmărită', priceCents: 4990, stock: 5 });
 		const untracked = await makeProduct({ name: 'Comandă neurmărită', priceCents: 12550 });
@@ -1072,6 +1169,7 @@ describe('webhook: atomicity — a partial failure commits nothing (audit Theme 
 		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
 
 		const throwingEmail: EmailSender = {
+			dryRun: false,
 			send: async () => {
 				throw new Error('email infrastructure down');
 			}
@@ -1146,7 +1244,9 @@ describe('webhook: charge.refunded', () => {
 			signedHeader(unmatchedPayload),
 			WEBHOOK_SECRET
 		);
-		expect((await processStripeEvent(webhookDeps, unmatchedEvent)).kind).toBe('refund-unmatched');
+		// FIX-10 (audit P0 #3): a refund with no order is REMEMBERED for the
+		// order that may still arrive, no longer acknowledged and forgotten.
+		expect((await processStripeEvent(webhookDeps, unmatchedEvent)).kind).toBe('refund-pending');
 	});
 
 	it('delivered twice, the refund is applied once and the redelivery reports the ledger hit', async () => {

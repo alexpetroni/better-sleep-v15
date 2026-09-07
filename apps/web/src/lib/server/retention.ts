@@ -10,6 +10,7 @@ import { loginAttempts } from '../modules/auth/schema.ts';
 import { CHAT_RETENTION_DAYS, pruneChatSessions } from '../modules/chat/service.ts';
 import { NURTURE_RETENTION_DAYS, pruneNurtureEnrollments } from '../modules/nurture/service.ts';
 import { pruneUnclaimedQuizResults, QUIZ_RESULTS_RETENTION_DAYS } from '../modules/quiz/service.ts';
+import { pruneMatchedPendingRefunds } from '../modules/shop/webhook-prune.ts';
 import { PROCESSED_EVENTS_RETENTION_DAYS, pruneProcessedEvents } from './event-ledger/core.ts';
 import { pruneStaleRateLimits } from './rate-limit/core.ts';
 import { rateLimits } from './rate-limit/schema.ts';
@@ -23,6 +24,8 @@ export interface RetentionSweepResult {
 	loginRateLimitRows: number;
 	/** Webhook idempotency-ledger rows past the redelivery window. */
 	processedEventRows: number;
+	/** Refund-before-order rows already matched to their order, past the same window. */
+	pendingRefundRows: number;
 	/** Closed nurture enrollments (sends cascade) past their window. */
 	nurtureEnrollmentRows: number;
 	/** Unclaimed quiz results (no subscriber ever attached) past their window. */
@@ -31,6 +34,31 @@ export interface RetentionSweepResult {
 	ledgerRetentionDays: number;
 	nurtureRetentionDays: number;
 	quizResultsRetentionDays: number;
+	/**
+	 * Pruners that threw (FIX-14): each runs in its own try/catch so one
+	 * failure never blocks the others; its count above stays 0.
+	 */
+	failures: { step: RetentionStep; message: string }[];
+}
+
+export type RetentionStep =
+	| 'sessions'
+	| 'chatRateLimitRows'
+	| 'publicEmailRateLimitRows'
+	| 'loginRateLimitRows'
+	| 'processedEventRows'
+	| 'pendingRefundRows'
+	| 'nurtureEnrollmentRows'
+	| 'quizResultRows';
+
+/** The pruners, injectable so a test can make one fail. */
+export interface RetentionPruners {
+	pruneChatSessions: typeof pruneChatSessions;
+	pruneStaleRateLimits: typeof pruneStaleRateLimits;
+	pruneProcessedEvents: typeof pruneProcessedEvents;
+	pruneMatchedPendingRefunds: typeof pruneMatchedPendingRefunds;
+	pruneNurtureEnrollments: typeof pruneNurtureEnrollments;
+	pruneUnclaimedQuizResults: typeof pruneUnclaimedQuizResults;
 }
 
 /**
@@ -44,8 +72,18 @@ export interface RetentionSweepResult {
  */
 export async function runRetentionSweep(
 	db: Db,
-	now: Date = new Date()
+	now: Date = new Date(),
+	overrides: Partial<RetentionPruners> = {}
 ): Promise<RetentionSweepResult> {
+	const p: RetentionPruners = {
+		pruneChatSessions,
+		pruneStaleRateLimits,
+		pruneProcessedEvents,
+		pruneMatchedPendingRefunds,
+		pruneNurtureEnrollments,
+		pruneUnclaimedQuizResults,
+		...overrides
+	};
 	const cutoff = new Date(now.getTime() - CHAT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 	// The event ledger only needs to outlive the provider's redelivery window
 	// (see PROCESSED_EVENTS_RETENTION_DAYS) — a longer, separate cutoff.
@@ -58,19 +96,56 @@ export async function runRetentionSweep(
 	const quizResultsCutoff = new Date(
 		now.getTime() - QUIZ_RESULTS_RETENTION_DAYS * 24 * 60 * 60 * 1000
 	);
-	const chat = await pruneChatSessions(db, now);
+
+	const failures: RetentionSweepResult['failures'] = [];
+	// Each pruner in its own try/catch (FIX-14): a failure is logged and
+	// reported, and the remaining pruners still run.
+	async function step(name: RetentionStep, run: () => Promise<number>): Promise<number> {
+		try {
+			return await run();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			failures.push({ step: name, message });
+			console.error(`retention sweep — ${name} failed: ${message}`);
+			return 0;
+		}
+	}
+
+	let chatRateLimitRows = 0;
+	const sessions = await step('sessions', async () => {
+		const chat = await p.pruneChatSessions(db, now);
+		chatRateLimitRows = chat.rateLimitRows;
+		return chat.sessions;
+	});
 	return {
-		sessions: chat.sessions,
-		chatRateLimitRows: chat.rateLimitRows,
-		publicEmailRateLimitRows: await pruneStaleRateLimits(db, rateLimits, cutoff),
-		loginRateLimitRows: await pruneStaleRateLimits(db, loginAttempts, cutoff),
-		processedEventRows: await pruneProcessedEvents(db, ledgerCutoff),
-		nurtureEnrollmentRows: await pruneNurtureEnrollments(db, nurtureCutoff),
-		quizResultRows: await pruneUnclaimedQuizResults(db, quizResultsCutoff),
+		sessions,
+		chatRateLimitRows,
+		publicEmailRateLimitRows: await step('publicEmailRateLimitRows', () =>
+			p.pruneStaleRateLimits(db, rateLimits, cutoff)
+		),
+		loginRateLimitRows: await step('loginRateLimitRows', () =>
+			p.pruneStaleRateLimits(db, loginAttempts, cutoff)
+		),
+		processedEventRows: await step('processedEventRows', () =>
+			p.pruneProcessedEvents(db, ledgerCutoff)
+		),
+		// Same window as the ledger: a matched pending refund is only evidence
+		// for the redelivery period; unmatched rows are never swept (they are
+		// the operator's signal that money went back without an order).
+		pendingRefundRows: await step('pendingRefundRows', () =>
+			p.pruneMatchedPendingRefunds(db, ledgerCutoff)
+		),
+		nurtureEnrollmentRows: await step('nurtureEnrollmentRows', () =>
+			p.pruneNurtureEnrollments(db, nurtureCutoff)
+		),
+		quizResultRows: await step('quizResultRows', () =>
+			p.pruneUnclaimedQuizResults(db, quizResultsCutoff)
+		),
 		retentionDays: CHAT_RETENTION_DAYS,
 		ledgerRetentionDays: PROCESSED_EVENTS_RETENTION_DAYS,
 		nurtureRetentionDays: NURTURE_RETENTION_DAYS,
-		quizResultsRetentionDays: QUIZ_RESULTS_RETENTION_DAYS
+		quizResultsRetentionDays: QUIZ_RESULTS_RETENTION_DAYS,
+		failures
 	};
 }
 
@@ -81,7 +156,11 @@ export function formatRetentionSweep(r: RetentionSweepResult): string {
 		`${r.chatRateLimitRows} chat / ${r.publicEmailRateLimitRows} public-email / ` +
 		`${r.loginRateLimitRows} login rate-limit row(s), ` +
 		`${r.processedEventRows} processed-event row(s) older than ${r.ledgerRetentionDays} days, ` +
+		`${r.pendingRefundRows} matched pending-refund row(s) past the same window, ` +
 		`${r.nurtureEnrollmentRows} closed nurture enrollment(s) older than ${r.nurtureRetentionDays} days, ` +
-		`${r.quizResultRows} unclaimed quiz result(s) older than ${r.quizResultsRetentionDays} days`
+		`${r.quizResultRows} unclaimed quiz result(s) older than ${r.quizResultsRetentionDays} days` +
+		(r.failures.length
+			? `; FAILED: ${r.failures.map((f) => `${f.step} (${f.message})`).join(', ')}`
+			: '')
 	);
 }

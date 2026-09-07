@@ -1,13 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../db/client.ts';
 import { loginAttempts } from '../modules/auth/schema.ts';
-import { chatRateLimits, chatSessions } from '../modules/chat/schema.ts';
+import { chatMessages, chatRateLimits, chatSessions } from '../modules/chat/schema.ts';
+import { pruneChatSessions } from '../modules/chat/service.ts';
 import { subscribers } from '../modules/crm/schema.ts';
 import { nurtureEnrollments, nurtureSends, nurtureSequences } from '../modules/nurture/schema.ts';
 import { quizResults, quizzes } from '../modules/quiz/schema.ts';
+import { pruneNurtureEnrollments } from '../modules/nurture/service.ts';
+import { pendingRefunds } from '../modules/shop/schema.ts';
 import { processedEvents } from './event-ledger/schema.ts';
 import { rateLimits } from './rate-limit/schema.ts';
 import { formatRetentionSweep, runRetentionSweep } from './retention.ts';
@@ -80,6 +83,36 @@ describe('runRetentionSweep', () => {
 				eventType: 't',
 				outcome: 'ok',
 				receivedAt: daysAgo(1)
+			}
+		]);
+
+		// Refund-before-order rows (FIX-10): a MATCHED row past the ledger window
+		// is swept; a fresh matched one and an UNMATCHED old one (a refund whose
+		// order never came — the operator's signal) both survive.
+		await db.insert(pendingRefunds).values([
+			{
+				paymentIntent: 'pi-matched-expired',
+				chargeId: 'ch-1',
+				amountCents: 4990,
+				amountRefundedCents: 4990,
+				receivedAt: daysAgo(120),
+				matchedAt: daysAgo(91)
+			},
+			{
+				paymentIntent: 'pi-matched-fresh',
+				chargeId: 'ch-2',
+				amountCents: 4990,
+				amountRefundedCents: 4990,
+				receivedAt: daysAgo(3),
+				matchedAt: daysAgo(1)
+			},
+			{
+				paymentIntent: 'pi-unmatched-old',
+				chargeId: 'ch-3',
+				amountCents: 4990,
+				amountRefundedCents: 4990,
+				receivedAt: daysAgo(200),
+				matchedAt: null
 			}
 		]);
 
@@ -164,6 +197,7 @@ describe('runRetentionSweep', () => {
 			publicEmailRateLimitRows: 1,
 			loginRateLimitRows: 1,
 			processedEventRows: 1,
+			pendingRefundRows: 1,
 			nurtureEnrollmentRows: 1,
 			quizResultRows: 1,
 			retentionDays: 30,
@@ -174,6 +208,10 @@ describe('runRetentionSweep', () => {
 		// The fresh row of every table survives — a sweep that took live
 		// counters would reset limits for anyone currently being throttled.
 		expect((await db.select().from(chatSessions)).map((r) => r.id)).toEqual(['sweep-fresh']);
+		expect((await db.select().from(pendingRefunds)).map((r) => r.paymentIntent).sort()).toEqual([
+			'pi-matched-fresh',
+			'pi-unmatched-old'
+		]);
 		expect((await db.select().from(chatRateLimits)).map((r) => r.key)).toEqual(['ip:sweep-fresh']);
 		expect((await db.select().from(rateLimits)).map((r) => r.key)).toEqual([
 			'newsletter:ip:sweep-fresh'
@@ -216,17 +254,150 @@ describe('runRetentionSweep', () => {
 			publicEmailRateLimitRows: 4,
 			loginRateLimitRows: 5,
 			processedEventRows: 6,
+			pendingRefundRows: 8,
 			nurtureEnrollmentRows: 7,
 			quizResultRows: 8,
 			retentionDays: 30,
 			ledgerRetentionDays: 90,
 			nurtureRetentionDays: 180,
-			quizResultsRetentionDays: 180
+			quizResultsRetentionDays: 180,
+			failures: []
 		});
 		expect(line).toContain('2 session(s) older than 30 days');
 		expect(line).toContain('3 chat / 4 public-email / 5 login');
 		expect(line).toContain('6 processed-event row(s) older than 90 days');
+		expect(line).toContain('8 matched pending-refund row(s) past the same window');
 		expect(line).toContain('7 closed nurture enrollment(s) older than 180 days');
 		expect(line).toContain('8 unclaimed quiz result(s) older than 180 days');
+	});
+});
+
+// FIX-14 (audit 2026-09-03 "Chat"): the sweep deleted in one statement that
+// could never finish inside statement_timeout on a large table, and one
+// failing pruner aborted every later one.
+describe('runRetentionSweep batching and isolation (FIX-14)', () => {
+	it('prunes 12 000 expired chat sessions in batches and completes', async () => {
+		const TOTAL = 12_000;
+		for (let start = 0; start < TOTAL; start += 2_000) {
+			await db.insert(chatSessions).values(
+				Array.from({ length: 2_000 }, (_, i) => ({
+					id: `bulk-${start + i}`,
+					anonymousToken: `bulk-${start + i}-token`,
+					createdAt: daysAgo(40)
+				}))
+			);
+		}
+		await db.insert(chatSessions).values({
+			id: 'bulk-fresh',
+			anonymousToken: 'bulk-fresh-token',
+			createdAt: daysAgo(1)
+		});
+		await db.insert(chatMessages).values({
+			id: 'bulk-msg',
+			sessionId: 'bulk-0',
+			role: 'user',
+			content: 'cascade me'
+		});
+
+		const countExpired = async () =>
+			(
+				await db
+					.select({ n: sql<number>`count(*)::int` })
+					.from(chatSessions)
+					.where(sql`${chatSessions.createdAt} < ${daysAgo(30)}`)
+			)[0].n;
+		const expiredBefore = await countExpired();
+		expect(expiredBefore).toBeGreaterThanOrEqual(TOTAL);
+
+		// A single LIMIT-bounded DELETE would return 5000 here; only a loop
+		// reaches the full count.
+		const result = await pruneChatSessions(db, NOW);
+		expect(result.sessions).toBe(expiredBefore);
+		expect(await countExpired()).toBe(0);
+		expect(
+			await db
+				.select()
+				.from(chatSessions)
+				.where(sql`id = 'bulk-fresh'`)
+		).toHaveLength(1);
+		expect(await db.select().from(chatMessages)).toEqual([]);
+	}, 60_000);
+
+	it('prunes closed nurture enrollments in batches (loop past the first LIMIT)', async () => {
+		await db.insert(nurtureSequences).values({
+			id: 'batch-seq',
+			key: 'batch-seq',
+			name: 'Batch',
+			trigger: { kind: 'consent-confirmed' },
+			steps: []
+		});
+		await db.insert(subscribers).values(
+			Array.from({ length: 5 }, (_, i) => ({
+				id: `batch-sub-${i}`,
+				email: `batch-${i}@example.ro`,
+				unsubscribeToken: `batch-sub-${i}-token`
+			}))
+		);
+		await db.insert(nurtureEnrollments).values(
+			Array.from({ length: 5 }, (_, i) => ({
+				id: `batch-enr-${i}`,
+				sequenceId: 'batch-seq',
+				subscriberId: `batch-sub-${i}`,
+				status: 'completed' as const,
+				enrolledAt: daysAgo(400),
+				closedAt: daysAgo(390)
+			}))
+		);
+		expect(await pruneNurtureEnrollments(db, daysAgo(181), 2)).toBe(5);
+		expect(
+			await db
+				.select()
+				.from(nurtureEnrollments)
+				.where(sql`id like 'batch-enr-%'`)
+		).toEqual([]);
+	});
+
+	it('a failing pruner is reported and does not prevent the others from running', async () => {
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+		await db.insert(chatSessions).values({
+			id: 'iso-old',
+			anonymousToken: 'iso-old-token',
+			createdAt: daysAgo(31)
+		});
+		await db.insert(subscribers).values({
+			id: 'iso-sub',
+			email: 'iso@example.ro',
+			unsubscribeToken: 'iso-sub-token'
+		});
+		await db.insert(nurtureEnrollments).values({
+			id: 'iso-enr',
+			sequenceId: 'batch-seq',
+			subscriberId: 'iso-sub',
+			status: 'cancelled',
+			enrolledAt: daysAgo(200),
+			closedAt: daysAgo(181)
+		});
+
+		const result = await runRetentionSweep(db, NOW, {
+			pruneProcessedEvents: async () => {
+				throw new Error('ledger prune boom');
+			}
+		});
+		expect(result).toMatchObject({
+			sessions: 1,
+			nurtureEnrollmentRows: 1,
+			processedEventRows: 0,
+			failures: [{ step: 'processedEventRows', message: 'ledger prune boom' }]
+		});
+		expect(
+			await db
+				.select()
+				.from(chatSessions)
+				.where(sql`id = 'iso-old'`)
+		).toEqual([]);
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(String(errorSpy.mock.calls[0][0])).toMatch(/processedEventRows.*ledger prune boom/);
+		expect(formatRetentionSweep(result)).toMatch(/FAILED.*processedEventRows/);
+		errorSpy.mockRestore();
 	});
 });

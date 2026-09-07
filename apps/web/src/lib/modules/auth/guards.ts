@@ -1,11 +1,18 @@
 export type StaffRole = 'admin' | 'editor';
 
-/** /admin/<section> prefixes an editor may NOT access (admin role only). */
+/**
+ * /admin/<section> prefixes an editor may NOT access (admin role only).
+ * `pages` is here because the WHOLE section is the legal surface (terms,
+ * privacy, cookie policy — seed-pages.ts): rewriting those is an admin
+ * decision, so the section is admin-only rather than per-slug rules that a
+ * new legal page could silently miss (audit 2026-09-03, editor scoping).
+ */
 export const ADMIN_ONLY_SECTIONS = [
 	'products',
 	'orders',
 	'subscribers',
 	'nurture',
+	'pages',
 	'settings'
 ] as const;
 
@@ -16,6 +23,18 @@ export type AdminGuardDecision =
 
 export function isStaffRole(value: unknown): value is StaffRole {
 	return value === 'admin' || value === 'editor';
+}
+
+/**
+ * The pathname a resolved route id answers for, with layout groups stripped:
+ * '/admin/(shell)/settings' → '/admin/settings'. Server guards must key on
+ * THIS — SvelteKit matches routes on the percent-DECODED path, so a raw
+ * request to '/%61dmin/…' reaches the /admin route while `url.pathname`
+ * still reads '/%61dmin/…' (audit 2026-09-03 P0 #1). A null route id (no
+ * match → 404) maps to '' and no guard applies.
+ */
+export function routeIdPathname(routeId: string | null): string {
+	return (routeId ?? '').replace(/\/\([^/]+\)/g, '');
 }
 
 /** May this role open /admin/<section>? (Anonymous may not open anything.) */

@@ -2,17 +2,21 @@
 import { env } from '$env/dynamic/private';
 import { tokenSecretFrom } from '$lib/server/secrets';
 
-export { CONSENT_COPY_VERSION, consentCopyRef, currentConsentCopyRefs } from './consent-copy.ts';
+export { consentTextRef, currentConsentTextVersions } from './consent-copy.ts';
 export { subscribers, type SubscriberRow } from './schema.ts';
 export {
 	confirmSubscriber,
+	findSubscriberByUnsubscribeToken,
 	getSubscriber,
 	listSubscribers,
+	NEWSLETTER_CONFIRM_PURPOSE,
 	requestNewsletterSignup,
+	revokeConsentsByEmail,
 	sendNewsletterConfirmEmail,
 	subscribersCsv,
 	unsubscribeByToken,
 	upsertSubscriber,
+	verifyNewsletterConfirmToken,
 	type ConfirmOutcome,
 	type CrmDeps,
 	type CrmResult,

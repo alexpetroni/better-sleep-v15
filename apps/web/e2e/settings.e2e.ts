@@ -21,9 +21,15 @@ test('admin saves company identification; values persist after reload', async ({
 	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
 
 	await page.getByTestId('settings-field-company.legalName').fill('E2E Exemplu SRL');
-	await page.getByTestId('settings-field-company.cui').fill('RO12345678');
+	await page.getByTestId('settings-field-company.cui').fill('RO12345676');
 	await page.getByTestId('settings-field-company.regCom').fill('J40/1234/2024');
 	await page.getByTestId('settings-field-company.address').fill('Str. Exemplu 1, București');
+	// The structured seat CIUS-RO wants + the share capital (FIX-12).
+	await page.getByTestId('settings-field-company.street').fill('Str. Exemplu 1');
+	await page.getByTestId('settings-field-company.city').fill('Sector 3');
+	await page.getByTestId('settings-field-company.county').fill('RO-B');
+	await page.getByTestId('settings-field-company.postalCode').fill('030167');
+	await page.getByTestId('settings-field-company.shareCapital').fill('200 lei');
 	await page.getByTestId('settings-field-company.contactEmail').fill('contact@exemplu.ro');
 	await page.getByTestId('settings-field-company.contactPhone').fill('+40 700 000 000');
 	await page.getByTestId('settings-field-company.vatRegistered').check();
@@ -48,7 +54,7 @@ test('invalid input shows a field error and persists nothing', async ({ page }) 
 	await expect(page.getByTestId('settings-error-company.cui')).toBeVisible();
 	// The previous test's valid save survives the refused one.
 	await page.reload();
-	await expect(page.getByTestId('settings-field-company.cui')).toHaveValue('RO12345678');
+	await expect(page.getByTestId('settings-field-company.cui')).toHaveValue('RO12345676');
 });
 
 // Depends on the company data saved by the first test (tests in this file run
@@ -71,7 +77,7 @@ test('saved identification + ANPC links render in the footer and on legal pages'
 	const footer = page.getByTestId('legal-identity');
 	await expect(footer.getByTestId('legal-identity-name')).toHaveText('E2E Exemplu SRL');
 	// VAT-registered ⇒ the CUI carries the RO prefix.
-	await expect(footer.getByTestId('legal-identity-cui')).toContainText('RO12345678');
+	await expect(footer.getByTestId('legal-identity-cui')).toContainText('RO12345676');
 	await expect(footer.getByTestId('legal-identity-regcom')).toContainText('J40/1234/2024');
 	await expect(footer.getByTestId('legal-identity-address')).toContainText('Str. Exemplu 1');
 	await expect(footer.getByTestId('legal-identity-email')).toContainText('contact@exemplu.ro');
@@ -91,7 +97,7 @@ test('saved identification + ANPC links render in the footer and on legal pages'
 	await page.goto('/pagini/termeni-si-conditii');
 	await expect(
 		page.getByTestId('legal-page-identity').getByTestId('legal-identity-cui')
-	).toContainText('RO12345678');
+	).toContainText('RO12345676');
 
 	// The cookie policy lists the real cookie inventory and links from the footer.
 	await page.goto('/');
@@ -309,13 +315,19 @@ test('shipping is priced from settings, charged, invoiced and shipped with an AW
 					currency: 'ron',
 					payment_intent: `pi_e2e_shipping_${siteId}`,
 					payment_status: 'paid',
-					customer_details: { email: 'livrare-client@example.com', name: 'Ana Pop' },
+					// Phone + county: what the courier needs for a deliverable AWB (FIX-11).
+					customer_details: {
+						email: 'livrare-client@example.com',
+						name: 'Ana Pop',
+						phone: '+40723000111'
+					},
 					collected_information: {
 						shipping_details: {
 							name: 'Ana Pop',
 							address: {
 								line1: 'Str. Somnului 10',
 								city: 'Cluj-Napoca',
+								state: 'Cluj',
 								postal_code: '400001',
 								country: 'RO'
 							}

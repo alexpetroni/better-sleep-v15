@@ -91,3 +91,19 @@ export function computeStepScheduledAt(
 export function retryDelayMs(attempts: number): number {
 	return 15 * MINUTE_MS * 4 ** (Math.max(attempts, 1) - 1);
 }
+
+/**
+ * Pause between two consecutive LIVE sends inside one drain batch: Resend
+ * allows ~2 requests/s, and a 25-row batch fired back-to-back would trip its
+ * 429s (audit 2026-09-03 P1). 25 × 0.5 s stays well inside the 60 s cron
+ * function budget. Dry runs touch no API and are not paced.
+ */
+export const NURTURE_SEND_PACE_MS = 500;
+
+/**
+ * A send later than this past its `scheduled_at` is no longer wanted: a
+ * paused-then-resumed sequence must not flood a subscriber with every step
+ * it missed (audit 2026-09-03 P2). The claim cancels such rows as `stale`
+ * instead of sending them. Two days keeps a weekend-long pause harmless.
+ */
+export const NURTURE_STALE_SEND_HOURS = 48;

@@ -1,19 +1,22 @@
-import { and, asc, desc, eq, inArray, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, lte, or } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import type { ConsentKey } from '../crm/consent.ts';
 import { subscribers } from '../crm/schema.ts';
+import { emailLog } from '../email/schema.ts';
 import type { EmailSender } from '../email/service.ts';
 import { quizResults, quizzes } from '../quiz/schema.ts';
 import { RESULT_URL_TOKEN, type SequenceTrigger } from './definition.ts';
 import {
 	NURTURE_MAX_ATTEMPTS,
 	NURTURE_SEND_BATCH,
+	NURTURE_SEND_PACE_MS,
 	NURTURE_STALE_CLAIM_MINUTES,
+	NURTURE_STALE_SEND_HOURS,
 	retryDelayMs
 } from './schedule.ts';
 import { nurtureEnrollments, nurtureSends, nurtureSequences } from './schema.ts';
-import { cancelEnrollment, isMailable } from './service.ts';
+import { cancelEnrollment, closeEnrollmentIfDone, isMailable } from './service.ts';
 
 /**
  * The queue drain behind /api/cron/nurture-send. Claim-then-send:
@@ -30,7 +33,8 @@ import { cancelEnrollment, isMailable } from './service.ts';
  *
  * Crashed invocations leave `sending` rows; the claim re-takes them after
  * NURTURE_STALE_CLAIM_MINUTES, and the email idempotency key turns an
- * already-delivered retry into a no-op (`skipped` → recorded as sent).
+ * already-delivered retry into a no-op (`skipped` — recorded as sent only
+ * when the email_log row itself reads as delivered).
  */
 
 export interface NurtureDrainDeps {
@@ -39,6 +43,8 @@ export interface NurtureDrainDeps {
 	siteName: string;
 	/** Public origin for unsubscribe/CTA links, e.g. https://bettersleep.ro */
 	baseUrl: string;
+	/** Waits between two live sends (default: a real sleep; tests inject a spy). */
+	pace?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -81,6 +87,7 @@ async function resolveResultUrl(
 		.limit(1);
 	return row ? `${baseUrl}/quiz/${trigger.quizSlug}/rezultat/${row.id}` : null;
 }
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface NurtureDrainResult {
 	claimed: number;
@@ -88,6 +95,8 @@ export interface NurtureDrainResult {
 	retried: number;
 	parked: number;
 	cancelled: number;
+	/** Due rows more than NURTURE_STALE_SEND_HOURS late, cancelled as `stale` instead of sent. */
+	stale: number;
 	/** Enrollments whose last open send resolved this run. */
 	completed: number;
 }
@@ -98,52 +107,103 @@ export async function drainNurtureSends(
 ): Promise<NurtureDrainResult> {
 	const now = opts.now ?? new Date();
 	const batchSize = opts.batchSize ?? NURTURE_SEND_BATCH;
-	const staleCutoff = new Date(now.getTime() - NURTURE_STALE_CLAIM_MINUTES * 60 * 1000);
+	const staleClaimCutoff = new Date(now.getTime() - NURTURE_STALE_CLAIM_MINUTES * 60 * 1000);
+	const staleSendCutoff = new Date(now.getTime() - NURTURE_STALE_SEND_HOURS * 60 * 60 * 1000);
 	const result: NurtureDrainResult = {
 		claimed: 0,
 		sent: 0,
 		retried: 0,
 		parked: 0,
 		cancelled: 0,
+		stale: 0,
 		completed: 0
 	};
 
 	// Atomic claim. Only sends of ACTIVE sequences and enrollments are
 	// eligible: deactivating a sequence in the admin pauses its queue rows in
 	// place (reactivation resumes them) — the no-deploy stop switch.
-	const claimed = await deps.db.transaction(async (tx) => {
+	const eligible = and(
+		eq(nurtureEnrollments.status, 'active'),
+		eq(nurtureSequences.active, true),
+		or(
+			and(eq(nurtureSends.status, 'pending'), lte(nurtureSends.scheduledAt, now)),
+			and(eq(nurtureSends.status, 'sending'), lte(nurtureSends.claimedAt, staleClaimCutoff))
+		)
+	);
+	const { claimed, staleCount, staleEnrollmentIds } = await deps.db.transaction(async (tx) => {
+		// Rows more than NURTURE_STALE_SEND_HOURS late are no longer wanted
+		// (a resumed pause must not flood every missed step): cancelled here,
+		// under the same eligibility, so a paused sequence's rows wait in
+		// place and are judged at resume time (audit 2026-09-03 P2).
+		const stale = await tx
+			.select({ id: nurtureSends.id, enrollmentId: nurtureSends.enrollmentId })
+			.from(nurtureSends)
+			.innerJoin(nurtureEnrollments, eq(nurtureSends.enrollmentId, nurtureEnrollments.id))
+			.innerJoin(nurtureSequences, eq(nurtureEnrollments.sequenceId, nurtureSequences.id))
+			.where(and(eligible, lt(nurtureSends.scheduledAt, staleSendCutoff)))
+			.for('update', { of: nurtureSends, skipLocked: true });
+		if (stale.length > 0) {
+			await tx
+				.update(nurtureSends)
+				.set({ status: 'cancelled', lastError: 'stale' })
+				.where(
+					inArray(
+						nurtureSends.id,
+						stale.map((row) => row.id)
+					)
+				);
+		}
 		const due = await tx
 			.select({ id: nurtureSends.id })
 			.from(nurtureSends)
 			.innerJoin(nurtureEnrollments, eq(nurtureSends.enrollmentId, nurtureEnrollments.id))
 			.innerJoin(nurtureSequences, eq(nurtureEnrollments.sequenceId, nurtureSequences.id))
-			.where(
-				and(
-					eq(nurtureEnrollments.status, 'active'),
-					eq(nurtureSequences.active, true),
-					or(
-						and(eq(nurtureSends.status, 'pending'), lte(nurtureSends.scheduledAt, now)),
-						and(eq(nurtureSends.status, 'sending'), lte(nurtureSends.claimedAt, staleCutoff))
-					)
-				)
+			.where(eligible)
+			.orderBy(
+				asc(nurtureSends.scheduledAt),
+				asc(nurtureSends.enrollmentId),
+				asc(nurtureSends.stepIndex)
 			)
-			.orderBy(asc(nurtureSends.scheduledAt))
 			.limit(batchSize)
 			.for('update', { of: nurtureSends, skipLocked: true });
-		if (due.length === 0) return [];
-		return tx
-			.update(nurtureSends)
-			.set({ status: 'sending', claimedAt: now, attempts: sql`${nurtureSends.attempts} + 1` })
-			.where(
-				inArray(
-					nurtureSends.id,
-					due.map((row) => row.id)
-				)
-			)
-			.returning();
+		const rows =
+			due.length === 0
+				? []
+				: await tx
+						.update(nurtureSends)
+						.set({ status: 'sending', claimedAt: now, attempts: sql`${nurtureSends.attempts} + 1` })
+						.where(
+							inArray(
+								nurtureSends.id,
+								due.map((row) => row.id)
+							)
+						)
+						.returning();
+		return {
+			claimed: rows,
+			staleCount: stale.length,
+			staleEnrollmentIds: [...new Set(stale.map((row) => row.enrollmentId))]
+		};
 	});
 	result.claimed = claimed.length;
+	result.stale = staleCount;
+	// A stale cancellation may have been the enrollment's last open row.
+	for (const enrollmentId of staleEnrollmentIds) {
+		if (await closeEnrollmentIfDone(deps.db, enrollmentId, now)) result.completed += 1;
+	}
 
+	// Within the batch, send grouped by enrollment in step order: a resumed
+	// backlog must never deliver step 2 before step 1 (audit 2026-09-03 P2).
+	claimed.sort((a, b) =>
+		a.enrollmentId === b.enrollmentId
+			? a.stepIndex - b.stepIndex
+			: a.enrollmentId < b.enrollmentId
+				? -1
+				: 1
+	);
+
+	const pace = deps.pace ?? sleep;
+	let liveSends = 0;
 	for (const send of claimed) {
 		const [row] = await deps.db
 			.select({
@@ -200,6 +260,9 @@ export async function drainNurtureSends(
 			);
 			cta = resultUrl ? { label: step.cta.label, url: resultUrl } : undefined;
 		}
+		// Pace live transport calls (Resend ~2 req/s); dry runs touch no API.
+		if (!deps.email.dryRun && liveSends > 0) await pace(NURTURE_SEND_PACE_MS);
+		if (!deps.email.dryRun) liveSends += 1;
 		const outcome = await deps.email.send({
 			to: row.subscriber.email,
 			template: step.templateKey,
@@ -215,11 +278,27 @@ export async function drainNurtureSends(
 			idempotencyKey: `nurture:${send.enrollmentId}:${send.stepIndex}`
 		});
 
+		// `skipped` means the email_log key was already claimed — by a previous
+		// attempt of THIS row. That is a delivery only when the log row says
+		// so: `sent`, or `dryrun` while the sender itself runs dry. An
+		// in-flight (`sending`) or failed log row is not (audit 2026-09-03).
+		let failure: string | null = null;
+		let retryable = true;
 		if (outcome.status === 'error') {
-			if (send.attempts >= NURTURE_MAX_ATTEMPTS) {
+			failure = outcome.error;
+			retryable = outcome.retryable;
+		} else if (outcome.status === 'skipped') {
+			const delivered = await logRowDelivered(deps, outcome.logId);
+			if (!delivered) failure = `email log row ${outcome.logId || '?'} is not delivered`;
+		}
+
+		if (failure !== null) {
+			// A classified permanent failure (bad key, rejected address) parks at
+			// once — retrying it 5× over a day cannot help (audit 2026-09-03 P1).
+			if (!retryable || send.attempts >= NURTURE_MAX_ATTEMPTS) {
 				await deps.db
 					.update(nurtureSends)
-					.set({ status: 'failed', lastError: outcome.error })
+					.set({ status: 'failed', lastError: failure })
 					.where(eq(nurtureSends.id, send.id));
 				result.parked += 1;
 			} else {
@@ -228,7 +307,7 @@ export async function drainNurtureSends(
 					.set({
 						status: 'pending',
 						scheduledAt: new Date(now.getTime() + retryDelayMs(send.attempts)),
-						lastError: outcome.error
+						lastError: failure
 					})
 					.where(eq(nurtureSends.id, send.id));
 				result.retried += 1;
@@ -242,27 +321,22 @@ export async function drainNurtureSends(
 			result.sent += 1;
 		}
 
-		// Terminal outcome: when no open sends remain, close the enrollment.
-		const [open] = await deps.db
-			.select({ count: sql<number>`cast(count(*) as int)` })
-			.from(nurtureSends)
-			.where(
-				and(
-					eq(nurtureSends.enrollmentId, send.enrollmentId),
-					inArray(nurtureSends.status, ['pending', 'sending'])
-				)
-			);
-		if (open && open.count === 0) {
-			const closedRows = await deps.db
-				.update(nurtureEnrollments)
-				.set({ status: 'completed', closedAt: now })
-				.where(
-					and(eq(nurtureEnrollments.id, send.enrollmentId), eq(nurtureEnrollments.status, 'active'))
-				)
-				.returning({ id: nurtureEnrollments.id });
-			result.completed += closedRows.length;
-		}
+		// Terminal outcome: when no open sends remain, close the enrollment. A
+		// parked (`failed`) send keeps it open — the operator's retry re-queues
+		// the row and the enrollment must still be drainable (audit P2).
+		if (await closeEnrollmentIfDone(deps.db, send.enrollmentId, now)) result.completed += 1;
 	}
 
 	return result;
+}
+
+/** Is the email_log row a delivery from this sender's point of view? */
+async function logRowDelivered(deps: NurtureDrainDeps, logId: string): Promise<boolean> {
+	if (!logId) return false;
+	const [row] = await deps.db
+		.select({ status: emailLog.status })
+		.from(emailLog)
+		.where(eq(emailLog.id, logId));
+	if (!row) return false;
+	return row.status === 'sent' || (row.status === 'dryrun' && deps.email.dryRun);
 }

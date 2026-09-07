@@ -3,12 +3,16 @@ import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import { getDb } from '$lib/db';
 import { getEmailSender } from '$lib/modules/email/server';
+import { recordAdminAudit } from '$lib/modules/auth';
 import {
 	ensureInvoicesForOrder,
 	invoicePdfAttachmentForOrder,
-	listInvoicesForOrder
+	issuePartialStornoForOrder,
+	listInvoicesForOrder,
+	listParkedSubmissionsForOrder,
+	requeueParkedSubmission
 } from '$lib/modules/invoice/server';
-import { getStorage } from '$lib/modules/media/server';
+import { getInvoiceStorage } from '$lib/modules/media/server';
 import { isFulfillmentStatus } from '$lib/modules/shop';
 import {
 	createShipmentForOrder,
@@ -18,19 +22,29 @@ import {
 	listOrderEvents,
 	mockAwbBlocked,
 	orderLookupUrl,
-	transitionFulfillment
+	transitionFulfillment,
+	updateOrderShippingAddress
 } from '$lib/modules/shop/server';
-import { formStr } from '$lib/server/forms';
+import { formStr, requireAdmin } from '$lib/server/forms';
 import { getSite } from '$lib/server/site';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
 	const found = await getOrderWithItems({ db: getDb() }, params.id);
 	if (!found) error(404);
+	const invoices = await listInvoicesForOrder({ db: getDb() }, params.id);
 	return {
 		...found,
 		events: await listOrderEvents({ db: getDb() }, params.id),
-		invoices: await listInvoicesForOrder({ db: getDb() }, params.id),
+		invoices,
+		// What the stornos already reverse (positive bani): the partial-storno
+		// button offers exactly refunded_cents − this, and hides at zero.
+		reversedCents: invoices
+			.filter((doc) => doc.kind === 'storno')
+			.reduce((sum, doc) => sum - doc.grossTotalCents, 0),
+		// e-Factura submissions parked after EFACTURA_MAX_ATTEMPTS (FIX-17): the
+		// page offers the re-queue button next to each.
+		parkedSubmissions: await listParkedSubmissionsForOrder({ db: getDb() }, params.id),
 		shipment: (await getShipmentForOrder({ db: getDb() }, params.id)) ?? null,
 		// One nonce per rendered page: the re-send form posts it back and the
 		// email idempotency key derives from (invoice id, nonce), so a double
@@ -47,14 +61,14 @@ export const actions: Actions = {
 	 * on its own (defense in depth — a guard regression must not open writes).
 	 */
 	transition: async ({ request, params, locals }) => {
-		if (locals.user?.role !== 'admin') error(403);
+		const user = requireAdmin(locals);
 
 		const form = await request.formData();
 		const to = formStr(form, 'to');
 		if (!isFulfillmentStatus(to)) return fail(400, { error: 'invalid-status' as const });
 
 		const result = await transitionFulfillment({ db: getDb() }, params.id, to, {
-			actor: locals.user.email,
+			actor: user.email,
 			note: formStr(form, 'note').trim()
 		});
 		if (!result.ok) {
@@ -71,14 +85,32 @@ export const actions: Actions = {
 	 * is a no-op. Same defense-in-depth admin check as `transition`.
 	 */
 	issueInvoice: async ({ params, locals }) => {
-		if (locals.user?.role !== 'admin') error(403);
+		const user = requireAdmin(locals);
 
-		const result = await ensureInvoicesForOrder({ db: getDb() }, params.id, locals.user.email);
+		const result = await ensureInvoicesForOrder({ db: getDb() }, params.id, user.email);
 		if (!result.ok) {
 			if (result.error === 'order-not-found') error(404);
 			return fail(400, { invoiceError: result.error, invoiceDetail: result.detail ?? '' });
 		}
 		return { invoiceIssued: true };
+	},
+
+	/**
+	 * The fiscal side of a PARTIAL refund: issue a storno for exactly what
+	 * Stripe refunded and no earlier storno has reversed (`refunded_cents −
+	 * Σ stornos`). The operator types no amount, so the document cannot
+	 * disagree with the money movement; the service locks the order row
+	 * against a racing webhook. Same defense-in-depth admin check.
+	 */
+	stornoPartial: async ({ params, locals }) => {
+		const user = requireAdmin(locals);
+
+		const result = await issuePartialStornoForOrder({ db: getDb() }, params.id, user.email);
+		if (!result.ok) {
+			if (result.error === 'order-not-found') error(404);
+			return fail(400, { stornoError: result.error, stornoDetail: result.detail ?? '' });
+		}
+		return { stornoIssued: true };
 	},
 
 	/**
@@ -90,7 +122,7 @@ export const actions: Actions = {
 	 * check as the other actions.
 	 */
 	generateAwb: async ({ params, locals }) => {
-		if (locals.user?.role !== 'admin') error(403);
+		const user = requireAdmin(locals);
 
 		// Review H-7: a live env on the mock courier would register a FAKE AWB
 		// and email the customer a dead tracking link — refuse instead.
@@ -111,7 +143,7 @@ export const actions: Actions = {
 				publicBaseUrl: publicEnv.PUBLIC_SITE_URL
 			},
 			params.id,
-			locals.user.email
+			user.email
 		);
 		if (!result.ok) {
 			if (result.error === 'order-not-found') error(404);
@@ -121,12 +153,43 @@ export const actions: Actions = {
 	},
 
 	/**
+	 * Operator-typed recipient data (FIX-11): the way out of the
+	 * `missing-recipient-data` refusal — the service bounds and validates the
+	 * fields and records which ones changed. Same defense-in-depth admin check.
+	 */
+	updateShippingAddress: async ({ request, params, locals }) => {
+		const user = requireAdmin(locals);
+
+		const form = await request.formData();
+		const result = await updateOrderShippingAddress(
+			{ db: getDb() },
+			params.id,
+			{
+				name: formStr(form, 'name'),
+				phone: formStr(form, 'phone'),
+				line1: formStr(form, 'line1'),
+				line2: formStr(form, 'line2'),
+				city: formStr(form, 'city'),
+				state: formStr(form, 'state'),
+				postalCode: formStr(form, 'postalCode'),
+				country: formStr(form, 'country')
+			},
+			user.email
+		);
+		if (!result.ok) {
+			if (result.error === 'order-not-found') error(404);
+			return fail(400, { addressError: result.error, addressDetail: result.detail ?? '' });
+		}
+		return { addressUpdated: true };
+	},
+
+	/**
 	 * Re-send the invoice email (PDF attached) to the buyer. Idempotent per
 	 * rendered form via the page nonce (see the load comment); the same
 	 * defense-in-depth admin check as the other actions.
 	 */
 	resendInvoice: async ({ request, params, locals }) => {
-		if (locals.user?.role !== 'admin') error(403);
+		requireAdmin(locals);
 
 		const form = await request.formData();
 		const nonce = formStr(form, 'nonce');
@@ -137,7 +200,10 @@ export const actions: Actions = {
 		if (!found) error(404);
 		if (!found.order.email) return fail(400, { resendError: 'no-email' as const });
 
-		const info = await invoicePdfAttachmentForOrder({ db, storage: getStorage() }, params.id);
+		const info = await invoicePdfAttachmentForOrder(
+			{ db, storage: getInvoiceStorage() },
+			params.id
+		);
 		if (!info) return fail(400, { resendError: 'no-invoice' as const });
 
 		const outcome = await getEmailSender().send({
@@ -158,5 +224,29 @@ export const actions: Actions = {
 			return fail(500, { resendError: 'send-failed' as const });
 		}
 		return { invoiceResent: true, resendSkipped: outcome.status === 'skipped' };
+	},
+
+	/**
+	 * Re-queue a parked e-Factura submission (FIX-17): back to `pending`, due
+	 * now, attempts reset, so the next cron tick claims it — the statutory
+	 * 5-day clock does not wait for manual SQL. Scoped to this order's
+	 * documents. Same defense-in-depth admin check as the other actions.
+	 */
+	requeue: async ({ request, params, locals }) => {
+		const user = requireAdmin(locals);
+
+		const form = await request.formData();
+		const invoiceId = formStr(form, 'invoiceId');
+		if (!invoiceId) return fail(400, { requeueError: 'invalid' as const });
+		const found = await requeueParkedSubmission({ db: getDb() }, invoiceId, {
+			orderId: params.id
+		});
+		if (!found) return fail(400, { requeueError: 'not-found' as const });
+		await recordAdminAudit(getDb(), {
+			actor: user.email,
+			action: 'efactura-requeue',
+			target: invoiceId
+		});
+		return { requeued: true };
 	}
 };

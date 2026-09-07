@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { bootEnvProblems, REQUIRED_BOOT_ENV } from './boot.ts';
 import { devDefaultProblem, ENV_MATRIX, requiredEnvFor, type DeployTarget } from './env-matrix.ts';
-import { imageProbeBlocker, launchCheckProblems, probeImages } from './launch-check.ts';
+import {
+	fiscalProbeBlocker,
+	imageProbeBlocker,
+	launchCheckProblems,
+	launchCheckWarnings,
+	probeFiscalPrivacy,
+	probeImages
+} from './launch-check.ts';
 
 /** A prod-shaped env every rule passes on; cases knock single values out. */
 function prodEnv(): Record<string, string | undefined> {
@@ -15,11 +22,18 @@ function prodEnv(): Record<string, string | undefined> {
 		S3_ACCESS_KEY: 'r2-access-key-id',
 		S3_SECRET_KEY: 'r2-secret-access-key',
 		S3_BUCKET: 'bettersleep-media',
+		// FIX-12: fiscal documents live in their own PRIVATE bucket; under the
+		// cloudflare provider the media bucket is publicly bound, so this is
+		// required there (DEPLOYMENT.md §5).
+		S3_INVOICE_BUCKET: 'bettersleep-fiscal',
 		// The Vercel-target default: Cloudflare transforms in front of the public
 		// R2 origin, no transformer box of our own (DEPLOYMENT.md §6).
 		IMAGE_PROVIDER: 'cloudflare',
 		MEDIA_PUBLIC_BASE_URL: 'https://media.bettersleep.ro',
 		CF_IMAGE_BASE_URL: 'https://bettersleep.ro',
+		// FIX-16: an EMPTY key is the in-memory mock gateway — never prod-worthy.
+		STRIPE_SECRET_KEY: 'sk_live_123',
+		STRIPE_WEBHOOK_SECRET: 'whsec_real_value',
 		EMAIL_DRYRUN: 'true'
 	};
 }
@@ -64,7 +78,9 @@ function vercelEnv(): Record<string, string | undefined> {
 	return {
 		...prodEnv(),
 		DIRECT_DATABASE_URL: 'postgres://app:s3cr3t@db.prod.example.com/better_sleep',
-		CRON_SECRET: 'b2'.repeat(32)
+		CRON_SECRET: 'b2'.repeat(32),
+		DB_DRIVER: 'neon',
+		ERROR_REPORT_URL: 'https://sink.example.com/ingest'
 	};
 }
 
@@ -206,54 +222,6 @@ const CASES: Array<{
 		},
 		message: /STRIPE_SECRET_KEY is a TEST key/
 	},
-	// BS-7 (review C-1): pre-phase, a live env with NO Stripe key at all passed
-	// clean — and the mock gateway redirected real customers to a dead
-	// checkout.stripe.com URL. These cases fail against that behavior.
-	{
-		name: 'a MISSING Stripe key in a live (EMAIL_DRYRUN=false) env',
-		base: liveEnv,
-		mutate: (env) => delete env.STRIPE_SECRET_KEY,
-		message: /STRIPE_SECRET_KEY is not set in a live env/
-	},
-	{
-		name: 'a non-secret-shaped Stripe key in a live env',
-		base: liveEnv,
-		mutate: (env) => (env.STRIPE_SECRET_KEY = 'rk_live_restricted'),
-		message: /STRIPE_SECRET_KEY does not look like a live secret key/
-	},
-	// BS-7 (review H-7): pre-phase, launch:check said nothing about the chat
-	// and courier providers — a live deploy shipped canned chat answers and
-	// fake AWBs with a green preflight.
-	{
-		name: 'the mock chat provider in a live env',
-		base: liveEnv,
-		mutate: (env) => {
-			env.CHAT_PROVIDER = 'mock';
-			delete env.ANTHROPIC_API_KEY;
-		},
-		message: /CHAT_PROVIDER is "mock" in a live env/
-	},
-	{
-		name: 'an unset chat provider in a live env',
-		base: liveEnv,
-		mutate: (env) => {
-			delete env.CHAT_PROVIDER;
-			delete env.ANTHROPIC_API_KEY;
-		},
-		message: /CHAT_PROVIDER is unset in a live env/
-	},
-	{
-		name: 'the mock courier in a live env',
-		base: liveEnv,
-		mutate: (env) => (env.COURIER_PROVIDER = 'mock'),
-		message: /COURIER_PROVIDER is "mock" in a live env .* FAKE AWBs/
-	},
-	{
-		name: 'an unset courier in a live env',
-		base: liveEnv,
-		mutate: (env) => delete env.COURIER_PROVIDER,
-		message: /COURIER_PROVIDER is unset in a live env/
-	},
 	// BS-8 (review H-4): pre-phase, nothing anywhere required the trusted
 	// client-address header — behind a proxy the per-IP throttles silently
 	// keyed everyone to the proxy's socket IP.
@@ -288,6 +256,33 @@ const CASES: Array<{
 		mutate: (env) => (env.CHAT_PROVIDER = 'anthropic'),
 		message: /ANTHROPIC_API_KEY is required when CHAT_PROVIDER=anthropic/
 	},
+	// FIX-14 (audit P2): a mock provider in production is otherwise undetectable.
+	{
+		name: 'a live env (EMAIL_DRYRUN=false) still on the mock chat provider',
+		mutate: (env) => {
+			liveEnv(env);
+			delete env.CHAT_PROVIDER;
+		},
+		message: /CHAT_PROVIDER is "mock" in a live env \(EMAIL_DRYRUN=false\)/
+	},
+	{
+		name: 'a live env (EMAIL_DRYRUN=false) still on the mock courier',
+		mutate: (env) => {
+			liveEnv(env);
+			env.COURIER_PROVIDER = 'mock';
+		},
+		message: /COURIER_PROVIDER is "mock" in a live env \(EMAIL_DRYRUN=false\)/
+	},
+	{
+		name: 'a cloudflare deploy without a private fiscal bucket',
+		mutate: (env) => delete env.S3_INVOICE_BUCKET,
+		message: /S3_INVOICE_BUCKET is required when IMAGE_PROVIDER=cloudflare/
+	},
+	{
+		name: 'a fiscal bucket that is the media bucket',
+		mutate: (env) => (env.S3_INVOICE_BUCKET = env.S3_BUCKET),
+		message: /S3_INVOICE_BUCKET must not be the media bucket/
+	},
 	{
 		name: 'a vercel target without CRON_SECRET',
 		target: 'vercel',
@@ -299,20 +294,184 @@ const CASES: Array<{
 		target: 'vercel',
 		mutate: (env) => delete env.DIRECT_DATABASE_URL,
 		message: /DIRECT_DATABASE_URL is not set \(required on the vercel target/
+	},
+	// FIX-16 (audit "launch:check blesses a deploy whose shop is a mock"): an
+	// empty key selects the in-memory mock gateway, which "takes" orders per
+	// function instance and never sees a webhook.
+	{
+		name: 'an empty STRIPE_SECRET_KEY (the mock gateway)',
+		mutate: (env) => (env.STRIPE_SECRET_KEY = ''),
+		message: /STRIPE_SECRET_KEY is empty — the shop would run on the in-memory MOCK gateway/
+	},
+	{
+		name: 'an unset STRIPE_SECRET_KEY (the mock gateway)',
+		mutate: (env) => delete env.STRIPE_SECRET_KEY,
+		message: /STRIPE_SECRET_KEY is empty — the shop would run on the in-memory MOCK gateway/
+	},
+	// The neon driver holds one WebSocket per process — on a long-lived node
+	// server that is the whole site behind a single connection.
+	{
+		name: 'the neon driver on the node target',
+		target: 'node',
+		mutate: (env) => (env.DB_DRIVER = 'neon'),
+		message: /DB_DRIVER=neon on the node target/
 	}
 ];
 
+/** Flip a prod-shaped env to live mode with real providers everywhere. */
+function liveEnv(env: Record<string, string | undefined>): void {
+	env.EMAIL_DRYRUN = 'false';
+	env.RESEND_API_KEY = 're_live';
+	env.STRIPE_SECRET_KEY = 'sk_live_123';
+	env.STRIPE_WEBHOOK_SECRET = 'whsec_live_real';
+	env.CHAT_PROVIDER = 'anthropic';
+	env.ANTHROPIC_API_KEY = 'sk-ant-live';
+	env.COURIER_PROVIDER = 'sameday';
+	env.SAMEDAY_USERNAME = 'user';
+	env.SAMEDAY_PASSWORD = 'pass';
+	env.SAMEDAY_PICKUP_POINT = '1';
+}
+
+describe('launch:check mock-provider rule (FIX-14)', () => {
+	const mockProviderProblems = (problems: string[]) =>
+		problems.filter((p) => /in a live env \(EMAIL_DRYRUN=false\)/.test(p));
+
+	it('passes a live env on real providers', () => {
+		const env = prodEnv();
+		liveEnv(env);
+		expect(launchCheckProblems(env, { target: 'node' })).toEqual([]);
+	});
+
+	it('reports both mock providers in one pass', () => {
+		const env = prodEnv();
+		liveEnv(env);
+		env.CHAT_PROVIDER = 'mock';
+		env.COURIER_PROVIDER = 'mock';
+		const problems = mockProviderProblems(launchCheckProblems(env, { target: 'node' }));
+		expect(problems).toHaveLength(2);
+		expect(problems.join('\n')).toMatch(/--allow-mock-providers/);
+	});
+
+	it('--allow-mock-providers acknowledges mocks in a live env', () => {
+		const env = prodEnv();
+		liveEnv(env);
+		env.CHAT_PROVIDER = 'mock';
+		env.COURIER_PROVIDER = 'mock';
+		expect(launchCheckProblems(env, { target: 'node', allowMockProviders: true })).toEqual([]);
+	});
+
+	it('does not fire while EMAIL_DRYRUN=true (staging on mocks is the normal state)', () => {
+		const env = prodEnv();
+		env.CHAT_PROVIDER = 'mock';
+		env.COURIER_PROVIDER = 'mock';
+		expect(mockProviderProblems(launchCheckProblems(env, { target: 'node' }))).toEqual([]);
+	});
+});
+
+// Review 2026-09-05 #3: a production deploy that never flipped EMAIL_DRYRUN
+// takes paid orders and sends nothing — every send is a silent `dryrun` row.
+describe('launch:check dry-run email rule (FIX-18)', () => {
+	const dryRunProblems = (problems: string[]) => problems.filter((p) => /EMAIL_DRYRUN/.test(p));
+
+	it('the unmodified production fixture (EMAIL_DRYRUN=true) is a problem outside --dev', () => {
+		const problems = dryRunProblems(launchCheckProblems(prodEnv(), { target: 'node' }));
+		expect(problems).toHaveLength(1);
+		expect(problems[0]).toMatch(/EMAIL_DRYRUN.*true.*no email/i);
+		expect(problems[0]).toMatch(/--allow-mock-providers/);
+	});
+
+	it('an unset EMAIL_DRYRUN is the same silent state (the sender defaults to dry-run)', () => {
+		const env = prodEnv();
+		delete env.EMAIL_DRYRUN;
+		expect(dryRunProblems(launchCheckProblems(env, { target: 'node' }))).toHaveLength(1);
+	});
+
+	it('--allow-mock-providers acknowledges a dry-run rehearsal on purpose', () => {
+		expect(launchCheckProblems(prodEnv(), { target: 'node', allowMockProviders: true })).toEqual(
+			[]
+		);
+		expect(
+			launchCheckProblems(vercelEnv(), { target: 'vercel', allowMockProviders: true })
+		).toEqual([]);
+	});
+
+	it('is silent once the env is live (EMAIL_DRYRUN=false) and under --dev', () => {
+		const env = prodEnv();
+		liveEnv(env);
+		expect(dryRunProblems(launchCheckProblems(env, { target: 'node' }))).toEqual([]);
+		expect(dryRunProblems(launchCheckProblems(devEnv(), { target: 'node', dev: true }))).toEqual(
+			[]
+		);
+	});
+});
+
+describe('launch:check warnings (FIX-16)', () => {
+	it('a complete vercel env warns about nothing', () => {
+		expect(launchCheckWarnings(vercelEnv(), { target: 'vercel' })).toEqual([]);
+	});
+
+	it('warns on the vercel target without the neon driver (pg pools churn per function)', () => {
+		const env = vercelEnv();
+		delete env.DB_DRIVER;
+		expect(launchCheckWarnings(env, { target: 'vercel' })).toEqual([
+			expect.stringMatching(/DB_DRIVER is not neon on the vercel target/)
+		]);
+	});
+
+	it('warns on the neon driver with DB_POOL_MAX above 2', () => {
+		const env = { ...vercelEnv(), DB_POOL_MAX: '10' };
+		expect(launchCheckWarnings(env, { target: 'vercel' })).toEqual([
+			expect.stringMatching(/DB_POOL_MAX=10 with DB_DRIVER=neon/)
+		]);
+		expect(launchCheckWarnings({ ...vercelEnv(), DB_POOL_MAX: '2' }, { target: 'vercel' })).toEqual(
+			[]
+		);
+	});
+
+	it('warns when no error sink is configured outside --dev', () => {
+		const env = prodEnv();
+		expect(launchCheckWarnings(env, { target: 'node' })).toEqual([
+			expect.stringMatching(/ERROR_REPORT_URL is not set/)
+		]);
+		expect(launchCheckWarnings(env, { target: 'node', dev: true })).toEqual([]);
+	});
+
+	it('--dev still warns about a driver/target mismatch', () => {
+		const env = { ...vercelEnv(), DB_POOL_MAX: '5' };
+		expect(launchCheckWarnings(env, { target: 'vercel', dev: true })).toEqual([
+			expect.stringMatching(/DB_POOL_MAX=5 with DB_DRIVER=neon/)
+		]);
+	});
+});
+
 describe('launch:check rules', () => {
+	it('--dev accepts an empty STRIPE_SECRET_KEY (the mock gateway is the dev default)', () => {
+		const env = devEnv();
+		env.STRIPE_SECRET_KEY = '';
+		expect(launchCheckProblems(env, { target: 'node', dev: true })).toEqual([]);
+	});
+
+	// The fixtures rehearse on dry-run email (EMAIL_DRYRUN=true), which FIX-18
+	// makes a problem unless acknowledged — so these pass the acknowledgement
+	// and keep asserting that nothing ELSE is wrong with a complete env.
+	const acknowledged = { allowMockProviders: true } as const;
+
 	it('passes a complete prod-shaped env on the node target', () => {
-		expect(launchCheckProblems(prodEnv(), { target: 'node' })).toEqual([]);
+		expect(launchCheckProblems(prodEnv(), { target: 'node', ...acknowledged })).toEqual([]);
 	});
 
 	it('passes a complete prod-shaped env on the vercel target', () => {
-		expect(launchCheckProblems(vercelEnv(), { target: 'vercel' })).toEqual([]);
+		expect(launchCheckProblems(vercelEnv(), { target: 'vercel', ...acknowledged })).toEqual([]);
 	});
 
 	it('passes a complete imgproxy (self-hosted) prod env too', () => {
-		expect(launchCheckProblems(imgproxyProdEnv(), { target: 'node' })).toEqual([]);
+		expect(launchCheckProblems(imgproxyProdEnv(), { target: 'node', ...acknowledged })).toEqual([]);
+	});
+
+	it('an imgproxy deploy may derive the fiscal bucket (no public media origin)', () => {
+		const env = imgproxyProdEnv();
+		delete env.S3_INVOICE_BUCKET;
+		expect(launchCheckProblems(env, { target: 'node', ...acknowledged })).toEqual([]);
 	});
 
 	// BS-7: the live-provider rule family must accept a fully live env — the
@@ -342,14 +501,14 @@ describe('launch:check rules', () => {
 		expect(launchCheckProblems(env, { target: 'node' })).toEqual([]);
 	});
 
-	// BS-7: like the other conditional requirements, the live-provider rules
-	// hold even under --dev — EMAIL_DRYRUN=false is never a dev state.
-	it('--dev still enforces the live-provider rules when EMAIL_DRYRUN=false', () => {
+	// BS-8 (review H-4): like the other conditional requirements, the
+	// ADDRESS_HEADER rule holds even under --dev — EMAIL_DRYRUN=false is never
+	// a dev state.
+	it('--dev still enforces ADDRESS_HEADER on a live node env', () => {
 		const env = { ...devEnv(), EMAIL_DRYRUN: 'false', RESEND_API_KEY: 're_x' };
+		delete env.ADDRESS_HEADER;
 		const problems = launchCheckProblems(env, { target: 'node', dev: true });
-		expect(problems.join('\n')).toMatch(/STRIPE_SECRET_KEY is not set in a live env/);
-		expect(problems.join('\n')).toMatch(/CHAT_PROVIDER is "mock" in a live env/);
-		expect(problems.join('\n')).toMatch(/COURIER_PROVIDER is unset in a live env/);
+		expect(problems.join('\n')).toMatch(/ADDRESS_HEADER is not set in a live env/);
 	});
 
 	it.each(CASES)('flags $name', ({ target, base, mutate, message }) => {
@@ -494,5 +653,36 @@ describe('image probe (integration)', () => {
 
 	it('declines to probe when the storage credentials are incomplete', () => {
 		expect(imageProbeBlocker({ ...process.env, S3_BUCKET: '' })).toMatch(/S3_\* incomplete/);
+	});
+});
+
+// FIX-12 (audit P0 #4): whatever bucket is bound to the public media origin,
+// nothing under `invoices/` may be readable there. Locally the media bucket
+// IS public (the `direct` provider needs it), so the probe must report it —
+// proof that the probe detects a leak, not a green built on a private MinIO.
+describe('fiscal privacy probe (integration)', () => {
+	function probeEnv(overrides: Record<string, string | undefined> = {}) {
+		const origin = `${process.env.S3_ENDPOINT?.replace(/\/$/, '')}/${process.env.S3_BUCKET}`;
+		return { ...process.env, MEDIA_PUBLIC_BASE_URL: origin, ...overrides };
+	}
+
+	it('reports a public media origin that serves invoices/, and cleans up', async () => {
+		const problems = await probeFiscalPrivacy(probeEnv());
+		expect(problems.join('\n')).toMatch(/invoices\/.* is PUBLICLY readable/);
+		expect(problems.join('\n')).not.toMatch(/cleanup failed/);
+	}, 20_000);
+
+	it('reports an unreachable origin instead of throwing', async () => {
+		const problems = await probeFiscalPrivacy(
+			probeEnv({ MEDIA_PUBLIC_BASE_URL: 'http://localhost:1' })
+		);
+		expect(problems.join('\n')).toMatch(/is not reachable from here/);
+	}, 20_000);
+
+	it('declines to probe without a public media origin or storage credentials', () => {
+		expect(fiscalProbeBlocker({ ...process.env, MEDIA_PUBLIC_BASE_URL: '' })).toMatch(
+			/MEDIA_PUBLIC_BASE_URL is not set/
+		);
+		expect(fiscalProbeBlocker(probeEnv({ S3_BUCKET: '' }))).toMatch(/S3_\* incomplete/);
 	});
 });

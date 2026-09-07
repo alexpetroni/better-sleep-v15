@@ -3,9 +3,15 @@ import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
-import { createResendTransport } from './resend.ts';
+import { createResendTransport, EmailTransportError } from './resend.ts';
 import { emailLog } from './schema.ts';
-import { createEmailSender, shouldSkipResend, type EmailMessage } from './service.ts';
+import {
+	createEmailSender,
+	EMAIL_SENDING_STALE_MS,
+	shouldSkipResend,
+	type EmailMessage,
+	type SendEmailInput
+} from './service.ts';
 import { renderEmailTemplate } from './templates.ts';
 
 /** A fetch whose request never completes, but that honors its abort signal. */
@@ -65,6 +71,24 @@ describe('email templates', () => {
 		expect(rendered.text).toContain('Fă testul: https://example.ro/quiz/evaluare-somn');
 	});
 
+	it('the nurture template asks for RFC 8058 List-Unsubscribe headers; transactional templates do not', () => {
+		const nurture = renderEmailTemplate('nurture', {
+			siteName: 'S',
+			subject: 'Sub',
+			paragraphs: ['P'],
+			unsubscribeUrl: 'https://example.ro/unsubscribe/tok-123'
+		});
+		expect(nurture.headers).toEqual({
+			'List-Unsubscribe': '<https://example.ro/unsubscribe/tok-123>',
+			'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+		});
+		const confirm = renderEmailTemplate('newsletter-confirm', {
+			siteName: 'S',
+			confirmUrl: 'https://example.ro/c'
+		});
+		expect(confirm.headers).toBeUndefined();
+	});
+
 	it('escapes HTML in interpolated data', () => {
 		const rendered = renderEmailTemplate('newsletter-confirm', {
 			siteName: '<script>alert(1)</script>',
@@ -118,28 +142,143 @@ describe('email templates', () => {
 });
 
 describe('shouldSkipResend', () => {
-	it('treats delivered and in-flight rows as final in both modes', () => {
-		for (const dryRun of [true, false]) {
-			expect(shouldSkipResend('sent', { dryRun })).toBe(true);
-			expect(shouldSkipResend('sending', { dryRun })).toBe(true);
-		}
+	const now = new Date('2026-09-05T10:00:00Z');
+	const row = (status: 'sent' | 'dryrun' | 'sending' | 'error', ageMs = 0) => ({
+		status,
+		updatedAt: new Date(now.getTime() - ageMs)
 	});
 
-	it('a dry-run row is final only while the sender still runs dry (L-3)', () => {
-		expect(shouldSkipResend('dryrun', { dryRun: true })).toBe(true);
-		// Live mode: the dry-run row delivered nothing — send for real.
-		expect(shouldSkipResend('dryrun', { dryRun: false })).toBe(false);
+	it('treats delivered rows as final in both modes', () => {
+		expect(shouldSkipResend(row('sent'), { dryRun: true, now })).toBe(true);
+		expect(shouldSkipResend(row('sent'), { dryRun: false, now })).toBe(true);
+	});
+
+	it('treats a dry-run record as final only while the sender runs dry (audit: not a delivery)', () => {
+		expect(shouldSkipResend(row('dryrun'), { dryRun: true, now })).toBe(true);
+		expect(shouldSkipResend(row('dryrun'), { dryRun: false, now })).toBe(false);
+	});
+
+	it('treats an in-flight claim as final until it goes stale', () => {
+		expect(shouldSkipResend(row('sending'), { dryRun: false, now })).toBe(true);
+		// Ported from BS-10 (L-3): a fresh claim is final in dry-run mode too.
+		expect(shouldSkipResend(row('sending'), { dryRun: true, now })).toBe(true);
+		expect(
+			shouldSkipResend(row('sending', EMAIL_SENDING_STALE_MS - 1), { dryRun: false, now })
+		).toBe(true);
+		expect(shouldSkipResend(row('sending', EMAIL_SENDING_STALE_MS), { dryRun: false, now })).toBe(
+			false
+		);
 	});
 
 	it('allows retrying failed rows', () => {
-		expect(shouldSkipResend('error', { dryRun: true })).toBe(false);
-		expect(shouldSkipResend('error', { dryRun: false })).toBe(false);
+		expect(shouldSkipResend(row('error'), { dryRun: false, now })).toBe(false);
+		expect(shouldSkipResend(row('error'), { dryRun: true, now })).toBe(false);
 	});
 });
 
 // Audit Theme C (resilience #3): the Resend call must be bounded — a hung
 // socket used to pin the awaiting request forever (the shop webhook awaits
 // the send inline).
+describe('resend transport request shape', () => {
+	it('forwards the template headers to Resend', async () => {
+		const fetchFn = vi.fn<typeof fetch>(async () => Response.json({ id: 're_1' }));
+		const transport = createResendTransport('re_key_not_real', fetchFn);
+		await transport.send({
+			from: 'a@b.ro',
+			to: 'x@y.ro',
+			subject: 's',
+			html: '<p>h</p>',
+			text: 't',
+			idempotencyKey: 'shape-1',
+			headers: { 'List-Unsubscribe': '<https://example.ro/unsubscribe/t>' }
+		});
+		const body = JSON.parse(fetchFn.mock.calls[0][1]!.body as string);
+		expect(body.headers).toEqual({ 'List-Unsubscribe': '<https://example.ro/unsubscribe/t>' });
+	});
+
+	// Review 2026-09-05 #4: a timeout AFTER Resend accepted the message was
+	// retried as a brand-new request — a real duplicate customer email. The
+	// local email_log key travels as Resend's Idempotency-Key, so the retry of
+	// the same row is the same request to Resend.
+	it('sends the email_log key as Idempotency-Key, identical across a timeout retry', async () => {
+		let calls = 0;
+		const fetchFn = vi.fn<typeof fetch>((url, init) => {
+			calls += 1;
+			if (calls === 1) return hangingFetch(url, init);
+			return Promise.resolve(Response.json({ id: 're_accepted' }));
+		});
+		const transport = createResendTransport('re_key_not_real', fetchFn, 50);
+		const message: EmailMessage = {
+			from: 'a@b.ro',
+			to: 'x@y.ro',
+			subject: 'Comanda ta',
+			html: '<p>h</p>',
+			text: 't',
+			idempotencyKey: 'order-confirm:cs_abc'
+		};
+		await expect(transport.send(message)).rejects.toThrow(/timeout/i);
+		await expect(transport.send(message)).resolves.toEqual({ providerId: 're_accepted' });
+
+		const headerOf = (call: number) =>
+			(fetchFn.mock.calls[call][1]!.headers as Record<string, string>)['Idempotency-Key'];
+		expect(headerOf(0)).toBe('order-confirm:cs_abc');
+		expect(headerOf(1)).toBe('order-confirm:cs_abc');
+
+		await transport.send({ ...message, idempotencyKey: 'order-confirm:cs_def' });
+		expect(headerOf(2)).toBe('order-confirm:cs_def');
+		expect(headerOf(2)).not.toBe(headerOf(1));
+	}, 3_000);
+});
+
+// Audit 2026-09-03 P1: Resend errors were unclassified — a 403/422 (bad
+// key, rejected address) was retried 5× over ~21 h exactly like an outage.
+describe('resend transport error classification', () => {
+	const message: EmailMessage = {
+		from: 'a@b.ro',
+		to: 'x@y.ro',
+		subject: 's',
+		html: '<p>h</p>',
+		text: 't',
+		idempotencyKey: 'classify-1'
+	};
+	const respond = (status: number, body = `{"message":"status ${status}"}`) =>
+		(async () => new Response(body, { status })) as unknown as typeof fetch;
+
+	async function failure(fetchFn: typeof fetch) {
+		try {
+			await createResendTransport('re_key_not_real', fetchFn, 50).send(message);
+		} catch (err) {
+			return err as EmailTransportError;
+		}
+		throw new Error('expected the transport to throw');
+	}
+
+	it.each([429, 500, 502, 503])('%d is retryable (rate limit / outage)', async (status) => {
+		const err = await failure(respond(status));
+		expect(err).toBeInstanceOf(EmailTransportError);
+		expect(err.retryable).toBe(true);
+		expect(err.status).toBe(status);
+	});
+
+	it.each([400, 401, 403, 404, 422])('%d parks immediately, carrying the body', async (status) => {
+		const err = await failure(respond(status, `{"message":"why ${status}"}`));
+		expect(err).toBeInstanceOf(EmailTransportError);
+		expect(err.retryable).toBe(false);
+		expect(err.message).toContain(`why ${status}`);
+	});
+
+	it('a network failure and a timeout are retryable', async () => {
+		const network = await failure((async () => {
+			throw new TypeError('fetch failed');
+		}) as typeof fetch);
+		expect(network.retryable).toBe(true);
+		expect(network.message).toContain('fetch failed');
+		const timeout = await failure(hangingFetch);
+		expect(timeout.retryable).toBe(true);
+		expect(timeout.message).toMatch(/timeout/i);
+	});
+});
+
 describe('resend transport timeout', () => {
 	it('rejects when the API call exceeds the timeout instead of hanging (hung before the fix)', async () => {
 		const transport = createResendTransport('re_key_not_real', hangingFetch, 50);
@@ -149,7 +288,8 @@ describe('resend transport timeout', () => {
 				to: 'x@y.ro',
 				subject: 's',
 				html: '<p>h</p>',
-				text: 't'
+				text: 't',
+				idempotencyKey: 'timeout-1'
 			})
 		).rejects.toThrow(/timeout/i);
 	}, 3_000);
@@ -192,6 +332,17 @@ describe('sendEmail idempotency (integration)', () => {
 	async function rowsFor(key: string) {
 		return db.select().from(emailLog).where(eq(emailLog.idempotencyKey, key));
 	}
+
+	it('lowercases the recipient in the log row and toward the transport (GDPR erase match)', async () => {
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+
+		const outcome = await sender.send({ ...input('mixed-to-1'), to: 'MiXed.Case@Example.RO' });
+		expect(outcome.status).toBe('sent');
+		expect(transport.send.mock.calls[0][0].to).toBe('mixed.case@example.ro');
+		const rows = await rowsFor('mixed-to-1');
+		expect(rows[0].toEmail).toBe('mixed.case@example.ro');
+	});
 
 	it('dry-run records exactly one log row and NEVER calls the transport', async () => {
 		const transport = fakeTransport();
@@ -280,12 +431,162 @@ describe('sendEmail idempotency (integration)', () => {
 		expect(rows[0].error).toBeNull();
 	});
 
+	it('the error outcome carries the transport classification (unknown errors stay retryable)', async () => {
+		const parked = createEmailSender({
+			db,
+			dryRun: false,
+			from: 'a@b.ro',
+			transport: createResendTransport(
+				're_key_not_real',
+				(async () => new Response('{"message":"invalid to"}', { status: 422 })) as typeof fetch
+			)
+		});
+		const outcome = await parked.send(input('classify-422'));
+		expect(outcome).toMatchObject({ status: 'error', retryable: false });
+		expect((await rowsFor('classify-422'))[0].error).toContain('invalid to');
+
+		const generic = createEmailSender({
+			db,
+			dryRun: false,
+			from: 'a@b.ro',
+			transport: fakeTransport(async () => {
+				throw new Error('boom');
+			})
+		});
+		expect(await generic.send(input('classify-generic'))).toMatchObject({
+			status: 'error',
+			retryable: true
+		});
+	});
+
 	it('missing transport in real mode records an error instead of throwing', async () => {
 		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro' });
 		const outcome = await sender.send(input('no-transport-1'));
 		expect(outcome.status).toBe('error');
 		expect((await rowsFor('no-transport-1'))[0].status).toBe('error');
 	});
+
+	it('records the template headers on the log row and hands them to the transport', async () => {
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		const nurture: SendEmailInput<'nurture'> = {
+			to: 'test@example.com',
+			template: 'nurture',
+			data: {
+				siteName: 'S',
+				subject: 'Sub',
+				paragraphs: ['P'],
+				unsubscribeUrl: 'https://example.ro/unsubscribe/tok-h'
+			},
+			idempotencyKey: 'headers-1'
+		};
+		expect((await sender.send(nurture)).status).toBe('sent');
+		const expected = {
+			'List-Unsubscribe': '<https://example.ro/unsubscribe/tok-h>',
+			'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+		};
+		expect(transport.send.mock.calls[0][0].headers).toEqual(expected);
+		expect((await rowsFor('headers-1'))[0].headers).toEqual(expected);
+
+		// The dry-run record carries them too (the pre-launch soak shows what would go out).
+		const dry = createEmailSender({ db, dryRun: true, from: 'a@b.ro' });
+		await dry.send({ ...nurture, idempotencyKey: 'headers-dry-1' });
+		expect((await rowsFor('headers-dry-1'))[0].headers).toEqual(expected);
+	});
+
+	// Audit 2026-09-03 P1 "Email, CRM & nurture": `dryrun` and `sending` rows
+	// were final forever. The documented dry-run soak (EMAIL_DRYRUN=true until
+	// DNS is verified) burned every confirm/nurture key it touched — after the
+	// flip to live the same key came back `skipped` and nothing went out.
+	it('a key recorded under dry-run is delivered once the sender runs live (skipped before the fix)', async () => {
+		const dry = createEmailSender({ db, dryRun: true, from: 'a@b.ro' });
+		expect((await dry.send(input('soak-1'))).status).toBe('dryrun');
+
+		const transport = fakeTransport();
+		const live = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		const outcome = await live.send(input('soak-1'));
+		expect(outcome.status).toBe('sent');
+		expect(transport.send).toHaveBeenCalledTimes(1);
+		const rows = await rowsFor('soak-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('sent');
+
+		// …and a later dry-run pass over a DELIVERED key still never re-sends.
+		expect((await dry.send(input('soak-1'))).status).toBe('skipped');
+		expect((await rowsFor('soak-1'))[0].status).toBe('sent');
+	});
+
+	// A serverless kill between the `sending` claim and the transport left the
+	// row stuck forever: no retry could ever reclaim it.
+	it('a `sending` row older than the staleness window is re-sent exactly once under two concurrent callers', async () => {
+		await db.insert(emailLog).values({
+			id: 'stale-sending-1',
+			idempotencyKey: 'stale-1',
+			toEmail: 'test@example.com',
+			template: 'newsletter-confirm',
+			subject: 's',
+			data: {},
+			status: 'sending',
+			createdAt: new Date(Date.now() - 11 * 60 * 1000),
+			updatedAt: new Date(Date.now() - 11 * 60 * 1000)
+		});
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		const outcomes = await Promise.all([
+			sender.send(input('stale-1')),
+			sender.send(input('stale-1'))
+		]);
+		expect(outcomes.map((o) => o.status).sort()).toEqual(['sent', 'skipped']);
+		expect(transport.send).toHaveBeenCalledTimes(1);
+		const rows = await rowsFor('stale-1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0].status).toBe('sent');
+	});
+
+	it('a FRESH `sending` row (delivery in flight elsewhere) is not re-sent', async () => {
+		await db.insert(emailLog).values({
+			id: 'fresh-sending-1',
+			idempotencyKey: 'fresh-1',
+			toEmail: 'test@example.com',
+			template: 'newsletter-confirm',
+			subject: 's',
+			data: {},
+			status: 'sending'
+		});
+		const transport = fakeTransport();
+		const sender = createEmailSender({ db, dryRun: false, from: 'a@b.ro', transport });
+		expect((await sender.send(input('fresh-1'))).status).toBe('skipped');
+		expect(transport.send).not.toHaveBeenCalled();
+		expect((await rowsFor('fresh-1'))[0].status).toBe('sending');
+	});
+
+	it('the retry of a timed-out row repeats the SAME Idempotency-Key to Resend (a duplicate before the fix)', async () => {
+		let calls = 0;
+		const fetchFn = vi.fn<typeof fetch>((url, init) => {
+			calls += 1;
+			if (calls === 1) return hangingFetch(url, init);
+			return Promise.resolve(Response.json({ id: 're_accepted' }));
+		});
+		const sender = createEmailSender({
+			db,
+			dryRun: false,
+			from: 'a@b.ro',
+			transport: createResendTransport('re_key_not_real', fetchFn, 50)
+		});
+		// Resend accepted the first request but the socket timed out on our side…
+		expect((await sender.send(input('idem-retry-1'))).status).toBe('error');
+		// …so the next drain tick retries the same email_log row.
+		expect((await sender.send(input('idem-retry-1'))).status).toBe('sent');
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+		const keys = fetchFn.mock.calls.map(
+			(call) => (call[1]!.headers as Record<string, string>)['Idempotency-Key']
+		);
+		expect(keys).toEqual(['idem-retry-1', 'idem-retry-1']);
+		expect((await rowsFor('idem-retry-1'))[0]).toMatchObject({
+			status: 'sent',
+			providerId: 're_accepted'
+		});
+	}, 3_000);
 
 	it('a hung Resend socket becomes a retryable error row, not a pinned request (hung before the fix)', async () => {
 		const sender = createEmailSender({

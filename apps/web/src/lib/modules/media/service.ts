@@ -1,13 +1,34 @@
-import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
-import { imageSize } from 'image-size';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { disableTypes, imageSize, types as imageSizeTypes } from 'image-size';
 import type { Db } from '../../db/client.ts';
 import type { Result as ResultOf } from '../../util/result.ts';
 import { blurhashFromPng, BLURHASH_SOURCE_PX } from './blurhash.ts';
 import type { ImageProvider } from './image.ts';
 import { media, type MediaRow, type VideoProvider } from './schema.ts';
 import type { Storage } from './storage.ts';
-import { looksLikeSvg, sanitizeSvg } from './svg.ts';
-import { isAllowedImageMime, mediaKeyFor, validateUpload } from './validation.ts';
+import { finalizeMediaObject } from '../../server/media-objects.ts';
+import {
+	isAllowedImageMime,
+	mediaKeyFor,
+	PENDING_PREFIX,
+	pendingKeyFor,
+	validateUpload,
+	type AllowedImageMime
+} from './validation.ts';
+
+/**
+ * image-size formats the upload gate can actually admit (`ALLOWED_IMAGE_MIMES`:
+ * jpg/png/webp/avif/gif/svg — avif is image-size's `heif` family). Every other
+ * parser is switched off up front (FIX-18, review 2026-09-05 #5): image-size
+ * ≤ 2.0.2 carries unpatched infinite-loop advisories in its ICNS, JXL and HEIF
+ * parsers (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq; no fixed release is
+ * published) and detection goes by magic bytes, not by the declared mime — so a
+ * crafted ICNS/JXL body behind an `image/png` content type would otherwise
+ * reach the vulnerable parser. HEIF stays on because avif uploads need it;
+ * that residual exposure is recorded in docs/STATE.md.
+ */
+const IMAGE_SIZE_TYPES_IN_USE = new Set(['jpg', 'png', 'webp', 'heif', 'gif', 'svg']);
+disableTypes(imageSizeTypes.filter((type) => !IMAGE_SIZE_TYPES_IN_USE.has(type)));
 
 /**
  * Media service. Framework-free: deps (db + storage) are passed in so the
@@ -49,11 +70,18 @@ export interface MediaDeleteDeps extends MediaDeps {
 }
 
 export interface UploadTicket {
+	/** Quarantine key (`pending/…`) — the served key is decided at confirm. */
 	key: string;
 	uploadUrl: string;
 }
 
-/** Step 1 of an upload: validate the declared file and presign a direct PUT. */
+/**
+ * Step 1 of an upload: validate the declared file and presign a direct PUT
+ * into the quarantine prefix. The public origin never serves `pending/`
+ * (bucket policy locally, edge rule on R2), so whatever the browser — or
+ * anyone holding the URL for its 10-minute lifetime — puts there is inert
+ * until confirm produces the served object from it.
+ */
 export async function requestUpload(
 	deps: MediaDeps,
 	input: { filename: string; mime: string; size: number }
@@ -62,18 +90,18 @@ export async function requestUpload(
 	if (!validation.ok) {
 		return { ok: false, error: validation.reason === 'mime' ? 'invalid-mime' : 'invalid-size' };
 	}
-	const key = mediaKeyFor(input.filename, validation.mime, {
-		now: new Date(),
-		id: crypto.randomUUID()
-	});
+	const key = pendingKeyFor(validation.mime, crypto.randomUUID());
 	const uploadUrl = await deps.storage.presignPut(key, validation.mime, input.size);
 	return { ok: true, value: { key, uploadUrl } };
 }
 
 /**
- * Step 2, after the browser PUT succeeded: verify the object really landed
- * (size/mime enforced by the presigned signature, re-checked here), read its
- * dimensions server-side and record the row.
+ * Step 2, after the browser PUT into quarantine succeeded: verify the object
+ * really landed (size/mime enforced by the presigned signature, re-checked
+ * here), read its dimensions server-side, PRODUCE the served object under a
+ * fresh `uploads/` key (`finalizeMediaObject`), delete the quarantined one
+ * and record the row. The presigned URL stays valid for a while, but it now
+ * only ever writes to the quarantine key nobody serves or reads again.
  *
  * Deliberately not transactional (audit Theme B): storage is external, so the
  * only DB write is the single row insert. A failure here strands an orphan
@@ -84,6 +112,12 @@ export async function confirmUpload(
 	deps: MediaDeps,
 	input: { key: string; filename: string; alt?: string; createdBy: string }
 ): Promise<Result<MediaRow>> {
+	// Only a quarantine key may be confirmed (FIX-17): confirm copies the key
+	// it is handed and then DELETES it, so a served `uploads/…` key here would
+	// remove an object an existing row points at.
+	if (!input.key.startsWith(PENDING_PREFIX)) {
+		return { ok: false, error: 'not-found', detail: 'not a pending upload' };
+	}
 	const stat = await deps.storage.statObject(input.key);
 	if (!stat) return { ok: false, error: 'not-found', detail: 'object not in storage' };
 	if (!stat.mime || !isAllowedImageMime(stat.mime)) return { ok: false, error: 'invalid-mime' };
@@ -91,10 +125,13 @@ export async function confirmUpload(
 	if (!validation.ok) {
 		return { ok: false, error: validation.reason === 'mime' ? 'invalid-mime' : 'invalid-size' };
 	}
+	const mime: AllowedImageMime = validation.mime;
 
+	// Originals are ≤ 15 MB: one read serves both the dimension probe and
+	// (for SVGs) the sanitizer.
+	const bytes = await deps.storage.getObjectBytes(input.key);
 	let dimensions: { width: number | null; height: number | null } = { width: null, height: null };
 	try {
-		const bytes = await deps.storage.getObjectBytes(input.key);
 		const size = imageSize(bytes);
 		if (size.width && size.height) {
 			dimensions = { width: Math.round(size.width), height: Math.round(size.height) };
@@ -103,32 +140,20 @@ export async function confirmUpload(
 		// Undetectable dimensions (e.g. an SVG without width/viewBox) are not fatal.
 	}
 
-	// SVGs are active content and no provider rasterizes them, so they are
-	// neutralized here — ONCE, at rest — rather than on every serve (audit M1).
-	// imgproxy used to do both halves on the way out; Cloudflare and direct
-	// hand the stored object to the browser untouched, so the stored object is
-	// what has to be safe:
-	//   1. scripts/handlers/remote refs stripped, and the clean bytes written
-	//      back over the original — the dangerous version stops existing;
-	//   2. `Content-Disposition: attachment`, so even a sanitizer miss
-	//      downloads instead of executing on the media origin.
-	if (stat.mime === 'image/svg+xml') {
-		try {
-			const source = new TextDecoder().decode(await deps.storage.getObjectBytes(input.key));
-			const clean = looksLikeSvg(source) ? sanitizeSvg(source) : '';
-			if (clean) await deps.storage.putObject(input.key, clean, stat.mime);
-			await deps.storage.setContentDisposition(input.key, 'attachment');
-		} catch {
-			// Non-fatal for the row, but the object may still be dangerous — the
-			// attachment header is the layer that holds either way, and a failed
-			// re-upload leaves the original in place rather than a corrupt one.
-		}
-	}
+	const key = mediaKeyFor(input.filename, mime, { now: new Date(), id: crypto.randomUUID() });
+	const outcome = await finalizeMediaObject(
+		deps.storage,
+		key,
+		mime,
+		mime === 'image/svg+xml' ? { bytes } : { pendingKey: input.key }
+	);
+	if (outcome === 'not-svg') return { ok: false, error: 'invalid-mime', detail: 'not an SVG' };
+	await deps.storage.deleteObject(input.key);
 
 	let blurhash: string | null = null;
-	if (deps.images?.transforms && stat.mime !== 'image/svg+xml') {
+	if (deps.images?.transforms && mime !== 'image/svg+xml') {
 		try {
-			blurhash = await computeBlurhash(deps.images, input.key);
+			blurhash = await computeBlurhash(deps.images, key);
 		} catch {
 			// Non-fatal: a corrupt or undecodable upload still confirms (the row
 			// just has no placeholder) and `pnpm media:blurhash` can retry later.
@@ -140,9 +165,9 @@ export async function confirmUpload(
 		.values({
 			id: crypto.randomUUID(),
 			kind: 'image',
-			key: input.key,
+			key,
 			filename: input.filename,
-			mime: stat.mime,
+			mime,
 			size: stat.size,
 			width: dimensions.width,
 			height: dimensions.height,
@@ -242,8 +267,32 @@ export async function createVideoEmbed(
 	return row;
 }
 
-export function listMedia(deps: Pick<MediaDeps, 'db'>): Promise<MediaRow[]> {
-	return deps.db.select().from(media).orderBy(desc(media.createdAt), desc(media.id));
+/** Rows per page in the admin library and the picker (FIX-15: no more unbounded reads). */
+export const MEDIA_PAGE_SIZE = 48;
+
+export interface MediaPage {
+	items: MediaRow[];
+	total: number;
+	page: number;
+	pageSize: number;
+	pageCount: number;
+}
+
+/** One page of the library, newest first. A page past the end is empty, not an error. */
+export async function listMedia(
+	deps: Pick<MediaDeps, 'db'>,
+	opts: { page?: number; pageSize?: number } = {}
+): Promise<MediaPage> {
+	const pageSize = opts.pageSize ?? MEDIA_PAGE_SIZE;
+	const page = Math.max(1, opts.page ?? 1);
+	const [{ total }] = await deps.db.select({ total: sql<number>`count(*)::int` }).from(media);
+	const items = await deps.db
+		.select()
+		.from(media)
+		.orderBy(desc(media.createdAt), desc(media.id))
+		.limit(pageSize)
+		.offset((page - 1) * pageSize);
+	return { items, total, page, pageSize, pageCount: Math.ceil(total / pageSize) };
 }
 
 export async function getMedia(deps: Pick<MediaDeps, 'db'>, id: string): Promise<MediaRow | null> {

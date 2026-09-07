@@ -5,6 +5,7 @@ import type { ImageSources } from '$lib/modules/media';
 import { imgSources } from '$lib/modules/media/server';
 import { canonicalUrl } from '$lib/seo';
 import { getSite } from '$lib/server/site';
+import { parsePageParam, pastLastPage } from '$lib/util/page';
 import type { PageServerLoad } from './$types';
 
 export interface BlogCard {
@@ -17,11 +18,10 @@ export interface BlogCard {
 
 export const load: PageServerLoad = async ({ url }) => {
 	const site = getSite();
-	const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+	const page = parsePageParam(url.searchParams.get('page'));
 	const list = await listPublished({ db: getDb() }, { pillarSlugs: site.pillars, page });
-	// A page past the archive is a 404, not a 200 with "no articles yet" copy
-	// and a self-canonical (L-8 — a soft-404 crawlers would keep indexing).
-	if (list.total > 0 && page > list.pageCount) error(404);
+	// Past the end is not a page: 404 instead of an empty listing with its own canonical.
+	if (pastLastPage(page, list.pageCount)) error(404);
 
 	const cards: BlogCard[] = list.items.map(({ article, cover }) => ({
 		slug: article.slug,

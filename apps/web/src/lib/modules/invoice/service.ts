@@ -1,12 +1,32 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import type { DbTx } from '../../server/event-ledger/core.ts';
+import { displayCui, isValidCui } from '../../util/cui.ts';
 import type { Result } from '../../util/result.ts';
-import { isSettingsPlaceholder, loadSettings } from '$lib/modules/settings/server';
+import {
+	BUCHAREST_COUNTY_CODE,
+	ROMANIA_COUNTRY_CODE,
+	roCountyCodeFor,
+	roCountyName
+} from '../../util/ro-counties.ts';
+import { parseVatRateSchedule, standardVatRateAt } from '../../util/vat-rates.ts';
+import {
+	isSettingsPlaceholder,
+	loadSettings,
+	settingsConsistencyProblems
+} from '$lib/modules/settings/server';
 import type { SettingKey, SiteSettings } from '../settings/registry.ts';
 import { orderEvents, orderItems, orders, type OrderRow } from '../shop/schema.ts';
+import { invoiceDateIso } from './model.ts';
 import { invoiceLines, invoices, invoiceSeries, type InvoiceRow } from './schema.ts';
-import { computeLineAmounts, sumAmounts } from './vat.ts';
+import { recordPendingSubmissionInTx } from './submissions.ts';
+import {
+	computeLineAmounts,
+	partialStornoLineAmounts,
+	splitAmountByGross,
+	sumAmounts,
+	type VatAmounts
+} from './vat.ts';
 
 /**
  * Invoice issuance: the only writer of the fiscal record. Everything here runs
@@ -27,7 +47,11 @@ export type InvoiceError =
 	/** Issuer settings unset or still the seeded placeholder — detail lists the keys. */
 	| 'settings-incomplete'
 	/** Refund arrived but there is no original invoice to reverse. */
-	| 'no-invoice-to-reverse';
+	| 'no-invoice-to-reverse'
+	/** Nothing left to reverse: the refunded amount is already fully storno'd. */
+	| 'nothing-to-storno'
+	/** The requested storno would reverse more than the original invoice. */
+	| 'storno-exceeds-original';
 
 export type InvoiceResult<T> = Result<T, InvoiceError>;
 
@@ -42,14 +66,25 @@ export interface InvoiceItemInput {
 	name: string;
 	qty: number;
 	priceCents: number;
+	/** The product's VAT rate (bp) at checkout; null/absent = the standard rate on the order date. */
+	vatRateBp?: number | null;
 }
 
-/** Issuer settings that must be genuinely filled in before issuing. */
+/**
+ * Issuer settings that must be genuinely filled in before issuing: the
+ * legal identification and the STRUCTURED seat (CIUS-RO refuses a Romanian
+ * seller address without street / city / county code / postal code). The
+ * public display address (`company.address`) and the share capital are
+ * launch-required but not issuance-required — a PFA has no capital.
+ */
 export const REQUIRED_ISSUER_SETTINGS: readonly SettingKey[] = [
 	'company.legalName',
 	'company.cui',
 	'company.regCom',
-	'company.address',
+	'company.street',
+	'company.city',
+	'company.county',
+	'company.postalCode',
 	'invoice.seriesPrefix'
 ];
 
@@ -60,8 +95,34 @@ function settingText(settings: SiteSettings, key: SettingKey): string {
 	return value.trim();
 }
 
-export function missingIssuerSettings(settings: SiteSettings): SettingKey[] {
-	return REQUIRED_ISSUER_SETTINGS.filter((key) => settingText(settings, key) === '');
+/**
+ * A reason issuance must refuse: a required key that is unset/placeholder
+ * (the bare key), or a key whose value cannot go on an invoice, written as
+ * `key (reason)` — the CUI failing its checksum, the RO prefix contradicting
+ * `company.vatRegistered` (the same cross-key rule launch:check applies),
+ * an unparseable standard-rate schedule. Joined into the `settings-incomplete`
+ * detail, so the order's trail names exactly what to fix.
+ */
+export type IssuerSettingsProblem = SettingKey | `${SettingKey} (${string})`;
+
+export function missingIssuerSettings(settings: SiteSettings): IssuerSettingsProblem[] {
+	const problems: IssuerSettingsProblem[] = REQUIRED_ISSUER_SETTINGS.filter(
+		(key) => settingText(settings, key) === ''
+	);
+	const cui = settingText(settings, 'company.cui');
+	if (cui && !isValidCui(cui)) problems.push('company.cui (invalid checksum)');
+	for (const problem of settingsConsistencyProblems(settings)) {
+		problems.push(`${problem.key} (${problem.code})`);
+	}
+	// The schedule is only consulted for a VAT-registered issuer; an
+	// unregistered one invoices at 0 % whatever it says.
+	if (
+		settings['company.vatRegistered'] &&
+		!parseVatRateSchedule(settings['invoice.vatStandardRates'])
+	) {
+		problems.push('invoice.vatStandardRates (invalid schedule)');
+	}
+	return problems;
 }
 
 /**
@@ -81,6 +142,13 @@ async function appendFiscalOrderEvent(
 /** `BSL`, 42 → `BSL-0042` (numbers past 9999 simply stop padding). */
 export function composeDisplayNumber(series: string, number: number): string {
 	return `${series}-${String(number).padStart(4, '0')}`;
+}
+
+/** 2100 → `21%`, 1950 → `19,5%` — the label of a storno line's rate. */
+function bpToPercentLabel(rateBp: number): string {
+	const whole = Math.trunc(rateBp / 100);
+	const frac = rateBp % 100;
+	return frac === 0 ? `${whole}%` : `${whole},${String(frac).padStart(2, '0').replace(/0$/, '')}%`;
 }
 
 /**
@@ -114,18 +182,78 @@ export function shippingLineDescription(order: Pick<OrderRow, 'shippingName'>): 
 	return order.shippingName ? `Transport — ${order.shippingName}` : 'Transport';
 }
 
-/** The order's shipping snapshot flattened to one printable address string. */
-function buyerAddressFromOrder(order: OrderRow): string {
-	const a = order.shippingAddress;
-	if (!a) return '';
+/** The structured postal address the snapshot stores for each party. */
+export interface PostalAddressSnapshot {
+	street: string;
+	city: string;
+	/** ISO 3166-2:RO code, or '' when unknown. */
+	county: string;
+	postalCode: string;
+	/** ISO 3166-1 alpha-2. */
+	country: string;
+}
+
+/**
+ * The printable form of a structured address (the `issuer_address` /
+ * `buyer_address` columns, what the PDF prints): street, then postal code +
+ * city, then the county's name. Country omitted — the platform sells
+ * domestically and the XML carries the code separately.
+ */
+export function composePostalAddress(address: PostalAddressSnapshot): string {
 	return [
-		a.line1,
-		a.line2,
-		[a.postalCode, a.city].filter(Boolean).join(' '),
-		[a.state, a.country].filter(Boolean).join(', ')
+		address.street,
+		[address.postalCode, address.city].filter(Boolean).join(' '),
+		roCountyName(address.county) ?? address.county
 	]
-		.filter((part): part is string => !!part && part.length > 0)
+		.filter((part) => part.length > 0)
 		.join('\n');
+}
+
+/**
+ * The buyer's address: the company seat entered at checkout for B2B (the
+ * invoice names the company, not the parcel), else the Stripe shipping
+ * address with the free-text county mapped to its ISO code — a București
+ * city implies RO-B when Stripe sent no county at all.
+ */
+export function buyerAddressFromOrder(order: OrderRow): PostalAddressSnapshot {
+	const seat = order.billingCompany?.address;
+	if (seat) {
+		return {
+			street: seat.street,
+			city: seat.city,
+			county: seat.county,
+			postalCode: seat.postalCode,
+			country: ROMANIA_COUNTRY_CODE
+		};
+	}
+	const a = order.shippingAddress;
+	if (!a) return { street: '', city: '', county: '', postalCode: '', country: '' };
+	const county =
+		roCountyCodeFor(a.state ?? '') ??
+		(roCountyCodeFor(a.city ?? '') === BUCHAREST_COUNTY_CODE ? BUCHAREST_COUNTY_CODE : '');
+	return {
+		street: [a.line1, a.line2].filter((part): part is string => !!part).join(', '),
+		city: a.city ?? '',
+		county,
+		postalCode: a.postalCode ?? '',
+		country: (a.country ?? ROMANIA_COUNTRY_CODE).toUpperCase()
+	};
+}
+
+/**
+ * When the order was settled: the `payment-succeeded` event for a delayed
+ * method, else the order's creation (a card session is paid when it
+ * completes). Null while the order is not paid.
+ */
+async function paymentDateFor(tx: DbTx, order: OrderRow): Promise<Date | null> {
+	if (order.status !== 'paid' && order.status !== 'refunded') return null;
+	const [settled] = await tx
+		.select({ createdAt: orderEvents.createdAt })
+		.from(orderEvents)
+		.where(and(eq(orderEvents.orderId, order.id), eq(orderEvents.kind, 'payment-succeeded')))
+		.orderBy(desc(orderEvents.createdAt))
+		.limit(1);
+	return settled?.createdAt ?? order.createdAt;
 }
 
 /**
@@ -160,10 +288,18 @@ export async function issueInvoiceForOrderInTx(
 	}
 
 	const vatRegistered = settings['company.vatRegistered'];
-	const vatRateBp = vatRegistered ? settings['invoice.vatRateBp'] : 0;
-	// Shipping is its own VAT-bearing line (same rate as the goods — transport
-	// follows the main supply), so the invoice gross equals EXACTLY what Stripe
-	// charged: goods + shipping. Free shipping (0) adds no line.
+	// The standard rate in force on the ORDER date (chargeability), never
+	// "today": a retry after a rate change invoices the order at its own rate.
+	// `missingIssuerSettings` already refused an unparseable schedule.
+	const standardRateBp = vatRegistered
+		? standardVatRateAt(
+				parseVatRateSchedule(settings['invoice.vatStandardRates'])!,
+				invoiceDateIso(order.createdAt)
+			)
+		: 0;
+	// Shipping is its own VAT-bearing line at the standard rate (transport
+	// follows the main supply), so the invoice gross equals EXACTLY what
+	// Stripe charged: goods + shipping. Free shipping (0) adds no line.
 	const invoiceItems: InvoiceItemInput[] =
 		order.shippingCents > 0
 			? [
@@ -171,20 +307,37 @@ export async function issueInvoiceForOrderInTx(
 					{ name: shippingLineDescription(order), qty: 1, priceCents: order.shippingCents }
 				]
 			: [...items];
-	const lineAmounts = invoiceItems.map((item) =>
-		computeLineAmounts({ qty: item.qty, unitPriceCents: item.priceCents, vatRateBp })
+	// Per line: the product's snapshotted rate, else the standard one; an
+	// unregistered issuer is 0 % throughout.
+	const lineRates = invoiceItems.map((item) =>
+		vatRegistered ? (item.vatRateBp ?? standardRateBp) : 0
+	);
+	const lineAmounts = invoiceItems.map((item, i) =>
+		computeLineAmounts({ qty: item.qty, unitPriceCents: item.priceCents, vatRateBp: lineRates[i] })
 	);
 	const totals = sumAmounts(lineAmounts);
 
 	const series = settingText(settings, 'invoice.seriesPrefix');
 	const number = await allocateInvoiceNumber(tx, series, settings['invoice.nextNumber']);
 
-	const mentions = [
-		vatRegistered ? '' : settingText(settings, 'invoice.vatUnregisteredMention'),
-		settingText(settings, 'invoice.paymentTermsNote')
-	]
+	// BT-120 lives in its own column so the payment-terms note (also a
+	// mention) can never be mistaken for the exemption reason.
+	const vatExemptionReason = vatRegistered
+		? ''
+		: settingText(settings, 'invoice.vatUnregisteredMention') || 'Neplătitor de TVA';
+	const mentions = [vatExemptionReason, settingText(settings, 'invoice.paymentTermsNote')]
 		.filter(Boolean)
 		.join('\n');
+
+	const issuerAddress: PostalAddressSnapshot = {
+		street: settingText(settings, 'company.street'),
+		city: settingText(settings, 'company.city'),
+		county: settingText(settings, 'company.county'),
+		postalCode: settingText(settings, 'company.postalCode'),
+		country: ROMANIA_COUNTRY_CODE
+	};
+	const buyerAddress = buyerAddressFromOrder(order);
+	const paidAt = await paymentDateFor(tx, order);
 
 	const issuedAt = new Date();
 	const [invoice] = await tx
@@ -201,25 +354,49 @@ export async function issueInvoiceForOrderInTx(
 			dueAt: issuedAt,
 			currency: order.currency,
 			issuerName: settingText(settings, 'company.legalName'),
-			issuerCui: settingText(settings, 'company.cui'),
+			// Display form: uppercase, RO prefix exactly when registered.
+			issuerCui: displayCui(settingText(settings, 'company.cui'), vatRegistered),
 			issuerVatRegistered: vatRegistered,
 			issuerRegCom: settingText(settings, 'company.regCom'),
-			issuerAddress: settingText(settings, 'company.address'),
+			issuerAddress: composePostalAddress(issuerAddress),
+			issuerStreet: issuerAddress.street,
+			issuerCity: issuerAddress.city,
+			issuerCounty: issuerAddress.county,
+			issuerPostalCode: issuerAddress.postalCode,
+			issuerCountry: issuerAddress.country,
+			issuerCapital: settingText(settings, 'company.shareCapital'),
 			issuerPlace: settingText(settings, 'invoice.issuerPlace'),
 			issuerEmail: settingText(settings, 'company.contactEmail'),
 			issuerPhone: settingText(settings, 'company.contactPhone'),
 			issuerIban: settingText(settings, 'company.iban'),
 			issuerBank: settingText(settings, 'company.bank'),
-			buyerName: order.billingCompany?.name ?? order.shippingAddress?.name ?? order.email ?? '',
+			// B2C: the PAYER (Stripe's customer_details.name), then the parcel
+			// recipient, then the email — never the recipient over the payer.
+			buyerName:
+				order.billingCompany?.name ||
+				order.customerName ||
+				order.shippingAddress?.name ||
+				order.email ||
+				'',
 			buyerEmail: order.email,
-			buyerAddress: buyerAddressFromOrder(order),
+			buyerAddress: composePostalAddress(buyerAddress),
+			buyerStreet: buyerAddress.street,
+			buyerCity: buyerAddress.city,
+			buyerCounty: buyerAddress.county,
+			buyerPostalCode: buyerAddress.postalCode,
+			buyerCountry: buyerAddress.country,
 			buyerCompanyName: order.billingCompany?.name ?? null,
 			buyerCompanyCui: order.billingCompany?.cui ?? null,
 			buyerCompanyRegCom: order.billingCompany?.regCom ?? null,
 			netTotalCents: totals.netCents,
 			vatTotalCents: totals.vatCents,
 			grossTotalCents: totals.grossCents,
-			mentions
+			mentions,
+			vatExemptionReason,
+			orderReference: order.id,
+			paymentReference: order.stripePaymentIntent ?? '',
+			paymentMethod: order.paymentMethod,
+			paidAt
 		})
 		.returning();
 
@@ -232,12 +409,14 @@ export async function issueInvoiceForOrderInTx(
 				description: item.name,
 				qty: item.qty,
 				unitPriceCents: item.priceCents,
-				vatRateBp,
+				vatRateBp: lineRates[i],
 				...lineAmounts[i]
 			}))
 		);
 	}
 
+	// Queued for ANAF in the same transaction as the document (FIX-12).
+	await recordPendingSubmissionInTx(tx, invoice.id);
 	await appendFiscalOrderEvent(tx, {
 		orderId: order.id,
 		kind: 'invoice-issued',
@@ -249,27 +428,134 @@ export async function issueInvoiceForOrderInTx(
 }
 
 /**
- * Issue the storno (reversal) for a refunded order's invoice. The original is
- * never touched: the storno is a NEW document with its own number in the same
- * series, whose lines negate the original's STORED amounts (no recomputation
- * — the reversal is exact by construction). Idempotent per original invoice.
+ * The order's original invoice, row-locked for the rest of the caller's
+ * transaction. `SELECT … FOR UPDATE` only locks — it fires no trigger, so the
+ * append-only rule is untouched — and it is what serializes concurrent
+ * stornos of one invoice: the sum check below reads a stable total.
+ */
+async function lockOriginalInvoice(tx: DbTx, orderId: string): Promise<InvoiceRow | undefined> {
+	const [original] = await tx
+		.select()
+		.from(invoices)
+		.where(and(eq(invoices.orderId, orderId), eq(invoices.kind, 'invoice')))
+		.for('update');
+	return original;
+}
+
+/** What the stornos of `originalId` already reverse, as a POSITIVE amount in bani. */
+export async function reversedCentsFor(executor: Db | DbTx, originalId: string): Promise<number> {
+	const [row] = await executor
+		.select({ total: sql<number>`coalesce(sum(-${invoices.grossTotalCents}), 0)::int` })
+		.from(invoices)
+		.where(eq(invoices.stornoOfInvoiceId, originalId));
+	return Number(row?.total ?? 0);
+}
+
+type StornoLineInput = Omit<typeof invoiceLines.$inferInsert, 'id' | 'invoiceId'>;
+
+/**
+ * Issue a storno (reversal) of the order's invoice inside the caller's
+ * transaction. The original is never touched: the storno is a NEW document
+ * with its own number in the same series, referencing the original.
+ *
+ * Without `grossCents` it reverses whatever is still unreversed — the whole
+ * invoice when nothing was storno'd before (lines negate the original's
+ * STORED amounts: no recomputation, exact by construction), or the remainder
+ * after earlier partial stornos. With `grossCents` it reverses exactly that
+ * amount (a partial refund). Either way a storno is a single negative line
+ * at the original rate when it is not the full negation, and the stornos of
+ * one invoice can never exceed it — checked here under the original's row
+ * lock and, as the backstop, by the `invoices_storno_bounded` trigger.
+ *
+ * Idempotent for the "reverse the rest" form: once fully reversed, the latest
+ * storno is returned with `created: false`.
  */
 export async function issueStornoForOrderInTx(
 	tx: DbTx,
 	order: OrderRow,
-	actor: string
+	actor: string,
+	options: { grossCents?: number } = {}
 ): Promise<InvoiceResult<IssuedDocument>> {
-	const [original] = await tx
-		.select()
-		.from(invoices)
-		.where(and(eq(invoices.orderId, order.id), eq(invoices.kind, 'invoice')));
+	const original = await lockOriginalInvoice(tx, order.id);
 	if (!original) return { ok: false, error: 'no-invoice-to-reverse' };
 
-	const [existing] = await tx
+	const reversed = await reversedCentsFor(tx, original.id);
+	const remaining = original.grossTotalCents - reversed;
+	if (options.grossCents === undefined && remaining <= 0) {
+		const [existing] = await tx
+			.select()
+			.from(invoices)
+			.where(eq(invoices.stornoOfInvoiceId, original.id))
+			.orderBy(desc(invoices.number))
+			.limit(1);
+		if (existing) return { ok: true, value: { invoice: existing, created: false } };
+		return { ok: false, error: 'nothing-to-storno', detail: `${original.displayNumber}: 0` };
+	}
+	const grossCents = options.grossCents ?? remaining;
+	if (!Number.isInteger(grossCents) || grossCents <= 0) {
+		return { ok: false, error: 'nothing-to-storno', detail: String(grossCents) };
+	}
+	if (grossCents > remaining) {
+		return {
+			ok: false,
+			error: 'storno-exceeds-original',
+			detail: `${grossCents} > ${remaining} (${original.displayNumber})`
+		};
+	}
+
+	const originalLines = await tx
 		.select()
-		.from(invoices)
-		.where(eq(invoices.stornoOfInvoiceId, original.id));
-	if (existing) return { ok: true, value: { invoice: existing, created: false } };
+		.from(invoiceLines)
+		.where(eq(invoiceLines.invoiceId, original.id))
+		.orderBy(asc(invoiceLines.position));
+
+	const full = reversed === 0 && grossCents === original.grossTotalCents;
+	let lines: StornoLineInput[];
+	let totals: VatAmounts;
+	if (full) {
+		lines = originalLines.map((line) => ({
+			position: line.position,
+			description: line.description,
+			qty: -line.qty,
+			unitPriceCents: line.unitPriceCents,
+			vatRateBp: line.vatRateBp,
+			netCents: -line.netCents,
+			vatCents: -line.vatCents,
+			grossCents: -line.grossCents
+		}));
+		totals = {
+			netCents: -original.netTotalCents,
+			vatCents: -original.vatTotalCents,
+			grossCents: -original.grossTotalCents
+		};
+	} else {
+		// A refund is money, not lines: reverse it per VAT rate present on the
+		// original, each rate taking its share of the amount in proportion to
+		// that rate's gross (integer bani, exact sum — `splitAmountByGross`),
+		// extracted at its own rate. A single-rate invoice yields one line.
+		const rateGroups = new Map<number, number>();
+		for (const line of originalLines) {
+			rateGroups.set(line.vatRateBp, (rateGroups.get(line.vatRateBp) ?? 0) + line.grossCents);
+		}
+		const shares = splitAmountByGross(
+			grossCents,
+			[...rateGroups].map(([rateBp, gross]) => ({ key: rateBp, grossCents: gross }))
+		);
+		lines = shares.map((share, i) => ({
+			position: i + 1,
+			description:
+				shares.length === 1
+					? `Storno parțial — factura ${original.displayNumber}`
+					: `Storno parțial — factura ${original.displayNumber} (TVA ${bpToPercentLabel(share.key)})`,
+			qty: -1,
+			unitPriceCents: share.amountCents,
+			vatRateBp: share.key,
+			...partialStornoLineAmounts(share.amountCents, share.key)
+		}));
+		totals = sumAmounts(
+			lines.map(({ netCents, vatCents, grossCents: g }) => ({ netCents, vatCents, grossCents: g }))
+		);
+	}
 
 	// The series row must exist (the original was numbered through it); the
 	// initial value only applies to the impossible fresh-series case.
@@ -286,39 +572,72 @@ export async function issueStornoForOrderInTx(
 			stornoOfInvoiceId: original.id,
 			issuedAt,
 			dueAt: issuedAt,
-			netTotalCents: -original.netTotalCents,
-			vatTotalCents: -original.vatTotalCents,
-			grossTotalCents: -original.grossTotalCents
+			// A storno is settled by the refund it documents: the money went
+			// back through the same means when this document was issued.
+			paidAt: original.paidAt ? issuedAt : null,
+			netTotalCents: totals.netCents,
+			vatTotalCents: totals.vatCents,
+			grossTotalCents: totals.grossCents
 		})
 		.returning();
 
-	const originalLines = await tx
-		.select()
-		.from(invoiceLines)
-		.where(eq(invoiceLines.invoiceId, original.id))
-		.orderBy(asc(invoiceLines.position));
-	if (originalLines.length > 0) {
-		await tx.insert(invoiceLines).values(
-			originalLines.map((line) => ({
-				...line,
-				id: crypto.randomUUID(),
-				invoiceId: storno.id,
-				qty: -line.qty,
-				netCents: -line.netCents,
-				vatCents: -line.vatCents,
-				grossCents: -line.grossCents
-			}))
-		);
+	if (lines.length > 0) {
+		await tx
+			.insert(invoiceLines)
+			.values(lines.map((line) => ({ id: crypto.randomUUID(), invoiceId: storno.id, ...line })));
 	}
 
+	await recordPendingSubmissionInTx(tx, storno.id);
 	await appendFiscalOrderEvent(tx, {
 		orderId: order.id,
 		kind: 'storno-issued',
 		actor,
-		note: `${storno.displayNumber} → ${original.displayNumber}`
+		note: full
+			? `${storno.displayNumber} → ${original.displayNumber}`
+			: `${storno.displayNumber} → ${original.displayNumber} (parțial: ${grossCents})`
 	});
 
 	return { ok: true, value: { invoice: storno, created: true } };
+}
+
+/**
+ * The admin "storno parțial" action: reverse exactly what Stripe refunded
+ * and no earlier storno has reversed yet (`orders.refunded_cents` minus the
+ * stornos already issued). No amount is typed by the operator — the fiscal
+ * document follows the money movement Stripe recorded, so the two cannot
+ * disagree. Locks the order row (serializes with a racing webhook) and
+ * records a failure on the order's trail.
+ */
+export async function issuePartialStornoForOrder(
+	deps: InvoiceDeps,
+	orderId: string,
+	actor: string
+): Promise<InvoiceResult<IssuedDocument>> {
+	return deps.db.transaction(async (tx): Promise<InvoiceResult<IssuedDocument>> => {
+		const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for('update');
+		if (!order) return { ok: false, error: 'order-not-found' };
+		const original = await lockOriginalInvoice(tx, order.id);
+		if (!original) return { ok: false, error: 'no-invoice-to-reverse' };
+		const reversed = await reversedCentsFor(tx, original.id);
+		const grossCents = order.refundedCents - reversed;
+		if (grossCents <= 0) {
+			return {
+				ok: false,
+				error: 'nothing-to-storno',
+				detail: `rambursat ${order.refundedCents}, stornat ${reversed}`
+			};
+		}
+		const result = await issueStornoForOrderInTx(tx, order, actor, { grossCents });
+		if (!result.ok) {
+			await appendFiscalOrderEvent(tx, {
+				orderId,
+				kind: 'storno-failed',
+				actor,
+				note: result.detail ? `${result.error}: ${result.detail}` : result.error
+			});
+		}
+		return result;
+	});
 }
 
 export interface EnsuredDocuments {
@@ -356,6 +675,8 @@ export async function ensureInvoicesForOrder(
 			return issued;
 		}
 
+		// A refunded order gets whatever is still unreversed storno'd — the
+		// whole invoice, or the remainder after earlier partial stornos.
 		let storno: InvoiceRow | null = null;
 		if (order.status === 'refunded') {
 			const reversed = await issueStornoForOrderInTx(tx, order, actor);

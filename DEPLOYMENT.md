@@ -46,7 +46,8 @@ documented dev values). Site identity:
 | `SITE_ID` | `sleep` | Selects the site config at boot; the only valid value in this repo. |
 | `DATABASE_URL` | `postgres://…/better_sleep` | The site's own database. |
 | `PUBLIC_SITE_URL` | `https://bettersleep.ro` | Canonical origin: links in emails, sitemap, OG tags, Stripe redirect URLs. Must be https in prod (session cookies derive `Secure` from it). |
-| `S3_BUCKET` | e.g. `bettersleep-media` | The site's own bucket. |
+| `S3_BUCKET` | e.g. `bettersleep-media` | The site's own (public) media bucket. |
+| `S3_INVOICE_BUCKET` | e.g. `bettersleep-fiscal` | The PRIVATE bucket for invoice PDFs + e-Factura XML (§5). Required by `launch:check` under the `cloudflare` provider (the media bucket is public there); locally it defaults to `<S3_BUCKET>-fiscal`. Never bind it to a public domain. |
 | `BETTER_AUTH_SECRET` | unique 32+ random bytes | `openssl rand -base64 32`. Signs staff sessions only. Rotating it logs staff out. |
 | `TOKEN_SECRET` | unique 32+ random bytes | `openssl rand -base64 32`. Signs newsletter confirm links, chat session cookies and upload-confirm tickets. MUST differ from `BETTER_AUTH_SECRET` (boot refuses otherwise). Rotating it invalidates outstanding confirm links and chat sessions (users just start a fresh conversation). |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | the shop's Stripe account | See §6. |
@@ -70,7 +71,7 @@ Service configuration:
 | `DEPLOY_TARGET` | unset (`node`) | Only for building the Vercel output locally; Vercel sets `VERCEL=1` itself (§12). |
 | `DB_DRIVER` | unset (`pg`) | `neon` selects the serverless WebSocket driver (§12). An unknown value refuses to boot. |
 | `DIRECT_DATABASE_URL` | unset | Migrations only: an unpooled connection for DDL (§12). Falls back to `DATABASE_URL`. |
-| `CRON_SECRET` | unset | Required only where the scheduled jobs (retention, shipment-status sync — §9) run over HTTP instead of machine cron (§12). |
+| `CRON_SECRET` | unset | Required only where the scheduled jobs (retention, shipment-status sync, nurture queue, e-Factura submission — §9) run over HTTP instead of machine cron (§12). |
 | `PUBLIC_ANALYTICS_PROVIDER` | unset | Optional. `plausible` or `umami`; unset = NO analytics script ships. When set, `PUBLIC_ANALYTICS_HOST` (service origin) and `PUBLIC_ANALYTICS_SITE_ID` (Plausible `data-domain` / Umami website id) are required — `launch:check` and the seam itself refuse a half-set trio. The script loads client-side ONLY after the visitor grants cookie consent, never on `/admin`. |
 
 The server validates the whole matrix at boot and **refuses to start** with a
@@ -87,7 +88,11 @@ cannot drift — and adds the launch-only rules a running app cannot judge:
 no committed dev default anywhere (secrets, MinIO/compose credentials,
 Stripe webhook dev value), `PUBLIC_SITE_URL` https and matching the
 `SITE_ID`'s domain, live-mode implications (`EMAIL_DRYRUN=false` ⇒
-`RESEND_API_KEY`, no `sk_test_…` key), the Vercel extras
+`RESEND_API_KEY`, no `sk_test_…` key, no mock chat/courier provider unless
+`--allow-mock-providers` acknowledges it), a production env still on dry-run
+email (`EMAIL_DRYRUN=true` or unset sends nothing — a problem outside `--dev`
+unless the same `--allow-mock-providers` acknowledges a rehearsal), the
+Vercel extras
 (`DIRECT_DATABASE_URL`, `CRON_SECRET`), and a live image probe: it uploads a
 1×1 PNG with the app's S3 credentials and then asks the selected provider for
 a derivative of it. Under `cloudflare` that means the public origin must
@@ -158,10 +163,15 @@ explicitly (env vars, read at runtime):
   does not strip/overwrite from client requests — that turns the rate
   limiter keys client-spoofable.
 
-Health: `GET /api/health` returns `200 {status:'ok'}` when the database and
+Health (FIX-16): `GET /api/health` is LIVENESS — `200 {status:'ok', site,
+commit, chatProvider}` with no I/O, so a storage blip never drains an
+instance that can still serve pages; `GET /api/health/ready` is READINESS —
+`200 {status:'ok', checks:{db,storage}, chatProvider}` when the database and
 the bucket are reachable, `503` otherwise — point your uptime checks and load
-balancer at it. Unhandled errors are logged to stderr as one JSON object per
-line (`ts`, `level`, `errorId`, `status`, `method`, `path`, `message`,
+balancer at `/ready`. Every response carries `x-request-id` (Vercel's
+`x-vercel-id`, else a UUID) and the error page shows it. Unhandled errors are
+logged to stderr as one JSON object per line (`ts`, `level`, `errorId`,
+`requestId`, `status`, `method`, `path`, `message`,
 `stack`); the user-facing error page shows the matching `errorId`.
 
 ## 4. Database: create, migrate, seed
@@ -173,26 +183,42 @@ createdb better_sleep      # (or CREATE DATABASE in psql; owner = app user)
 
 # from the repo, with the site's env loaded:
 pnpm db:migrate            # applies apps/web/drizzle/*.sql (additive, committed)
-pnpm db:seed               # idempotent: pillars for SITE_ID, legal pages,
-                           #   demo article/quiz/products (skip on prod? see note)
-pnpm user:create -- --email you@site.ro --password '…min 12 chars…' --role admin
+pnpm seed:base             # pillars for SITE_ID, legal pages, placeholder settings,
+                           #   nurture sequences, initial content from content/
+pnpm seed:demo             # demo article/quiz/products — dev and staging only
+pnpm user:create -- --email you@site.ro --role admin        # prompts for the password (no echo)
+# non-interactive: printf '%s\n' "$ADMIN_PASSWORD" | pnpm user:create -- --email you@site.ro --role admin --password-stdin
 ```
 
 Notes:
 
 - `pnpm db:migrate` must run on every deploy that ships new migrations. It is
   safe to re-run (drizzle tracks applied migrations).
-- Seeding is idempotent. It upserts the site's pillars (required), creates the
-  two legal pages **only if missing** (edits in /admin/pages are never
-  overwritten), and upserts demo content. For a clean production launch you
-  may delete the demo articles/quiz/products in the admin afterwards, or keep
-  them until real content lands. Seeding demo products needs the bucket to
-  exist (it uploads placeholder covers).
-- Seeding also inserts `PLACEHOLDER — …` rows for the launch-required site
-  settings (company identification, ANPC/SOL links, invoice series) — only
-  where missing, so values saved in `/admin/settings` are never overwritten.
-  Replace every placeholder before launch; `pnpm launch:check` refuses to
-  pass while one stands.
+- **`pnpm seed:base` is safe to re-run on a live site** (FIX-15). It upserts
+  the site's pillars (required) and nurture sequence definitions (the
+  operator's active flag survives); everything an admin can edit is
+  create-only: the two legal pages, the `PLACEHOLDER — …` site settings
+  (company identification, ANPC/SOL links, invoice series — replace every
+  placeholder before launch; `pnpm launch:check` refuses to pass while one
+  stands) and the initial content bundles under `content/` (an existing slug
+  is skipped and reported; `pnpm content import-dir --overwrite` replaces
+  on purpose).
+- **`pnpm seed:demo`** creates the three demo articles, the demo quiz and
+  three demo products with SVG placeholder covers — create-only as well, so a
+  re-run only recreates what was deleted and never resets stock, prices,
+  status or text. Do not run it on production unless you want the demo
+  content there; delete it in the admin when real content lands. It needs
+  the media bucket (it uploads the covers).
+- `pnpm db:seed` runs both halves — the local one-shot for a fresh database.
+- **Upgrading an installation that was live before 2025-08-01** (FIX-18):
+  migration 0024 turns the old single `invoice.vatRateBp` into a one-line
+  standard-rate schedule dated `2025-08-01` carrying *that* rate — 19 % on
+  an entity that never edited it — and issuance would use it for every later
+  order. After `pnpm db:migrate`, open `/admin/settings` → Invoice, confirm
+  the standard-rate schedule (one `YYYY-MM-DD percent` line per rate change;
+  21 % standard since 2025-08-01 in Romania) and **save** the group. The form
+  shows a warning under the field and `pnpm launch:check` reports the
+  never-confirmed schedule as a problem until that save happens.
 - Staff users: `user:create` is idempotent by email (re-running updates
   role/password). Roles: `admin` (everything) / `editor` (content only).
 
@@ -220,9 +246,57 @@ fully private and imgproxy reads it with its own credentials.
 
 What is public is the *original bytes at an unguessable key* (`uploads/<year>/
 <month>/<slug>-<8 hex>.<ext>`), never a listing: grant `s3:GetObject` only.
-Uploaded SVGs are sanitized at confirm time and stored with
-`Content-Disposition: attachment`, so a crafted SVG cannot execute on the
-media origin.
+
+**Storage layout and the quarantine prefix (FIX-15).** The bucket holds three
+kinds of key:
+
+| prefix        | written by                         | served publicly |
+| ------------- | ---------------------------------- | --------------- |
+| `pending/`    | the browser's presigned PUT        | **never**       |
+| `uploads/`    | `confirmUpload` (finalize)         | yes             |
+| `seed/`       | `pnpm seed:demo` (finalize)        | yes             |
+
+A presigned PUT lands in `pending/<uuid>.<ext>` and stays valid for 10
+minutes. Confirm *produces* the served object from it — a server-side copy
+into a fresh `uploads/…` key for rasters, a sanitized re-write with
+`Content-Disposition: attachment` for SVGs, both with `Cache-Control:
+public, max-age=31536000, immutable` — then deletes the pending object. The
+presigned URL therefore never touches a served key: re-using it after
+confirm only recreates an orphan under `pending/` (nothing serves it, nothing
+reads it again). Content import and the seed write through the same finalize
+step, so every served image in the bucket has been through the sanitizer.
+
+The public origin MUST refuse `pending/`. Locally `pnpm storage:init` applies
+a bucket policy with an explicit `Deny s3:GetObject` on `pending/*` next to
+the public-read grant. On R2 the custom domain serves the whole bucket, so add
+a Cloudflare **WAF custom rule** on the zone:
+
+```
+(http.host eq "media.bettersleep.ro" and starts_with(http.request.uri.path, "/pending/"))
+→ Block
+```
+
+(one per site; put the rule above any cache rule). Optionally add an R2
+**object lifecycle rule** deleting `pending/` objects older than one day, to
+sweep abandoned uploads. Verify after deploy: a `curl -I
+https://media.<site>/pending/x.png` must not answer 200 (a 403 or 404 both
+mean the rule holds).
+
+**Fiscal documents get their own bucket.** R2 public access is per bucket,
+not per prefix, so anything in the media bucket is reachable through the
+custom domain — invoice PDFs and e-Factura XMLs (name, address, email) must
+not be there. Create a second bucket per site (e.g. `bettersleep-fiscal`),
+give the SAME API token Object Read & Write on it, set
+`S3_INVOICE_BUCKET=<bucket>`, and bind **no** public domain to it, ever.
+`launch:check` refuses a `cloudflare` deploy without `S3_INVOICE_BUCKET`,
+refuses `S3_INVOICE_BUCKET == S3_BUCKET`, and probes that
+`${MEDIA_PUBLIC_BASE_URL}/invoices/…` does not answer 200. If the deploy
+issued invoices before FIX-12 (documents under `invoices/` in the media
+bucket), run `pnpm storage:fiscal-migrate` once with the site's env: it
+moves every such object into the fiscal bucket (idempotent, never
+overwrites a private copy) and leaves the media bucket with no `invoices/`
+key. Locally `pnpm storage:init` creates both buckets (`<S3_BUCKET>-fiscal`
+stays private).
 
 ## 6. Image delivery (`IMAGE_PROVIDER`)
 
@@ -315,12 +389,16 @@ imgproxy hostname behind Cloudflare (orange cloud) with a cache rule
 ### SVGs
 
 An SVG is active content and nothing rasterizes it. It is neutralized **at
-upload**, once, rather than on every serve: `confirmUpload` strips scripts,
-event handlers and remote references, writes the clean bytes back over the
-original, and sets `Content-Disposition: attachment` on the object. Both
-layers matter — the sanitizer removes the payload, the header means even a
-sanitizer miss downloads instead of executing on the media origin. imgproxy's
-`IMGPROXY_SANITIZE_SVG` stays on as a third layer on that target.
+upload**, once, rather than on every serve: the finalize step
+(`finalizeMediaObject`, shared by confirm, content import and the seed)
+strips scripts, event handlers, `<style>` blocks and every remote reference
+(`href`, `url(http…)`, `@import`), writes the clean bytes as the served
+object and sets `Content-Disposition: attachment` on it. The upload itself
+sits in the unserved `pending/` prefix until then (§5), so no un-sanitized
+SVG is ever reachable from the origin. Both layers matter — the sanitizer
+removes the payload, the header means even a sanitizer miss downloads
+instead of executing on the media origin. imgproxy's `IMGPROXY_SANITIZE_SVG`
+stays on as a third layer on that target.
 
 ### `direct` — local only
 
@@ -328,19 +406,47 @@ Serves the stored original untouched. This is why `docker compose up -d`
 brings up Postgres and MinIO only, and why the test suite needs no transformer:
 there is nothing to run. srcsets come back empty and blurhashes are skipped
 rather than faked, so what you see locally is honest about what it is.
-`pnpm storage:init` grants the bucket anonymous read so the browser can fetch
-originals; `pnpm media:blurhash` refuses to run on this provider.
+`pnpm storage:init` grants the bucket anonymous read (minus `pending/`, §5)
+so the browser can fetch originals; `pnpm media:blurhash` refuses to run on
+this provider.
 
 ## 7. Stripe (shop)
 
 1. Set `STRIPE_SECRET_KEY` (test key first: `sk_test_…`).
 2. Dashboard → Developers → Webhooks → Add endpoint:
-   `https://<site>/api/stripe/webhook`, events:
-   `checkout.session.completed`, `charge.refunded`.
+   `https://<site>/api/stripe/webhook`, subscribed to exactly these **four**
+   events:
+   - `checkout.session.completed` — creates the order (paid, or `pending`
+     for a delayed payment method);
+   - `checkout.session.async_payment_succeeded` — flips a pending order to
+     paid (invoice, confirmation email, nurture);
+   - `checkout.session.async_payment_failed` — marks it failed, restores the
+     reserved stock, cancels fulfillment;
+   - `charge.refunded` — partial (`amount_refunded < amount`): the order
+     stays paid with the refunded amount recorded and the operator issues
+     the storno from the order page ("storno parțial"); full: status
+     refunded, storno, fulfillment/AWB handled.
+   Stripe does not order deliveries; every handler is exactly-once in either
+   arrival order (a refund before its order is remembered and applied when
+   the order is created; an async result before its `completed` creates the
+   order from the session it carries).
 3. Copy the endpoint's signing secret into `STRIPE_WEBHOOK_SECRET`.
 4. Orders are created **only** by the webhook (idempotent on the session id);
    duplicate deliveries are acknowledged and ignored. Verify with a test-mode
    purchase (card `4242 4242 4242 4242`) before switching to live keys.
+5. **Payment methods are card-only by default.** Sessions are created with
+   `payment_method_types: ['card']` regardless of what the Stripe dashboard
+   enables, so no delayed method (bank debit, voucher…) can put orders on the
+   pending/async path by accident. To offer everything the dashboard enables,
+   turn on `/admin/settings` → Magazin → "Permite toate metodele de plată";
+   the two async events above are handled either way, but the decision is the
+   operator's, not the dashboard's.
+6. **The recipient phone is collected at Checkout** (`phone_number_collection`
+   is on) and stored on the order's shipping address next to the county
+   Stripe collects — the courier refuses an AWB without either. Orders placed
+   before this existed, or whose Stripe address came without a county, are
+   refused on the order page with the missing fields named; "Editează adresa"
+   there fills them in (admin-only, the trail records which fields changed).
 
 The product catalog syncs to Stripe on admin save (product + price objects);
 checkout itself snapshots prices from our database, so an unsynced catalog
@@ -350,19 +456,46 @@ deterministic in-memory mock — never leave it empty in prod.
 ### Fiscal documents (invoice PDF + e-Factura XML)
 
 Every issued invoice renders deterministically to a PDF and a UBL 2.1
-(CIUS-RO) XML, stored write-once in the S3/R2 bucket under the private
-`invoices/` prefix (same bucket as media, different prefix — never reachable
-through the image provider). Nothing to deploy: rendering is pure JS inside the app (works on
-Vercel), the confirmation email attaches the PDF, customers reach their
-documents through signed links on the order success page, and
-`/admin/orders/export?month=YYYY-MM` gives the accountant a monthly zip
-(CSV index + all PDFs/XMLs). `TOKEN_SECRET` (already required) signs the
-customer download links.
+(CIUS-RO 1.0.1) XML, stored write-once in the **private fiscal bucket**
+(`S3_INVOICE_BUCKET`, §5 — never the media bucket, which the `cloudflare`
+provider binds to a public domain) under renderer-versioned keys
+(`invoices/<id>.<version>.<pdf|xml>`, so a renderer fix re-renders instead
+of freezing a defective file). Nothing else to deploy: rendering is pure JS
+inside the app (works on Vercel), the confirmation email attaches the PDF,
+customers reach their documents through signed links on the order success
+page, and `/admin/orders/export?month=YYYY-MM` gives the accountant a
+monthly zip (CSV index with UTF-8 BOM and per-rate columns + all
+PDFs/XMLs). `TOKEN_SECRET` (already required) signs the customer download
+links.
 
-**e-Factura submission to ANAF SPV is NOT automated** — it requires
-enrollment only a human can do. Until then the app produces the compliant
-XML artifact and an operator uploads it manually in the SPV web interface
-when required. To enable automated submission later, a human must:
+**The SPV duty.** Transmitting every invoice to ANAF through e-Factura is
+mandatory for this shop — B2B since 2024, B2C since 1 January 2025 — within
+**5 calendar days of issuance**; late or missing transmission is fined per
+document. It is therefore tracked, not left to memory: every invoice and
+storno gets an `invoice_submissions` row at issuance, `/admin/orders` →
+"De trimis la ANAF" lists what is still due with the calendar days left
+(red when overdue), and the hourly `GET /api/cron/efactura-submit` (§9,
+§12) renders the XML and pushes it through the `EFacturaSubmitter` seam
+with retry/park semantics (5 attempts, then parked for a human).
+
+**A parked document (FIX-17).** After 5 failed attempts the row is `failed`
+and the cron never claims it again — but the 5-day clock keeps running. The
+order page (`/admin/orders/<id>`) shows the failure under the document
+("Trimiterea la ANAF a eșuat după N încercări: …") with a **"Repune în coada
+ANAF"** button (admin-only, audited as `efactura-requeue`): the row goes
+back to `pending` with the attempts reset and the next hourly tick submits
+it. The same from a shell, e.g. after the fiscal bucket or the ANAF
+credentials were fixed: `pnpm efactura:requeue -- --all` (every parked
+document) or `pnpm efactura:requeue -- <invoiceId>`. Fix the cause first
+(the error text is on the page and in `invoice_submissions.error`) —
+re-queuing a document that will fail again only burns another 5 attempts.
+
+**Automated submission is NOT implemented yet** — it requires enrollment
+only a human can do. Until then the default submitter answers `skipped`
+for every row (nothing is sent, nothing is faked, the row stays "de trimis")
+and an operator uploads each XML (order page / monthly export) in the SPV
+web interface **within the 5 days**, every working day. To enable automated
+submission, a human must:
 
 1. Obtain a **qualified digital certificate** for the company's legal
    representative (certSIGN/DigiSign/AlfaSign…).
@@ -377,11 +510,16 @@ when required. To enable automated submission later, a human must:
    before the adapter exists is a hard boot error by design — the app never
    fakes a submission.
 
-Known artifact gap (documented in `modules/invoice/README.md`): the XML
-omits the ISO 3166-2:RO county code (`CountrySubentity`) because the fiscal
-snapshot stores flattened address strings; ANAF's validator wants it for RO
-addresses. Resolve it together with the adapter work (extend the snapshot),
-or accept manual SPV upload with ANAF's web validation until then.
+**CIUS-RO status** (details in `modules/invoice/README.md`): since FIX-12
+the XML carries structured addresses (`CountrySubentity` as ISO 3166-2:RO,
+`PostalZone`, `SECTORn` city names for București), one `TaxSubtotal` per
+VAT rate, no buyer VAT identifier under category O, `OrderReference`,
+payment reference and prepaid amounts for card payments, and the share
+capital in the seller's legal-form field. It passes the repository's
+offline validator and is byte-stable against two golden fixtures, but it
+has **not** been run through ANAF's public validator from the build (no
+live service is called): the LAUNCH-CHECKLIST carries that step, and the
+first real SPV answers are the final acceptance.
 
 ### Shipping (courier & AWB)
 
@@ -407,10 +545,55 @@ live account from this codebase — human launch steps:
    contract says otherwise).
 3. Set `COURIER_PROVIDER=sameday` and redeploy — a half-set config refuses
    to boot.
-4. **Verify with one real AWB**: generate it from a (test) paid order in
-   `/admin/orders/[id]`, download the label, confirm the shipment appears in
-   the eAWB dashboard, then cancel it there. Until this step passes, treat
-   the adapter as unverified against the live API.
+4. **Verify with one real AWB**: pick a (test) paid order whose address has
+   a phone and a county (the page refuses otherwise — see §7 "Stripe" 6),
+   generate the AWB from `/admin/orders/[id]`, download the label, confirm
+   the shipment appears in the eAWB dashboard with our order id as its
+   client reference. Then cancel it IN eAWB (not from our side) and run the
+   sync once by hand (§9 curl): the order must step back from `expediată` to
+   `împachetată` with an "AWB anulat de curier" event and the page must
+   offer a new AWB. Until this passes, treat the adapter as unverified.
+5. **Capture the status payloads as fixtures** while that AWB exists — the
+   status table is maintained from real answers, never from memory:
+
+   ```bash
+   TOKEN=$(curl -sS -X POST 'https://api.sameday.ro/api/authenticate?remember_me=1' \
+     -H "X-Auth-Username: $SAMEDAY_USERNAME" -H "X-Auth-Password: $SAMEDAY_PASSWORD" | jq -r .token)
+   curl -sS "https://api.sameday.ro/api/client/awb/<AWB>/status" -H "X-Auth-Token: $TOKEN" \
+     > apps/web/tests/fixtures/sameday/status-<state>.json
+   ```
+
+   Save one file per state you observe (emis, ridicat / în tranzit, livrat,
+   anulat, and any "nelivrat" attempt). Each `expeditionStatus.statusId` +
+   text pair goes into `SAMEDAY_STATUS_BY_ID`
+   (`apps/web/src/lib/modules/shop/sameday-courier.ts`), which ships seeded
+   with id 1 = "AWB Emis" only: until the table is filled in, the anchored
+   text rules (explicit negatives first — "nelivrat" is NOT "livrat") do the
+   classifying, and any text they do not know is logged at warn level with
+   the raw payload and mapped to "în tranzit". Treat every such log line as
+   a fixture to capture and a table row to add.
+
+**How an AWB is created (FIX-11).** Generation is two-phase: a `creating`
+claim row is committed first, the courier is called with no database lock
+held, then the row becomes `registered` (AWB, tracking link) or `failed`
+with the courier's own reason (Sameday's validation text is shown on the
+order page; "Reîncearcă AWB" starts over with a fresh claim). The AWB is
+registered with `clientInternalReference` = our order id, so a process that
+dies mid-call (the claim is failed and replaced after 5 minutes) leaves an
+AWB you can find in eAWB by order id. A courier-side cancellation (seen by
+the hourly sync) closes the row, moves the order back to `împachetată` and
+allows a replacement; a refund landing while the courier is registering
+cancels the fresh AWB again.
+
+**Sync health.** The hourly sync (§9) answers
+`{"polled":…,"updated":…,"errors":…}` plus `"aborted":"auth"` when the
+courier rejected the credentials (the run stops at once and logs at error
+level — fix `SAMEDAY_*` and re-run). A row whose lookup throws is retried
+with backoff (15 min, doubling, capped at 24 h) instead of blocking the
+batch, keeps `error_count` / `last_error` and writes a "shipment-sync-error"
+event on its order; while any in-flight row has `error_count > 0` the admin
+dashboard (`/admin`) shows a "sincronizarea eșuează" banner with the latest
+error text. A successful poll clears the flag.
 
 Until then `COURIER_PROVIDER=mock` keeps everything working end-to-end with
 deterministic fake AWBs (dev/test default) — usable for staging, never for a
@@ -424,26 +607,49 @@ real customer parcel.
    (`apps/web/src/lib/config/sites/<site>.ts`) — `salut@bettersleep.ro` must
    be under the verified domain.
 
+4. **Bounce/complaint webhook.** In Resend → Webhooks add an endpoint for
+   `https://<site>/api/webhooks/resend` subscribed to `email.bounced` and
+   `email.complained`, and set its signing secret (`whsec_…`) as
+   `RESEND_WEBHOOK_SECRET`. The route verifies the Svix signature over the raw
+   body (`svix-id`/`svix-timestamp`/`svix-signature`, ±5 min window) and
+   withdraws the recipient exactly like an unsubscribe: every consent revoked
+   (source `bounce`/`complaint`), double opt-in cleared, pending nurture
+   cancelled. Without the secret the route answers `503` and nothing is fed
+   back — set it before `EMAIL_DRYRUN=false`. Verify once with a test event
+   from the Resend dashboard: the function log prints
+   `resend-webhook kind=bounce recipients=1 revoked=0|1`.
+5. **One-click unsubscribe headers.** Marketing mail (the `nurture` template)
+   carries `List-Unsubscribe: <https://<site>/unsubscribe/<token>>` and
+   `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058); Gmail and
+   Yahoo require them for bulk senders. Mail clients POST to that URL; the
+   same URL opened by a human shows a confirmation button (GET changes
+   nothing — link scanners must not unsubscribe anyone). Check the headers on
+   a delivered nurture email ("show original") before launch.
+
 With `EMAIL_DRYRUN=true` (the default) every "send" is only recorded in the
 `email_log` table — that is the correct state until DNS is verified. All
 sends are idempotent (unique `idempotency_key`), so retries never double-send.
-Flipping to `EMAIL_DRYRUN=false` needs no cleanup: a dry-run log row recorded
-a send that never left the building, so a LIVE send with the same key
-supersedes it and delivers (once); only `sent` rows are final across modes.
+A dry-run record is NOT a delivery: once `EMAIL_DRYRUN=false` the same key
+sends for real (the soak never burns a confirm/nurture key). A `sending` claim
+older than 10 minutes (a function killed mid-send) is re-claimable. Resend
+failures are classified — 429/5xx/network retry with backoff, any other 4xx
+parks the send at once with Resend's body — and the nurture drain paces live
+sends at ~2/s.
 
 ## 9. Cron entries
 
 | Schedule | Command | Purpose |
 | --- | --- | --- |
 | daily, e.g. `15 3 * * *` | `pnpm chat:prune` (repo checkout with the site's env) | Deletes chat sessions older than 30 days (GDPR retention; messages cascade), sweeps expired rate-limit counter rows, and prunes webhook idempotency-ledger rows (`processed_events`) older than 90 days. |
-| hourly, e.g. `7 * * * *` | `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/shipment-sync` | Polls the courier for every in-flight AWB (bounded batch per run, oldest first), updates shipment + fulfillment state (`delivered`/`returned`) and appends order events. Safe to run twice; a pure no-op while nothing is in flight. Runs through the app (it needs the courier adapter), so the machine-cron form IS the curl — set `CRON_SECRET` on adapter-node deployments too. |
-| every 15 min, e.g. `*/15 * * * *` | `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/nurture-send` | Drains the nurture email queue: claims a bounded batch of due sends (25/run), re-checks the marketing consent per send, mails through the idempotent email wrapper, retries failures with backoff and parks them after 5 attempts (visible in `/admin/nurture`). Concurrency-safe (`FOR UPDATE SKIP LOCKED` claim), so an overlapping run cannot double-send. A no-op while nothing is due — and while `EMAIL_DRYRUN` is unset it only records to `email_log`. Design notes: `src/lib/modules/nurture/README.md`. |
+| hourly, e.g. `7 * * * *` | `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/shipment-sync` | Polls the courier for every DUE in-flight AWB (bounded batch per run, oldest-synced first), updates shipment + fulfillment state (`delivered`/`returned`; a courier-side `cancelled` steps the order back to packed) and appends order events. Safe to run twice; a pure no-op while nothing is in flight. A row whose lookup throws is backed off (15 min, doubling, 24 h cap) and flagged on `/admin`; the JSON answer carries `errors` and, on a credentials failure, `"aborted":"auth"` — alert on either (§7 "Sync health"). Runs through the app (it needs the courier adapter), so the machine-cron form IS the curl — set `CRON_SECRET` on adapter-node deployments too. |
+| hourly, e.g. `37 * * * *` | `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/efactura-submit` | Drains the e-Factura submission queue (§7): claims a bounded batch of due `invoice_submissions` rows (25/run, `FOR UPDATE SKIP LOCKED` — an overlapping run cannot double-submit), renders the XML into the fiscal bucket and submits through the `EFacturaSubmitter` seam. Failures retry with backoff (15 min doubling, 6 h cap) and park after 5 attempts (`failed`, shown in `/admin/orders` → "De trimis la ANAF"; re-queued from the order page or with `pnpm efactura:requeue`, §7). With no ANAF enrollment (the default no-op submitter) every row is `skipped` and re-checked hourly — the JSON answer then reads `{"claimed":n,"skipped":n,…}` and the manual SPV upload remains the operator's job. |
+| every 15 min, e.g. `*/15 * * * *` | `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/nurture-send` | Drains the nurture email queue: cancels due rows more than 48 h late as `stale` (a resumed pause never floods the missed steps), claims a bounded batch of due sends (25/run), sends them grouped per enrollment in step order, re-checks the marketing consent per send, mails through the idempotent email wrapper (~500 ms between live sends), retries transient failures with backoff and parks them after 5 attempts — permanent Resend errors (4xx other than 429) park at once. Parked sends stay visible in `/admin/nurture` with a **retry** button; their enrollment stays active until then. Concurrency-safe (`FOR UPDATE SKIP LOCKED` claim), so an overlapping run cannot double-send. A no-op while nothing is due — and while `EMAIL_DRYRUN` is unset it only records to `email_log`. The JSON answer carries `stale`; alert when `parked` > 0. Design notes: `src/lib/modules/nurture/README.md`. |
 
 Where no machine can run scripts (Vercel), the retention job is also
 available over HTTP at `GET /api/cron/chat-prune` — see §12. Both forms call
 `runRetentionSweep()` in `src/lib/server/retention.ts`, so they cannot drift
 apart (the sweep also expires closed nurture enrollments after 180 days). On
-Vercel all three routes are scheduled by `apps/web/vercel.json`.
+Vercel all four routes are scheduled by `apps/web/vercel.json`.
 
 On-demand (not cron): `pnpm subscriber:delete -- --email x@y.ro` for GDPR
 erasure requests (deletes the subscriber, unlinks quiz results, anonymizes
@@ -482,7 +688,9 @@ built:
 Rehearsed end-to-end against the local stack on 2026-08-08 — the executed
 walk, with commands and outputs, is `docs/LAUNCH-DRY-RUN.md`.
 
-1. `curl https://<site>/api/health` → `200 {"status":"ok",…}`.
+1. `curl https://<site>/api/health` → `200 {"status":"ok","site":"sleep","commit":"<sha>",…}`
+   (liveness: the build you expect) and `curl https://<site>/api/health/ready`
+   → `200 {"status":"ok","checks":{"db":"ok","storage":"ok"},…}` (readiness).
 2. Open `/` — pillars render, cookie banner appears, footer links to the
    legal pages work and (once `/admin/settings` is filled) the footer shows
    the company identification + ANPC SAL/SOL links.
@@ -509,7 +717,20 @@ walk, with commands and outputs, is `docs/LAUNCH-DRY-RUN.md`.
 9. Chat: send a message, reload the page — the conversation is restored from
    the server (history restore rides the session cookie).
 10. `robots.txt`, `sitemap.xml` reachable; `/nu-exista` renders the 404 page.
-11. If media rows predate this deploy (a content import, or an upgrade from a
+11. Security headers (FIX-9): `curl -sI https://<site>/` shows
+    `content-security-policy` (enforced, NOT report-only — includes
+    `strict-dynamic`, `form-action 'self' https://checkout.stripe.com`,
+    `frame-ancestors 'none'`), `strict-transport-security` (https only),
+    `x-content-type-options: nosniff`, `referrer-policy`,
+    `x-frame-options: DENY`, `permissions-policy`; and
+    `curl -sI https://<site>/admin/login` shows
+    `cache-control: private, no-store`. The CSP's img/connect sources are
+    DERIVED from `MEDIA_PUBLIC_BASE_URL`/`S3_ENDPOINT`/`CF_IMAGE_BASE_URL`/
+    `PUBLIC_ANALYTICS_HOST` at runtime — if images or the admin upload break
+    after an env change, re-check those four first. Do not validate CSP on
+    the dev server: SvelteKit strips `strict-dynamic` there; use
+    `pnpm build && pnpm preview`.
+12. If media rows predate this deploy (a content import, or an upgrade from a
     build without blurhash): `pnpm media:blurhash` once — a re-run printing
     `filled 0` confirms nothing is left.
 
@@ -558,8 +779,12 @@ one host, which is exactly the coupling this seam removed.
 | `DB_DRIVER` | `neon` | Neon's serverless driver over WebSockets. HTTP is not an option: `db.transaction()` is used by the blog, shop and GDPR services. Also shrinks the pool to 1 connection per function instance (`DB_POOL_MAX` overrides). |
 | `DATABASE_URL` | Neon **pooled** URL (`…-pooler.…neon.tech/db?sslmode=require`) | Functions are short-lived; the pooler absorbs their connection churn. |
 | `DIRECT_DATABASE_URL` | Neon **unpooled** URL | Migrations only. DDL through PgBouncer's transaction mode is unreliable; `drizzle.config.ts` prefers this and falls back to `DATABASE_URL`. |
-| `CRON_SECRET` | `openssl rand -hex 32` | Guards the retention route below. Vercel Cron sends it as `Authorization: Bearer …` automatically. |
+| `CRON_SECRET` | `openssl rand -hex 32` | Guards the four cron routes below. Vercel Cron sends it as `Authorization: Bearer …` automatically. |
+| `DB_POOL_CONNECTION_TIMEOUT_MS` | `15000` | A suspended Neon compute takes seconds to wake; the 5 s default sheds the first request after an idle period as a pool timeout. |
+| `ERROR_REPORT_URL` | optional | Sink for the structured error lines (posted via `waitUntil` after the response). `launch:check` warns when unset; a Vercel log drain is the alternative. |
 | `ADDRESS_HEADER`, `XFF_DEPTH` | **leave unset** | Vercel resolves the client IP itself. Setting them here would let a caller spoof `getClientAddress()` and defeat every rate limit. |
+| `NODE_ENV` | **leave unset** | Vercel sets it for the build and the runtime. Setting `production` in the project env breaks the root `prepare` (formcomp's devDependencies are skipped and the build cannot resolve `formcomp`). |
+| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Makes Vercel honor `packageManager` (pnpm 11.10.0) instead of a pnpm derived from the lockfile version. |
 
 Everything else — `SITE_ID`, `PUBLIC_SITE_URL`, the S3/R2 block, the image
 provider block, Stripe, Resend, chat — is identical to §2. Boot validation is unchanged,
@@ -575,34 +800,89 @@ Vercel dashboard → New Project → import the repo:
   install must run at the repo root so pnpm builds `packages/formcomp` via its
   `prepare` script. Its `dist/` is gitignored, so an install scoped to
   `apps/web` produces a build that cannot resolve `formcomp`.
-- **Build Command**: `pnpm build` (the adapter switches itself: Vercel sets
-  `VERCEL=1`; `vite.config.ts` picks `adapter-vercel`, otherwise `adapter-node`)
+- **Build Command**: `pnpm db:status && pnpm build` — belt and braces: a
+  build ahead of the schema (a migration still pending on the target database)
+  refuses to build instead of shipping code that 500s until the migration
+  lands (`scripts/migrate-status.ts` exits non-zero while anything is
+  pending). The adapter switches itself: Vercel sets `VERCEL=1`;
+  `vite.config.ts` picks `adapter-vercel`, otherwise `adapter-node`.
 - **Output**: `.vercel/output` (detected automatically)
-- **Node version**: 22.x, matching the `runtime` the adapter requests. The Neon
-  driver needs a global `WebSocket`.
+- **Node version**: 22.x — the same `.node-version` CI uses and the `runtime`
+  the adapter requests (the Neon driver needs a global `WebSocket`; root
+  `package.json` `engines` allows `>=22.18 <23 || >=24`).
+- **Git → Production Branch**: `main`, and **Automatic deployments for the
+  production branch: OFF** — production is promoted by the `deploy` job in
+  `.github/workflows/ci.yml` AFTER the migration job (below). Keep preview
+  deployments ON for pull requests.
+- **Preview environment**: its `DATABASE_URL`/`DIRECT_DATABASE_URL` point at a
+  **Neon branch** (Neon → Branches → create from `main`; or the Neon–Vercel
+  integration's per-preview branches), never at the production database.
+  Set `EMAIL_DRYRUN=true`, mock chat/courier and a test Stripe key there.
 
-`apps/web/vercel.json` ships the cron schedule. Function defaults are fine;
-`/api/chat` declares `maxDuration = 60` in its `+server.ts` because the
-assistant streams its reply and would otherwise be cut off at the plan default.
+`apps/web/vercel.json` ships the cron schedule. `/api/chat`, the four cron
+routes (`chat-prune`, `shipment-sync`, `nurture-send`, `efactura-submit`) and
+the Stripe webhook declare `maxDuration = 60` in their `+server.ts`: the
+assistant streams its reply, a cron batch makes one provider round trip per
+row (the nurture drain also paces live sends at ~500 ms), and a paid Stripe
+session issues the invoice and awaits the confirmation email inline — all of
+them would be cut off at the 10 s plan default. 60 s is the ceiling every
+Vercel plan allows, so the export is plan-independent. **Plan requirement:**
+Vercel's Hobby plan runs cron jobs at most **once per day** (and not at a
+guaranteed minute) — the 15-minute nurture drain and the hourly shipment/
+e-Factura polls need the **Pro** plan (or an external scheduler curling the
+routes with the bearer, §9). On Hobby the schedules in `vercel.json` are
+silently coalesced to daily.
 
-### CI migrations (GitHub Actions)
+### Ordered deploy (GitHub Actions: gate → migrate → deploy)
 
 Migrations do **not** run during the build — a build is not a deploy, and
-Vercel may run several concurrently. Their home is
-`.github/workflows/migrate.yml`: it applies `apps/web/drizzle/*.sql` on every
-push to `main` (so the schema is current before Vercel promotes that same
-push) and on manual dispatch (Actions → migrate → Run workflow). The job is a
-no-op when the database is already current, serializes concurrent runs, and
-ends by printing the applied-migration list (`pnpm db:status` — runnable from
-any checkout too; it exits non-zero while migrations are pending).
+Vercel may run several concurrently — and production is **not** promoted by
+Vercel's Git integration, because nothing would order that promotion after
+the migration. `.github/workflows/ci.yml` does both, in order, per site:
 
-Wire it once: GitHub repo → Settings → Secrets and variables → Actions → New
-repository secret, name `DIRECT_DATABASE_URL`, value = the site's **unpooled**
-Neon URL (`postgres://…neon.tech/better_sleep?sslmode=require` — not the
-`-pooler` host; DDL through PgBouncer's transaction mode is unreliable).
-Without the secret the workflow fails closed on its first step, before
-installing anything. It deliberately never seeds and never creates users —
-those are one-off human steps below.
+| Job | When | What |
+| --- | --- | --- |
+| `gate` | every PR and push | Postgres 16 + MinIO; lint → check → `db:migrate` on a fresh database → `db:check` → `test:unit` → both builds → `launch:check --target=vercel` against a prod-shaped env. |
+| `e2e` | PRs, non-blocking | `pnpm test:e2e` (report uploaded as an artifact). |
+| `migrate` | `main` only, `needs: gate`, environment `production` | One matrix entry per site in `deploy/sites.json`; `pnpm install --ignore-scripts --filter web`; `pnpm db:migrate` (advisory lock, SQL files, concurrent indexes); `pnpm db:role-timeout`; `pnpm db:status` printed. Fails closed without the site's secret. Never seeds. |
+| `deploy` | `needs: migrate`, per site | `vercel pull --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod`. |
+
+Wire it once (a human):
+
+1. **GitHub secrets** (repo → Settings → Secrets and variables → Actions):
+   `VERCEL_TOKEN` (a Vercel account token), `VERCEL_ORG_ID` (team id), and
+   per site the names `deploy/sites.json` declares — for better-sleep
+   `DIRECT_DATABASE_URL_SLEEP` (the **unpooled** Neon URL,
+   `postgres://…neon.tech/better_sleep?sslmode=require`, not the `-pooler`
+   host: DDL and session locks through PgBouncer are unreliable) and
+   `VERCEL_PROJECT_ID_SLEEP` (project → Settings → General).
+2. **GitHub environment** `production` (repo → Settings → Environments):
+   create it; optionally require a reviewer — then every migrate/deploy waits
+   for a click.
+3. **Branch protection** on `main`: require the `ci / gate` status check and
+   a linear history; pushes to `main` that skip the gate cannot deploy.
+4. **Vercel project**: automatic production deploys OFF (Settings → Git);
+   Build Command `pnpm db:status && pnpm build` (above); Node 22.x;
+   `ENABLE_EXPERIMENTAL_COREPACK=1`; no `NODE_ENV` in the env.
+5. **Watch the first run** end to end (Actions → ci → the push to `main`):
+   gate green → migrate prints the applied list → deploy prints the
+   production URL → `curl /api/health` shows the new commit. The sandbox that
+   built this cannot observe GitHub, so this run is the first real proof.
+
+Adding a second site (§10, not part of this launch): one more entry in
+`deploy/sites.json` (`id`, the two secret names, its media and fiscal bucket
+names) plus those secrets. The matrix, the backup workflow and the
+concurrency groups follow from the file.
+
+**Neon role timeout.** The app's per-connection `SET statement_timeout` is
+not a session guarantee behind Neon's PgBouncer. The migrate job runs
+`pnpm db:role-timeout` (`ALTER ROLE current_user SET statement_timeout =
+'30s'`, idempotent, only the role it connects as); run it yourself once
+after creating the project, and again if you rotate the role.
+
+`pnpm db:status` is runnable from any checkout (non-zero while migrations
+are pending); `pnpm db:migrate` from a checkout is safe alongside CI — both
+take the same advisory lock (`docs/MIGRATIONS.md`).
 
 ### Deploy order
 
@@ -613,21 +893,28 @@ keeps the schema current):
 ```bash
 # from a checkout, with the site's Neon URLs exported:
 DIRECT_DATABASE_URL="postgres://…neon.tech/better_sleep?sslmode=require" pnpm db:migrate
-DATABASE_URL="…-pooler…" S3_ENDPOINT=… S3_BUCKET=… pnpm db:seed        # first deploy only
-DATABASE_URL="…-pooler…" pnpm content:init                             # initial content, idempotent
+DIRECT_DATABASE_URL="postgres://…neon.tech/better_sleep?sslmode=require" pnpm db:role-timeout
+DATABASE_URL="…-pooler…" S3_ENDPOINT=… S3_BUCKET=… pnpm seed:base      # pillars, pages, settings, initial content
 DATABASE_URL="…-pooler…" pnpm media:blurhash                           # placeholders for imported media
-DATABASE_URL="…-pooler…" pnpm user:create -- --email you@x.ro --role admin --password '…'
+DATABASE_URL="…-pooler…" pnpm user:create -- --email you@x.ro --role admin   # prompts for the password
 ```
 
-`pnpm db:seed` uploads the placeholder product images, so it needs the R2
-credentials too. All of these are idempotent — safe to re-run on later deploys.
+`pnpm seed:base` imports the initial content bundles (`content/common`,
+`content/<site>`), so it needs the R2 credentials too. It is safe to re-run
+on later deploys: pillars and nurture definitions are upserted, everything
+else is create-only — an admin's edits to pages, settings or imported
+content are never reverted (an existing slug is skipped; `pnpm content
+import-dir --overwrite` replaces deliberately). `pnpm content:init` re-runs
+just the content step. `pnpm seed:demo` (demo articles/quiz/products) is for
+dev and staging — do not run it against production (§4).
 
 ### Scheduled jobs
 
 `vercel.json` schedules `GET /api/cron/chat-prune` daily (retention),
-`GET /api/cron/shipment-sync` hourly (courier tracking poll — §9) and
-`GET /api/cron/nurture-send` every 15 minutes (nurture email queue — §9).
-All routes require `Authorization: Bearer $CRON_SECRET`; without
+`GET /api/cron/shipment-sync` hourly (courier tracking poll — §9),
+`GET /api/cron/nurture-send` every 15 minutes (nurture email queue — §9)
+and `GET /api/cron/efactura-submit` hourly (e-Factura submission queue —
+§7, §9). All routes require `Authorization: Bearer $CRON_SECRET`; without
 `CRON_SECRET` set they answer `503` rather than running unauthenticated.
 Verify once by hand:
 
@@ -637,7 +924,9 @@ curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/chat-pr
 curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/shipment-sync
 # {"polled":0,"updated":0,"errors":0}
 curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/nurture-send
-# {"claimed":0,"sent":0,"retried":0,"parked":0,"cancelled":0,"completed":0}
+# {"claimed":0,"sent":0,"retried":0,"parked":0,"cancelled":0,"stale":0,"completed":0}
+curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/efactura-submit
+# {"claimed":0,"submitted":0,"skipped":0,"retried":0,"parked":0}
 ```
 
 ### Verification
@@ -645,8 +934,9 @@ curl -sS -H "Authorization: Bearer $CRON_SECRET" https://<site>/api/cron/nurture
 §11 applies unchanged. Two additions worth doing on the first serverless
 deploy, because they exercise what this target actually changes:
 
-1. `/api/health` → `{"db":"ok","storage":"ok"}` proves the Neon driver and R2
-   from inside a function.
+1. `/api/health/ready` → `{"status":"ok","checks":{"db":"ok","storage":"ok"},…}`
+   proves the Neon driver and R2 from inside a function; `/api/health`
+   names the commit that is live.
 2. Send a chat message and watch it stream token by token — that proves the
    Node runtime, response streaming and `maxDuration` together.
 
@@ -682,6 +972,22 @@ through the driver's 1-connection-per-instance default queues on the single
 connection instead of deadlocking (waits are bounded by
 `DB_POOL_CONNECTION_TIMEOUT_MS`, so overload sheds instead of hanging). The
 driver-level assertions live in `src/lib/db/driver-parity.spec.ts`.
+
+### Locale policy (FIX-15)
+
+betterSleep is **single-locale (`ro`)**: `locales: ['ro']` in the site
+config is the source of truth for the subscriber locale and for `hreflang`
+alternates — and with one locale no alternates are emitted at all. Unlike
+upstream better-base, this repo ships ONE message catalog (`messages/ro.json`;
+`project.inlang` lists exactly `ro`, `messages.spec.ts` pins both — BS-0);
+paraglide's runtime strategy is `cookie, globalVariable, baseLocale` without
+`url`, so `/en/…` is NOT a localized page and must never be advertised. To
+ship a second locale: add its catalog, add it to `project.inlang` and to the
+site's `locales`, add `"url"` to the paraglide strategy (`vite.config.ts`)
+so the locale is resolved from the path and canonicals become
+self-referential per locale, and localize the content —
+`hreflangAlternates` (`src/lib/seo.ts`) starts emitting alternates only once
+BOTH hold.
 
 ### Known limits
 

@@ -1,5 +1,7 @@
-import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import type { Db } from '../../db/client.ts';
+import { deleteInBatches, PRUNE_BATCH_SIZE } from '../../server/prune.ts';
 import { normalizeEmail } from '../../util/email.ts';
 // Cross-module: schema.ts relative imports and `import type` are the allowed
 // forms (the crm/quiz BARRELS pull .svelte files, which the plain-node seed
@@ -7,7 +9,11 @@ import { normalizeEmail } from '../../util/email.ts';
 import type { ConsentKey } from '../crm/consent.ts';
 import { subscribers, type SubscriberRow } from '../crm/schema.ts';
 import { quizResults, quizzes } from '../quiz/schema.ts';
-import { validateSequenceDefinition, type NurtureSequenceDefinition } from './definition.ts';
+import {
+	validateSequenceDefinition,
+	type NurtureSequenceDefinition,
+	type SequenceStep
+} from './definition.ts';
 import { computeStepScheduledAt } from './schedule.ts';
 import {
 	nurtureEnrollments,
@@ -34,6 +40,27 @@ export function isMailable(
 	// Same rule as crm's hasConsent (inlined: the crm barrel is not
 	// node-loadable and runtime imports of its internals are lint-banned).
 	return subscriber.consents[consentKey]?.granted === true && subscriber.confirmedAt !== null;
+}
+
+/** Deterministic JSON: object keys sorted recursively (jsonb does not keep key order). */
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+	if (typeof value === 'object' && value !== null) {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.filter(([, v]) => v !== undefined)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+		return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+	}
+	return JSON.stringify(value);
+}
+
+/**
+ * Identity of a sequence's step list, stamped on every send row it plans.
+ * Canonical (key-order independent), so the hash of the config definition
+ * equals the hash of the same steps read back from jsonb.
+ */
+export function stepsHash(steps: SequenceStep[]): string {
+	return createHash('sha256').update(canonicalJson(steps)).digest('hex');
 }
 
 async function activeSequences(db: Db): Promise<NurtureSequenceRow[]> {
@@ -71,12 +98,14 @@ async function enrollInSequence(
 			})
 			.returning();
 		if (!enrollment) return false;
+		const hash = stepsHash(sequence.steps);
 		await tx.insert(nurtureSends).values(
 			sequence.steps.map((step, stepIndex) => ({
 				id: crypto.randomUUID(),
 				enrollmentId: enrollment.id,
 				stepIndex,
-				scheduledAt: computeStepScheduledAt(now, step)
+				scheduledAt: computeStepScheduledAt(now, step),
+				stepsHash: hash
 			}))
 		);
 		return true;
@@ -241,6 +270,35 @@ export async function cancelSubscriberNurture(
 	});
 }
 
+/**
+ * Close an active enrollment as `completed` once no row is still open —
+ * pending, in flight, OR parked: a `failed` send keeps the enrollment open so
+ * the operator's retry has somewhere to go (audit 2026-09-03 P2). Returns
+ * true when this call closed it.
+ */
+export async function closeEnrollmentIfDone(
+	db: Db,
+	enrollmentId: string,
+	now: Date
+): Promise<boolean> {
+	const [open] = await db
+		.select({ count: sql<number>`cast(count(*) as int)` })
+		.from(nurtureSends)
+		.where(
+			and(
+				eq(nurtureSends.enrollmentId, enrollmentId),
+				inArray(nurtureSends.status, ['pending', 'sending', 'failed'])
+			)
+		);
+	if (!open || open.count > 0) return false;
+	const closed = await db
+		.update(nurtureEnrollments)
+		.set({ status: 'completed', closedAt: now })
+		.where(and(eq(nurtureEnrollments.id, enrollmentId), eq(nurtureEnrollments.status, 'active')))
+		.returning({ id: nurtureEnrollments.id });
+	return closed.length > 0;
+}
+
 /** Cancel ONE enrollment (drain-side, when its consent gate fails at send time). */
 export async function cancelEnrollment(db: Db, enrollmentId: string, now: Date): Promise<void> {
 	await db
@@ -257,6 +315,14 @@ export async function cancelEnrollment(db: Db, enrollmentId: string, now: Date):
  * Seed/refresh sequences from the site config: upsert by `key`, updating
  * name/trigger/steps/consent so copy edits deploy — but NEVER `active`: the
  * operator's kill switch in /admin/nurture survives a reseed.
+ *
+ * Changed steps re-plan the queue (audit 2026-09-03 P2 — content used to
+ * shift under pending rows): every pending row of an active enrollment whose
+ * `steps_hash` no longer matches is re-planned from the enrollment instant
+ * with the new step at its index (or cancelled as `replanned` when that step
+ * no longer exists), and new trailing steps get fresh rows. Delivered,
+ * in-flight and parked rows are history and stay as they are; rows planned
+ * before the hash existed (NULL) are left alone.
  */
 export async function seedNurtureSequences(
 	db: Db,
@@ -268,28 +334,147 @@ export async function seedNurtureSequences(
 		throw new Error(`Invalid nurture sequence definition(s):\n- ${problems.join('\n- ')}`);
 	}
 	for (const def of definitions) {
-		await db
-			.insert(nurtureSequences)
-			.values({
-				id: crypto.randomUUID(),
-				key: def.key,
-				name: def.name,
-				trigger: def.trigger,
-				consentKey: def.consentKey,
-				steps: def.steps
-			})
-			.onConflictDoUpdate({
-				target: nurtureSequences.key,
-				set: {
+		await db.transaction(async (tx) => {
+			const [row] = await tx
+				.insert(nurtureSequences)
+				.values({
+					id: crypto.randomUUID(),
+					key: def.key,
 					name: def.name,
 					trigger: def.trigger,
 					consentKey: def.consentKey,
-					steps: def.steps,
-					updatedAt: now
-				}
-			});
+					steps: def.steps
+				})
+				.onConflictDoUpdate({
+					target: nurtureSequences.key,
+					set: {
+						name: def.name,
+						trigger: def.trigger,
+						consentKey: def.consentKey,
+						steps: def.steps,
+						updatedAt: now
+					}
+				})
+				.returning({ id: nurtureSequences.id });
+			await replanSequenceSends(tx, row.id, def.steps);
+		});
 	}
 	return definitions.length;
+}
+
+type DbTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+async function replanSequenceSends(
+	db: DbTx,
+	sequenceId: string,
+	steps: SequenceStep[]
+): Promise<void> {
+	const hash = stepsHash(steps);
+	const mismatched = await db
+		.select({
+			id: nurtureSends.id,
+			enrollmentId: nurtureSends.enrollmentId,
+			stepIndex: nurtureSends.stepIndex,
+			status: nurtureSends.status,
+			enrolledAt: nurtureEnrollments.enrolledAt
+		})
+		.from(nurtureSends)
+		.innerJoin(nurtureEnrollments, eq(nurtureSends.enrollmentId, nurtureEnrollments.id))
+		.where(
+			and(
+				eq(nurtureEnrollments.sequenceId, sequenceId),
+				eq(nurtureEnrollments.status, 'active'),
+				or(
+					and(
+						eq(nurtureSends.status, 'pending'),
+						isNotNull(nurtureSends.stepsHash),
+						ne(nurtureSends.stepsHash, hash)
+					),
+					// Rows an earlier shrink cancelled (FIX-17): the unique index on
+					// (enrollment, step) means a step that comes back must REOPEN
+					// this row — it can never get a second one.
+					and(eq(nurtureSends.status, 'cancelled'), eq(nurtureSends.lastError, 'replanned'))
+				)
+			)
+		);
+	if (mismatched.length === 0) return;
+
+	for (const row of mismatched) {
+		const step = steps[row.stepIndex];
+		if (!step) {
+			// Still vanished: an already-cancelled row needs no write.
+			if (row.status === 'cancelled') continue;
+			await db
+				.update(nurtureSends)
+				.set({ status: 'cancelled', lastError: 'replanned' })
+				.where(eq(nurtureSends.id, row.id));
+			continue;
+		}
+		await db
+			.update(nurtureSends)
+			.set({
+				status: 'pending',
+				scheduledAt: computeStepScheduledAt(row.enrolledAt, step),
+				stepsHash: hash,
+				attempts: 0,
+				lastError: null
+			})
+			.where(eq(nurtureSends.id, row.id));
+	}
+
+	// Steps added at the end get rows for every enrollment that was re-planned
+	// (a reopened row above already covers its index — `known` includes it).
+	const enrollments = new Map(mismatched.map((row) => [row.enrollmentId, row.enrolledAt]));
+	for (const [enrollmentId, enrolledAt] of enrollments) {
+		const existing = await db
+			.select({ stepIndex: nurtureSends.stepIndex })
+			.from(nurtureSends)
+			.where(eq(nurtureSends.enrollmentId, enrollmentId));
+		const known = new Set(existing.map((row) => row.stepIndex));
+		const added = steps
+			.map((step, stepIndex) => ({ step, stepIndex }))
+			.filter(({ stepIndex }) => !known.has(stepIndex));
+		if (added.length === 0) continue;
+		await db.insert(nurtureSends).values(
+			added.map(({ step, stepIndex }) => ({
+				id: crypto.randomUUID(),
+				enrollmentId,
+				stepIndex,
+				scheduledAt: computeStepScheduledAt(enrolledAt, step),
+				stepsHash: hash
+			}))
+		);
+	}
+}
+
+/**
+ * Operator retry of a parked send (/admin/nurture): back to `pending`, due
+ * now, attempts reset. An enrollment closed as `completed` while it still
+ * had a parked row (pre-FIX-13 behavior) is re-opened so the drain sees it.
+ */
+export async function retryParkedSend(
+	deps: NurtureDeps,
+	sendId: string,
+	now = new Date()
+): Promise<boolean> {
+	return deps.db.transaction(async (tx) => {
+		const [send] = await tx
+			.update(nurtureSends)
+			.set({ status: 'pending', scheduledAt: now, attempts: 0, lastError: null, claimedAt: null })
+			.where(and(eq(nurtureSends.id, sendId), eq(nurtureSends.status, 'failed')))
+			.returning({ enrollmentId: nurtureSends.enrollmentId });
+		if (!send) return false;
+		await tx
+			.update(nurtureEnrollments)
+			.set({ status: 'active', closedAt: null })
+			.where(
+				and(
+					eq(nurtureEnrollments.id, send.enrollmentId),
+					eq(nurtureEnrollments.status, 'completed')
+				)
+			);
+		return true;
+	});
 }
 
 /** Admin list: every sequence with enrollment and send counts. */
@@ -393,15 +578,32 @@ export async function listParkedSends(deps: NurtureDeps, limit = 50): Promise<Pa
 export const NURTURE_RETENTION_DAYS = 180;
 
 /** Retention sweep hook: delete closed enrollments past the cutoff. */
-export async function pruneNurtureEnrollments(db: Db, cutoff: Date): Promise<number> {
-	const deleted = await db
-		.delete(nurtureEnrollments)
-		.where(
-			and(
-				inArray(nurtureEnrollments.status, ['completed', 'cancelled']),
-				lt(nurtureEnrollments.closedAt, cutoff)
+export async function pruneNurtureEnrollments(
+	db: Db,
+	cutoff: Date,
+	batchSize: number = PRUNE_BATCH_SIZE
+): Promise<number> {
+	// Batched (FIX-14): one statement per `batchSize` rows, never one DELETE
+	// over the whole backlog.
+	return deleteInBatches(async (limit) => {
+		const deleted = await db
+			.delete(nurtureEnrollments)
+			.where(
+				inArray(
+					nurtureEnrollments.id,
+					db
+						.select({ id: nurtureEnrollments.id })
+						.from(nurtureEnrollments)
+						.where(
+							and(
+								inArray(nurtureEnrollments.status, ['completed', 'cancelled']),
+								lt(nurtureEnrollments.closedAt, cutoff)
+							)
+						)
+						.limit(limit)
+				)
 			)
-		)
-		.returning({ id: nurtureEnrollments.id });
-	return deleted.length;
+			.returning({ id: nurtureEnrollments.id });
+		return deleted.length;
+	}, batchSize);
 }

@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { PILLARS_BY_SLUG } from '../config/pillars.ts';
 import { articlePillars, articles } from '../modules/blog/schema.ts';
 import { media } from '../modules/media/schema.ts';
+import { finalizeMediaObject } from '../server/media-objects.ts';
 import { DEFAULT_PAGES } from '../modules/pages/seed-pages.ts';
 import { ensurePage } from '../modules/pages/service.ts';
 import type { Storage } from '../modules/media/storage.ts';
@@ -45,12 +46,11 @@ export async function seedPillars(db: Db, pillarSlugs: string[]): Promise<number
 }
 
 /**
- * Three demo articles (ro), tagged to the `somn` pillar — both sites activate
- * it, so dev environments always have demo blog content. DRAFT unless the
- * caller (the e2e setup) asks for `published` — fictional demo content must
- * never be live in production by default, and a re-seed never overwrites the
- * status an operator chose (review H-9). Idempotent: fixed ids +
- * upsert-by-slug, re-running never duplicates.
+ * Three demo articles (ro), tagged to the `somn` pillar, so dev environments
+ * always have demo blog content. DRAFT unless the caller (the e2e setup) asks
+ * for `published` — fictional demo content must never be live in production
+ * by default (review H-9). Fixed ids; created only when the slug is missing
+ * (FIX-15), so a re-seed never overwrites the status an operator chose.
  */
 const DEMO_ARTICLES = [
 	{
@@ -100,9 +100,9 @@ interface QuizSeed {
 }
 
 /**
- * Upsert one seed quiz (fixed id + upsert-by-slug, idempotent). `status` only
- * applies to the INSERT: a re-seed refreshes content but never overwrites the
- * publish state an operator chose in /admin/quizzes (review H-9).
+ * Create one seed quiz (fixed id, create-only by slug — FIX-15): a re-run
+ * never touches an existing row, so an admin's edits or the publish state an
+ * operator chose in /admin/quizzes survive a re-seed (review H-9).
  */
 async function upsertSeedQuiz(
 	db: Db,
@@ -130,15 +130,15 @@ async function upsertSeedQuiz(
 	await db
 		.insert(quizzes)
 		.values({ id, ...values, status })
-		.onConflictDoUpdate({ target: quizzes.slug, set: { ...values, updatedAt: new Date() } });
+		.onConflictDoNothing({ target: quizzes.slug });
 	return seed.slug;
 }
 
 /**
- * The demo-able sleep screening quiz, tagged `somn` (active on both sites).
- * DRAFT unless the caller (the e2e setup) asks for `published` — it is demo
- * copy, not reviewed launch content (review H-9). Idempotent: fixed id +
- * upsert-by-slug.
+ * The demo-able sleep screening quiz, tagged `somn`. DRAFT unless the caller
+ * (the e2e setup) asks for `published` — it is demo copy, not reviewed launch
+ * content (review H-9). Create-only (FIX-15): fixed id, never touches an
+ * existing row.
  */
 export async function seedDemoQuiz(
 	db: Db,
@@ -172,10 +172,17 @@ export async function seedDemoProducts(
 	const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
 	if (!somn) throw new Error('Cannot seed demo products: the "somn" pillar is not seeded');
 
+	let created = 0;
 	for (const demo of DEMO_PRODUCTS) {
 		for (const image of [demo.cover, ...demo.gallery]) {
 			const bytes = Buffer.from(image.svg, 'utf8');
-			await storage.putObject(image.key, bytes, 'image/svg+xml');
+			const [existing] = await db
+				.select({ id: media.id })
+				.from(media)
+				.where(eq(media.id, image.id));
+			if (existing) continue;
+			// Same finalize step as an upload: sanitized, attachment, immutable (FIX-15).
+			await finalizeMediaObject(storage, image.key, 'image/svg+xml', { bytes });
 			await db
 				.insert(media)
 				.values({
@@ -189,10 +196,7 @@ export async function seedDemoProducts(
 					height: image.height,
 					alt: image.alt
 				})
-				.onConflictDoUpdate({
-					target: media.id,
-					set: { alt: image.alt, filename: image.filename, size: bytes.byteLength }
-				});
+				.onConflictDoNothing({ target: media.id });
 		}
 
 		const values = {
@@ -209,16 +213,22 @@ export async function seedDemoProducts(
 		const [row] = await db
 			.insert(products)
 			.values({ id: demo.id, ...values, status: opts.status ?? 'draft' })
-			.onConflictDoUpdate({ target: products.slug, set: { ...values, updatedAt: new Date() } })
-			.returning();
+			.onConflictDoNothing({ target: products.slug })
+			.returning({ id: products.id });
+		if (!row) continue;
+		created++;
 		await db
 			.insert(productPillars)
 			.values({ productId: row.id, pillarId: somn.id })
 			.onConflictDoNothing();
 	}
-	return DEMO_PRODUCTS.length;
+	return created;
 }
 
+/**
+ * Create-only (FIX-15), like `ensurePage`: an article whose slug exists is
+ * left exactly as the admin last saved it. Returns the number created.
+ */
 export async function seedDemoArticles(
 	db: Db,
 	opts: { status?: 'draft' | 'published' } = {}
@@ -226,6 +236,7 @@ export async function seedDemoArticles(
 	const [somn] = await db.select().from(pillars).where(eq(pillars.slug, 'somn'));
 	if (!somn) throw new Error('Cannot seed demo articles: the "somn" pillar is not seeded');
 
+	let created = 0;
 	for (const demo of DEMO_ARTICLES) {
 		const { id, ...content } = demo;
 		// `status` only on INSERT — a re-seed must not force-republish an
@@ -233,14 +244,16 @@ export async function seedDemoArticles(
 		const [row] = await db
 			.insert(articles)
 			.values({ id, ...content, status: opts.status ?? 'draft' })
-			.onConflictDoUpdate({ target: articles.slug, set: content })
-			.returning();
+			.onConflictDoNothing({ target: articles.slug })
+			.returning({ id: articles.id });
+		if (!row) continue;
+		created++;
 		await db
 			.insert(articlePillars)
 			.values({ articleId: row.id, pillarId: somn.id })
 			.onConflictDoNothing();
 	}
-	return DEMO_ARTICLES.length;
+	return created;
 }
 
 /**

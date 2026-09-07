@@ -18,6 +18,11 @@
 		'company.vatRegistered': m.admin_settings_company_vat_registered,
 		'company.regCom': m.admin_settings_company_reg_com,
 		'company.address': m.admin_settings_company_address,
+		'company.street': m.admin_settings_company_street,
+		'company.city': m.admin_settings_company_city,
+		'company.county': m.admin_settings_company_county,
+		'company.postalCode': m.admin_settings_company_postal_code,
+		'company.shareCapital': m.admin_settings_company_share_capital,
 		'company.contactEmail': m.admin_settings_company_contact_email,
 		'company.contactPhone': m.admin_settings_company_contact_phone,
 		'company.iban': m.admin_settings_company_iban,
@@ -28,7 +33,7 @@
 		'invoice.seriesPrefix': m.admin_settings_invoice_series_prefix,
 		'invoice.nextNumber': m.admin_settings_invoice_next_number,
 		'invoice.issuerPlace': m.admin_settings_invoice_issuer_place,
-		'invoice.vatRateBp': m.admin_settings_invoice_vat_rate,
+		'invoice.vatStandardRates': m.admin_settings_invoice_vat_standard_rates,
 		'invoice.paymentTermsNote': m.admin_settings_invoice_payment_terms,
 		'invoice.vatUnregisteredMention': m.admin_settings_invoice_vat_unregistered_mention,
 		'shop.freeShippingThresholdBani': m.admin_settings_shop_free_shipping,
@@ -38,7 +43,8 @@
 		'shop.shippingExpressName': m.admin_settings_shop_shipping_express_name,
 		'shop.shippingExpressPriceBani': m.admin_settings_shop_shipping_express_price,
 		'shop.shippingExpressEta': m.admin_settings_shop_shipping_express_eta,
-		'shop.shippingNote': m.admin_settings_shop_shipping_note
+		'shop.shippingNote': m.admin_settings_shop_shipping_note,
+		'shop.allowAllPaymentMethods': m.admin_settings_shop_allow_all_payment_methods
 	};
 
 	// Per-field guidance shown under the input — for settings where the right
@@ -52,7 +58,11 @@
 		'invalid-url': m.admin_settings_err_url,
 		'invalid-email': m.admin_settings_err_email,
 		'invalid-number': m.admin_settings_err_number,
-		'invalid-cui': m.admin_settings_err_cui
+		'invalid-cui': m.admin_settings_err_cui,
+		'invalid-iban': m.admin_settings_err_iban,
+		'invalid-vat-rate': m.admin_settings_err_vat_rate,
+		'invalid-county': m.admin_settings_err_county,
+		'too-long': m.admin_settings_err_too_long
 	};
 
 	function errorMessage(code: string): string {
@@ -118,16 +128,20 @@
 									class="w-full rounded border border-(--color-brand-soft) px-3 py-2 text-sm"
 									>{value}</textarea
 								>
+								{#if field.key === 'invoice.vatStandardRates' && data.vatScheduleAutoMigrated}
+									<span
+										data-testid="settings-warning-{field.key}"
+										class="mt-1 block text-sm text-amber-800"
+									>
+										{m.admin_settings_vat_schedule_migrated()}
+									</span>
+								{/if}
 							{:else}
 								<input
 									type="text"
 									name={field.key}
 									{value}
-									inputmode={field.kind === 'int' ||
-									field.kind === 'bani' ||
-									field.kind === 'percentBp'
-										? 'decimal'
-										: undefined}
+									inputmode={field.kind === 'int' || field.kind === 'bani' ? 'decimal' : undefined}
 									data-testid="settings-field-{field.key}"
 									class="w-full rounded border border-(--color-brand-soft) px-3 py-2 text-sm"
 								/>

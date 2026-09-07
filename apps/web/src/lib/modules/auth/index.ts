@@ -7,16 +7,26 @@ export {
 	canAccessSection,
 	guardAdminPath,
 	isStaffRole,
+	routeIdPathname,
 	type AdminGuardDecision,
 	type StaffRole
 } from './guards.ts';
-export { clearAttempts, rateLimitKey, registerLoginAttempt } from './rate-limit.ts';
+export {
+	clearAttempts,
+	emailRateLimitKey,
+	rateLimitKey,
+	registerEmailLoginAttempt,
+	registerLoginAttempt
+} from './rate-limit.ts';
 export { upsertStaffUser, type UpsertStaffUserInput, type UpsertStaffUserResult } from './staff.ts';
+export { recordAdminAudit, type AdminAuditAction } from './audit.ts';
 export {
 	users,
 	sessions,
 	accounts,
 	verifications,
 	loginAttempts,
+	adminAudit,
+	type AdminAuditRow,
 	type StaffUser
 } from './schema.ts';

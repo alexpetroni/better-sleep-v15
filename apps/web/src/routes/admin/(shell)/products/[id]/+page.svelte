@@ -5,6 +5,7 @@
 	import { slugify } from '$lib/util/slug';
 	import { Img, type ImageSources } from '$lib/modules/media';
 	import { centsToDecimal } from '$lib/util/money';
+	import { RO_VAT_RATES_BP, vatRateBpToPercentText } from '$lib/util/vat-rates';
 	import CoverField from '$lib/components/CoverField.svelte';
 	import MediaPicker, { type LibraryImage } from '$lib/components/MediaPicker.svelte';
 	import PillarChecklist from '$lib/components/PillarChecklist.svelte';
@@ -12,8 +13,10 @@
 	let { data, form } = $props();
 
 	// The editor buffer below intentionally captures INITIAL server data.
+	// Cover/gallery thumbs come with the product itself (the library is one
+	// page of many since FIX-15, so it cannot be the source for them).
 	// svelte-ignore state_referenced_locally
-	const thumbById = new Map(data.library.map((item) => [item.id, item.thumb]));
+	const thumbById = new Map(data.productThumbs.map((t) => [t.id, t.thumb]));
 
 	// The form intentionally captures the product's INITIAL values — it is an
 	// editing buffer, not a live view of server data.
@@ -23,7 +26,14 @@
 		slug: data.product.slug,
 		// Editable "49,90" string; parsed server-side into integer bani.
 		price: centsToDecimal(data.product.priceCents, ','),
+		// '' = the standard rate from the invoicing settings (FIX-12).
+		vatRateBp: data.product.vatRateBp === null ? '' : String(data.product.vatRateBp),
 		stock: data.product.stock === null ? '' : String(data.product.stock),
+		// What the stock field was loaded with: the optimistic guard the server
+		// checks before an absolute write (a sale in between → stock-changed).
+		stockLoaded: data.product.stock === null ? '' : String(data.product.stock),
+		// Relative restock ("adaugă N bucăți"): stock + N in SQL, never a race.
+		stockDelta: '',
 		status: data.product.status,
 		descriptionMd: data.product.descriptionMd,
 		coverMediaId: data.product.coverMediaId ?? '',
@@ -61,7 +71,9 @@
 		if (code === 'invalid-name') return m.admin_product_err_name();
 		if (code === 'invalid-slug') return m.admin_product_err_slug();
 		if (code === 'invalid-price') return m.admin_product_err_price();
+		if (code === 'invalid-vat-rate') return m.admin_product_err_vat_rate();
 		if (code === 'invalid-stock') return m.admin_product_err_stock();
+		if (code === 'stock-changed') return m.admin_product_err_stock_changed({ stock: detail });
 		if (code === 'unknown-pillar') return m.admin_product_err_pillar({ detail });
 		return m.admin_product_err_not_found();
 	}
@@ -127,6 +139,12 @@
 			if (result.type === 'success' && result.data?.slug) {
 				// The server may have normalized/deduplicated the slug.
 				draft.slug = String(result.data.slug);
+				// Re-base the stock buffer on the saved value (a relative restock
+				// changed it) and clear the one-shot delta.
+				const savedStock = result.data.stock;
+				draft.stock = savedStock === null || savedStock === undefined ? '' : String(savedStock);
+				draft.stockLoaded = draft.stock;
+				draft.stockDelta = '';
 				saved = true;
 				setTimeout(() => (saved = false), 2500);
 			}
@@ -160,7 +178,7 @@
 			/>
 		</label>
 
-		<div class="grid gap-4 sm:grid-cols-3">
+		<div class="grid gap-4 sm:grid-cols-5">
 			<label class="block">
 				<span class="mb-1 block text-sm font-medium">{m.admin_product_price()}</span>
 				<input
@@ -174,7 +192,26 @@
 				/>
 			</label>
 			<label class="block">
+				<span class="mb-1 block text-sm font-medium">{m.admin_product_vat_rate()}</span>
+				<select
+					name="vatRateBp"
+					bind:value={draft.vatRateBp}
+					data-testid="product-editor-vat-rate"
+					class="w-full rounded border border-(--color-brand-soft) px-3 py-2"
+				>
+					<option value="">{m.admin_product_vat_rate_standard()}</option>
+					{#each RO_VAT_RATES_BP as bp (bp)}
+						<option value={String(bp)}>{vatRateBpToPercentText(bp)}%</option>
+					{/each}
+				</select>
+				<!-- Review H-10 (BS-7): the accountant's call, now per product (FIX-12). -->
+				<span class="mt-1 block text-xs text-amber-800" data-testid="product-editor-vat-rate-hint">
+					{m.admin_product_vat_rate_hint()}
+				</span>
+			</label>
+			<label class="block">
 				<span class="mb-1 block text-sm font-medium">{m.admin_product_stock()}</span>
+				<input type="hidden" name="stockLoaded" value={draft.stockLoaded} />
 				<input
 					type="number"
 					name="stock"
@@ -182,6 +219,19 @@
 					step="1"
 					bind:value={draft.stock}
 					data-testid="product-editor-stock"
+					class="w-full rounded border border-(--color-brand-soft) px-3 py-2"
+				/>
+			</label>
+			<label class="block">
+				<span class="mb-1 block text-sm font-medium">{m.admin_product_stock_add()}</span>
+				<input
+					type="number"
+					name="stockDelta"
+					min="1"
+					step="1"
+					placeholder="+N"
+					bind:value={draft.stockDelta}
+					data-testid="product-editor-stock-delta"
 					class="w-full rounded border border-(--color-brand-soft) px-3 py-2"
 				/>
 			</label>
@@ -291,5 +341,5 @@
 </form>
 
 {#if picker !== 'closed'}
-	<MediaPicker items={data.library} onpick={onPick} onclose={() => (picker = 'closed')} />
+	<MediaPicker library={data.library} onpick={onPick} onclose={() => (picker = 'closed')} />
 {/if}

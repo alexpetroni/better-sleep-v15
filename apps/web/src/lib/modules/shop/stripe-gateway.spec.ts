@@ -59,32 +59,61 @@ describe('createStripeGateway resource_missing translation', () => {
 	});
 });
 
-// BS-9 (review M-4): the session must pin payment_method_types to card.
-// Without the pin, enabling any delayed-notification method in the Stripe
-// dashboard would silently start producing `pending` orders.
-describe('createCheckoutSession pins payment_method_types', () => {
-	it('sends payment_method_types=[card] to Stripe', async () => {
-		let body = '';
-		const capturingFetch: typeof fetch = async (_url, init) => {
-			body = String(init?.body ?? '');
+// FIX-10 (audit P1 "pending orders"): a session created without
+// payment_method_types lets any delayed method enabled in the Stripe
+// dashboard put orders on the async path. The gateway must send exactly the
+// list it is given, and nothing when told to let the dashboard decide.
+describe('createStripeGateway payment method types', () => {
+	/** Captures the request Stripe would send and answers like a created session. */
+	function capturingFetch() {
+		const requests: Array<{ url: string; body: string }> = [];
+		const fetchFn: typeof fetch = async (url, init) => {
+			requests.push({ url: String(url), body: String(init?.body ?? '') });
 			return new Response(
-				JSON.stringify({ id: 'cs_pin', url: 'https://checkout.stripe.com/c/pay/cs_pin' }),
+				JSON.stringify({
+					id: 'cs_test_captured',
+					object: 'checkout.session',
+					url: 'https://checkout.stripe.com/c/pay/cs_test_captured'
+				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			);
 		};
-		const gateway = createStripeGateway('sk_test_not_real', {
-			maxNetworkRetries: 0,
-			fetchFn: capturingFetch
-		});
-		const session = await gateway.createCheckoutSession({
-			lineItems: [{ name: 'X', unitAmountCents: 1000, currency: 'ron', qty: 1 }],
-			successUrl: 'https://example.ro/ok',
-			cancelUrl: 'https://example.ro/cos',
-			shippingCountries: ['RO'],
-			metadata: {}
-		});
-		expect(session.id).toBe('cs_pin');
-		// stripe-node serializes params as a form body.
-		expect(decodeURIComponent(body)).toContain('payment_method_types[0]=card');
+		return { fetchFn, requests };
+	}
+
+	const input = {
+		lineItems: [{ name: 'Pernă', unitAmountCents: 4990, currency: 'ron', qty: 1 }],
+		successUrl: 'https://example.ro/cos/succes?session_id={CHECKOUT_SESSION_ID}',
+		cancelUrl: 'https://example.ro/cos',
+		shippingCountries: ['RO'],
+		metadata: { cart: '[]' }
+	};
+
+	it('pins the session to the given methods (card-only by default upstream)', async () => {
+		const { fetchFn, requests } = capturingFetch();
+		const gateway = createStripeGateway('sk_test_not_real', { maxNetworkRetries: 0, fetchFn });
+		const session = await gateway.createCheckoutSession({ ...input, paymentMethodTypes: ['card'] });
+		expect(session.id).toBe('cs_test_captured');
+		expect(requests).toHaveLength(1);
+		expect(requests[0].url).toContain('/v1/checkout/sessions');
+		const body = decodeURIComponent(requests[0].body);
+		expect(body).toContain('payment_method_types[0]=card');
+		expect(body).toContain('mode=payment');
+	});
+
+	it('sends no payment_method_types when the operator lets the dashboard decide', async () => {
+		const { fetchFn, requests } = capturingFetch();
+		const gateway = createStripeGateway('sk_test_not_real', { maxNetworkRetries: 0, fetchFn });
+		await gateway.createCheckoutSession(input);
+		expect(decodeURIComponent(requests[0].body)).not.toContain('payment_method_types');
+	});
+
+	// FIX-11 (audit P1 "Sameday adapter"): the courier needs a recipient phone,
+	// so Checkout must collect one — otherwise no order can ever get an AWB.
+	it('asks Checkout to collect the recipient phone number', async () => {
+		const { fetchFn, requests } = capturingFetch();
+		const gateway = createStripeGateway('sk_test_not_real', { maxNetworkRetries: 0, fetchFn });
+		await gateway.createCheckoutSession(input);
+		expect(decodeURIComponent(requests[0].body)).toContain('phone_number_collection[enabled]=true');
 	});
 });

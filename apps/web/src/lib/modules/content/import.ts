@@ -3,6 +3,7 @@ import { pillars } from '../../db/schema/core.ts';
 import type { Db } from '../../db/client.ts';
 import { articlePillars, articles } from '../blog/schema.ts';
 import { media } from '../media/schema.ts';
+import { finalizeMediaObject } from '../../server/media-objects.ts';
 import { quizzes } from '../quiz/schema.ts';
 import { productPillars, products } from '../shop/schema.ts';
 import { remapMediaRefs, type ContentBundle, type MediaDescriptor } from './bundle.ts';
@@ -17,12 +18,19 @@ export interface ImportOptions {
 	 * hard failure (`missing-pillars`).
 	 */
 	allowUntagged?: boolean;
+	/**
+	 * Replace an item whose slug already exists (FIX-15). Off by default:
+	 * import is create-only, so re-running `content:init` or `db:seed` on a
+	 * live site never reverts admin edits — an existing slug is reported as
+	 * `skipped` and nothing (no media either) is written for it.
+	 */
+	overwrite?: boolean;
 }
 
 export interface ImportSummary {
 	type: ContentBundle['type'];
 	slug: string;
-	action: 'created' | 'updated';
+	action: 'created' | 'updated' | 'skipped';
 	mediaCreated: number;
 	mediaReused: number;
 	/** Pillar slugs actually tagged in the target database. */
@@ -103,11 +111,12 @@ async function ensureMedia(
 		const key = d.key as string; // validated by parseBundle
 		const [existing] = await db.select().from(media).where(eq(media.key, key));
 		if (existing) return { targetId: existing.id, created: false };
-		await storage.putObject(
-			key,
-			Buffer.from(dataBase64 ?? '', 'base64'),
-			d.mime ?? 'application/octet-stream'
-		);
+		// The same finalize step as an admin upload: SVGs sanitized + attachment,
+		// rasters with the immutable cache header (FIX-15).
+		const outcome = await finalizeMediaObject(storage, key, d.mime ?? 'application/octet-stream', {
+			bytes: Buffer.from(dataBase64 ?? '', 'base64')
+		});
+		if (outcome === 'not-svg') throw new Error(`media ${key}: declared SVG is not an SVG document`);
 		const id = await freeMediaId(db, sourceId);
 		await db.insert(media).values({ ...columns, id });
 		return { targetId: id, created: true };
@@ -143,16 +152,71 @@ async function resolvePillars(
 	};
 }
 
+/** The bundle's own slug, whichever payload it carries. */
+function bundleSlug(bundle: ContentBundle): string {
+	if (bundle.type === 'article') return bundle.article.slug;
+	if (bundle.type === 'quiz') return bundle.quiz.slug;
+	return bundle.product.slug;
+}
+
+/** A query runner: the db, or the transaction an import writes in. */
+type Runner = Pick<Db, 'select'>;
+
+/**
+ * The row a bundle item identifies (M-7): its stable `importKey` when the
+ * bundle carries one — a slug rename in the bundle then updates the same row
+ * instead of leaving the old slug behind as a second published item — with
+ * slug as the fallback for pre-key rows and admin exports (such a row adopts
+ * the key on the next overwrite). Quizzes are keyed by slug only.
+ */
+async function findExistingArticle(db: Runner, a: ContentBundle & { type: 'article' }) {
+	let [existing] = a.article.importKey
+		? await db.select().from(articles).where(eq(articles.importKey, a.article.importKey))
+		: [];
+	if (!existing) {
+		[existing] = await db.select().from(articles).where(eq(articles.slug, a.article.slug));
+	}
+	return existing;
+}
+
+async function findExistingProduct(db: Runner, p: ContentBundle & { type: 'product' }) {
+	let [existing] = p.product.importKey
+		? await db.select().from(products).where(eq(products.importKey, p.product.importKey))
+		: [];
+	if (!existing) {
+		[existing] = await db.select().from(products).where(eq(products.slug, p.product.slug));
+	}
+	return existing;
+}
+
+async function itemExists(db: Db, bundle: ContentBundle): Promise<boolean> {
+	if (bundle.type === 'article') return (await findExistingArticle(db, bundle)) !== undefined;
+	if (bundle.type === 'product') return (await findExistingProduct(db, bundle)) !== undefined;
+	const [row] = await db
+		.select({ id: quizzes.id })
+		.from(quizzes)
+		.where(eq(quizzes.slug, bundle.quiz.slug));
+	return row !== undefined;
+}
+
 /**
  * Import a bundle into the target database + bucket (both come from `deps`).
- * Idempotent: an existing item is matched by its stable `importKey` when the
- * bundle carries one (slug renames update in place, review M-7) with slug as
- * the legacy fallback, and updated in place — an unchanged bundle writes
- * nothing at all, so `updated_at` survives re-seeds (review M-8).
+ * ONE identity, ONE policy (BS-11): an existing item is matched by its stable
+ * `importKey` when the bundle carries one (slug renames update in place,
+ * review M-7) with slug as the legacy fallback. A matched item is left alone
+ * (`skipped`) unless `overwrite` is set, in which case it is updated in
+ * place — and a byte-identical overwrite writes nothing at all, so
+ * `updated_at` survives re-seeds (review M-8). Re-importing the same bundle
+ * therefore changes nothing and duplicates nothing either way.
  *
  * A bundle whose pillar slugs are ALL absent from the target database is
  * refused before anything is written (the item would be untagged → invisible
  * in every listing) unless `allowUntagged` is set.
+ *
+ * The row and its pillar join rows are written in ONE transaction (FIX-15):
+ * a dropped connection can no longer leave a published article with zero
+ * pillars. Media objects are uploaded before it (storage cannot join a
+ * transaction); an orphaned upload is harmless and reused by the next run.
  */
 export async function importContent(
 	deps: ContentDeps,
@@ -170,6 +234,23 @@ export async function importContent(
 			detail:
 				`none of the bundle's pillars (${bundle.pillars.join(', ')}) exist in the target ` +
 				`database — the imported item would be invisible; pass --allow-untagged to import anyway`
+		};
+	}
+
+	// Create-only unless told otherwise: an existing item (by import key, then
+	// slug) is reported, not touched — no media is written for it either.
+	if (!options.overwrite && (await itemExists(db, bundle))) {
+		return {
+			ok: true,
+			value: {
+				type: bundle.type,
+				slug: bundleSlug(bundle),
+				action: 'skipped',
+				mediaCreated: 0,
+				mediaReused: 0,
+				pillarsTagged: tagged,
+				pillarsSkipped: skipped
+			}
 		};
 	}
 
@@ -214,48 +295,44 @@ export async function importContent(
 		const a = bundle.article;
 		const cover = mapCover(a.coverMediaId);
 		if (!cover.ok) return cover;
-		// M-7: identity is the IMPORT KEY when the bundle carries one — a slug
-		// rename in the bundle then updates the same row instead of leaving the
-		// old slug behind as a second published article. Slug is the fallback
-		// for pre-key rows and admin exports; such a row adopts the key here.
-		let [existing] = a.importKey
-			? await db.select().from(articles).where(eq(articles.importKey, a.importKey))
-			: [];
-		if (!existing) [existing] = await db.select().from(articles).where(eq(articles.slug, a.slug));
-		// Spread the bundle content and override only the fields that need
-		// target-local translation — a new column travels without edits here.
-		const fields = {
-			...a,
-			bodyMd: remapMediaRefs(a.bodyMd, changed),
-			coverMediaId: cover.value,
-			publishedAt: a.publishedAt ? new Date(a.publishedAt) : null,
-			// A legacy bundle without a key must not erase one already stamped.
-			importKey: a.importKey ?? existing?.importKey ?? null
-		};
-		let articleId: string;
-		let action: 'created' | 'updated';
-		if (existing) {
-			articleId = existing.id;
-			action = 'updated';
-			// M-8: a byte-identical re-import skips the UPDATE entirely, so
-			// updated_at (sitemap lastmod, JSON-LD dateModified) stays put.
-			if (!rowUnchanged(existing, fields)) {
-				await db
-					.update(articles)
-					.set({ ...fields, updatedAt: new Date() })
-					.where(eq(articles.id, articleId));
+		const action = await db.transaction(async (tx) => {
+			const existing = await findExistingArticle(tx, bundle);
+			// Spread the bundle content and override only the fields that need
+			// target-local translation — a new column travels without edits here.
+			const fields = {
+				...a,
+				bodyMd: remapMediaRefs(a.bodyMd, changed),
+				coverMediaId: cover.value,
+				publishedAt: a.publishedAt ? new Date(a.publishedAt) : null,
+				// A legacy bundle without a key must not erase one already stamped.
+				importKey: a.importKey ?? existing?.importKey ?? null
+			};
+			let articleId: string;
+			let action: 'created' | 'updated';
+			if (existing) {
+				articleId = existing.id;
+				action = 'updated';
+				// M-8: a byte-identical re-import skips the UPDATE entirely, so
+				// updated_at (sitemap lastmod, JSON-LD dateModified) stays put.
+				if (!rowUnchanged(existing, fields)) {
+					await tx
+						.update(articles)
+						.set({ ...fields, updatedAt: new Date() })
+						.where(eq(articles.id, articleId));
+				}
+			} else {
+				articleId = crypto.randomUUID();
+				action = 'created';
+				await tx.insert(articles).values({ id: articleId, ...fields });
 			}
-		} else {
-			articleId = crypto.randomUUID();
-			action = 'created';
-			await db.insert(articles).values({ id: articleId, ...fields });
-		}
-		await db.delete(articlePillars).where(eq(articlePillars.articleId, articleId));
-		if (tagged.length) {
-			await db
-				.insert(articlePillars)
-				.values(tagged.map((slug) => ({ articleId, pillarId: pillarIds.get(slug) as number })));
-		}
+			await tx.delete(articlePillars).where(eq(articlePillars.articleId, articleId));
+			if (tagged.length) {
+				await tx
+					.insert(articlePillars)
+					.values(tagged.map((slug) => ({ articleId, pillarId: pillarIds.get(slug) as number })));
+			}
+			return action;
+		});
 		return { ok: true, value: summary(a.slug, action) };
 	}
 
@@ -298,43 +375,43 @@ export async function importContent(
 		}
 		gallery.push(target);
 	}
-	// M-7: same import-key-first identity as articles (see above).
-	let [existing] = p.importKey
-		? await db.select().from(products).where(eq(products.importKey, p.importKey))
-		: [];
-	if (!existing) [existing] = await db.select().from(products).where(eq(products.slug, p.slug));
-	const fields = {
-		...p,
-		descriptionMd: remapMediaRefs(p.descriptionMd, changed),
-		coverMediaId: cover.value,
-		gallery,
-		importKey: p.importKey ?? existing?.importKey ?? null
-	};
-	let productId: string;
-	let action: 'created' | 'updated';
-	if (existing) {
-		// Stripe catalog ids belong to the TARGET site's Stripe account — keep
-		// them; the next admin save re-syncs the (possibly new) price. Checkout
-		// is unaffected either way: sessions snapshot prices from our rows.
-		productId = existing.id;
-		action = 'updated';
-		// M-8: a byte-identical re-import skips the UPDATE entirely.
-		if (!rowUnchanged(existing, fields)) {
-			await db
-				.update(products)
-				.set({ ...fields, updatedAt: new Date() })
-				.where(eq(products.id, productId));
+	const action = await db.transaction(async (tx) => {
+		// M-7: same import-key-first identity as articles.
+		const existing = await findExistingProduct(tx, bundle);
+		const fields = {
+			...p,
+			descriptionMd: remapMediaRefs(p.descriptionMd, changed),
+			coverMediaId: cover.value,
+			gallery,
+			importKey: p.importKey ?? existing?.importKey ?? null
+		};
+		let productId: string;
+		let action: 'created' | 'updated';
+		if (existing) {
+			// Stripe catalog ids belong to the TARGET site's Stripe account — keep
+			// them; the next admin save re-syncs the (possibly new) price. Checkout
+			// is unaffected either way: sessions snapshot prices from our rows.
+			productId = existing.id;
+			action = 'updated';
+			// M-8: a byte-identical re-import skips the UPDATE entirely.
+			if (!rowUnchanged(existing, fields)) {
+				await tx
+					.update(products)
+					.set({ ...fields, updatedAt: new Date() })
+					.where(eq(products.id, productId));
+			}
+		} else {
+			productId = crypto.randomUUID();
+			action = 'created';
+			await tx.insert(products).values({ id: productId, ...fields });
 		}
-	} else {
-		productId = crypto.randomUUID();
-		action = 'created';
-		await db.insert(products).values({ id: productId, ...fields });
-	}
-	await db.delete(productPillars).where(eq(productPillars.productId, productId));
-	if (tagged.length) {
-		await db
-			.insert(productPillars)
-			.values(tagged.map((slug) => ({ productId, pillarId: pillarIds.get(slug) as number })));
-	}
+		await tx.delete(productPillars).where(eq(productPillars.productId, productId));
+		if (tagged.length) {
+			await tx
+				.insert(productPillars)
+				.values(tagged.map((slug) => ({ productId, pillarId: pillarIds.get(slug) as number })));
+		}
+		return action;
+	});
 	return { ok: true, value: summary(p.slug, action) };
 }

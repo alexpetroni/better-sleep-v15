@@ -1,6 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lte, or } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
-import { emailLog, type EmailStatus } from './schema.ts';
+import { EmailTransportError } from './resend.ts';
+import { emailLog, type EmailLogRow, type EmailStatus } from './schema.ts';
 import { renderEmailTemplate, type TemplateData, type TemplateKey } from './templates.ts';
 
 /**
@@ -25,6 +26,14 @@ export interface EmailMessage {
 	html: string;
 	text: string;
 	attachments?: EmailAttachment[];
+	/** Extra headers the template asked for (List-Unsubscribe on marketing mail). */
+	headers?: Record<string, string>;
+	/**
+	 * The email_log row's key, forwarded to the provider as its idempotency
+	 * key (FIX-18): a retry of the same row after a transport timeout is the
+	 * SAME request to Resend, never a second delivery.
+	 */
+	idempotencyKey: string;
 }
 
 /** What actually delivers mail: the Resend adapter in prod, a fake in tests. */
@@ -52,23 +61,48 @@ export interface SendEmailInput<K extends TemplateKey = TemplateKey> {
 
 export type SendEmailOutcome =
 	| { status: 'sent' | 'dryrun' | 'skipped'; logId: string }
-	| { status: 'error'; logId: string; error: string };
+	| {
+			status: 'error';
+			logId: string;
+			error: string;
+			/** False only for a classified permanent failure (EmailTransportError); unknown errors stay retryable. */
+			retryable: boolean;
+	  };
 
 export interface EmailSender {
+	/** Callers that reason about email_log rows need to know whether `dryrun` means delivered here. */
+	readonly dryRun: boolean;
 	send<K extends TemplateKey>(input: SendEmailInput<K>): Promise<SendEmailOutcome>;
 }
 
 /**
- * Idempotency decision for an already-logged key: delivered and in-flight
- * rows are always final; failed rows may be retried. A DRY-RUN row delivered
- * nothing, so it is final only while the sender itself still runs dry (L-3):
- * once the environment flips to `EMAIL_DRYRUN=false`, the same key may claim
- * the row again and actually deliver — an old dry-run record can no longer
- * silently suppress the first real send.
+ * A `sending` claim older than this is presumed dead (a serverless kill
+ * between the claim and the transport) and may be re-claimed. Comfortably
+ * above any transport timeout, so a slow-but-alive delivery is never raced.
  */
-export function shouldSkipResend(status: EmailStatus, opts: { dryRun: boolean }): boolean {
-	if (status === 'sent' || status === 'sending') return true;
-	return status === 'dryrun' && opts.dryRun;
+export const EMAIL_SENDING_STALE_MS = 10 * 60 * 1000;
+
+/**
+ * Idempotency decision for an already-logged key (audit 2026-09-03 P1):
+ * - `sent` is final; `error` may always be retried;
+ * - `dryrun` is a RECORD, not a delivery — final only while the sender itself
+ *   runs dry (the documented dry-run soak must not burn the key for launch);
+ * - `sending` is in flight and final until the claim goes stale.
+ */
+export function shouldSkipResend(
+	row: Pick<EmailLogRow, 'status' | 'updatedAt'>,
+	ctx: { dryRun: boolean; now?: Date }
+): boolean {
+	switch (row.status) {
+		case 'sent':
+			return true;
+		case 'error':
+			return false;
+		case 'dryrun':
+			return ctx.dryRun;
+		case 'sending':
+			return (ctx.now ?? new Date()).getTime() - row.updatedAt.getTime() < EMAIL_SENDING_STALE_MS;
+	}
 }
 
 export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
@@ -83,7 +117,12 @@ export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
 	}
 
 	return {
+		dryRun: cfg.dryRun,
 		async send(input) {
+			// Lowercased once here so the log row AND the transport agree, and
+			// GDPR erasure matches whatever casing the caller passed through.
+			const to = input.to.trim().toLowerCase();
+			const now = new Date();
 			const rendered = renderEmailTemplate(input.template, input.data);
 			const claimStatus: EmailStatus = cfg.dryRun ? 'dryrun' : 'sending';
 
@@ -104,11 +143,12 @@ export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
 				.values({
 					id: crypto.randomUUID(),
 					idempotencyKey: input.idempotencyKey,
-					toEmail: input.to,
+					toEmail: to,
 					template: input.template,
 					subject: rendered.subject,
 					data: input.data as Record<string, unknown>,
 					attachments: attachmentMeta,
+					headers: rendered.headers ?? null,
 					status: claimStatus
 				})
 				.onConflictDoNothing({ target: emailLog.idempotencyKey })
@@ -120,16 +160,27 @@ export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
 					.select()
 					.from(emailLog)
 					.where(eq(emailLog.idempotencyKey, input.idempotencyKey));
-				if (!existing || shouldSkipResend(existing.status, { dryRun: cfg.dryRun })) {
+				if (!existing || shouldSkipResend(existing, { dryRun: cfg.dryRun, now })) {
 					return { status: 'skipped', logId: existing?.id ?? '' };
 				}
-				// A previous attempt failed — or was a dry run and the sender is
-				// live now (L-3) — re-claim it. The status guard keeps concurrent
-				// retries from both winning.
+				// Re-claim it. The guard repeats shouldSkipResend's rule IN the
+				// UPDATE, so of two concurrent retries only one wins: the loser
+				// re-evaluates the WHERE after the winner's row lock releases and
+				// finds a fresh `sending`/`dryrun` row.
+				const staleCutoff = new Date(now.getTime() - EMAIL_SENDING_STALE_MS);
 				const [reclaimed] = await cfg.db
 					.update(emailLog)
-					.set({ status: claimStatus, error: null, updatedAt: new Date() })
-					.where(and(eq(emailLog.id, existing.id), eq(emailLog.status, existing.status)))
+					.set({ status: claimStatus, error: null, updatedAt: now })
+					.where(
+						and(
+							eq(emailLog.id, existing.id),
+							or(
+								eq(emailLog.status, 'error'),
+								and(eq(emailLog.status, 'sending'), lte(emailLog.updatedAt, staleCutoff)),
+								cfg.dryRun ? undefined : eq(emailLog.status, 'dryrun')
+							)
+						)
+					)
 					.returning();
 				if (!reclaimed) return { status: 'skipped', logId: existing.id };
 				claimed = reclaimed;
@@ -140,25 +191,28 @@ export function createEmailSender(cfg: EmailSenderConfig): EmailSender {
 			if (!cfg.transport) {
 				const message = 'No email transport configured — set RESEND_API_KEY or EMAIL_DRYRUN=true';
 				await markStatus(claimed.id, { status: 'error', error: message });
-				return { status: 'error', logId: claimed.id, error: message };
+				return { status: 'error', logId: claimed.id, error: message, retryable: true };
 			}
 
 			try {
 				const { providerId } = await cfg.transport.send({
 					from: cfg.from,
 					replyTo: cfg.replyTo,
-					to: input.to,
+					to,
 					subject: rendered.subject,
 					html: rendered.html,
 					text: rendered.text,
-					attachments: input.attachments
+					attachments: input.attachments,
+					headers: rendered.headers,
+					idempotencyKey: input.idempotencyKey
 				});
 				await markStatus(claimed.id, { status: 'sent', providerId });
 				return { status: 'sent', logId: claimed.id };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
+				const retryable = err instanceof EmailTransportError ? err.retryable : true;
 				await markStatus(claimed.id, { status: 'error', error: message });
-				return { status: 'error', logId: claimed.id, error: message };
+				return { status: 'error', logId: claimed.id, error: message, retryable };
 			}
 		}
 	};

@@ -13,6 +13,11 @@ import type { RequestHandler } from './$types';
  * and bounded per invocation (serverless time limits): a backlog larger than
  * the batch simply drains over consecutive runs, oldest-synced first.
  */
+// Serverless budget (audit 2026-09-03 "Ops & platform"): a bounded batch with
+// one provider round trip per row needs more than Vercel's 10 s default; 60 s
+// is the ceiling every plan allows. adapter-node ignores this export.
+export const config = { maxDuration: 60 };
+
 export const GET: RequestHandler = async ({ request }) => {
 	const auth = authorizeCron(request.headers.get('authorization'), env.CRON_SECRET);
 	if (!auth.ok) {
@@ -23,7 +28,8 @@ export const GET: RequestHandler = async ({ request }) => {
 	// One structured line in the function logs — the only place this job's
 	// output is visible on a serverless deploy.
 	console.log(
-		`shipment-sync polled=${result.polled} updated=${result.updated} errors=${result.errors}`
+		`shipment-sync polled=${result.polled} updated=${result.updated} errors=${result.errors}` +
+			(result.aborted ? ` aborted=${result.aborted}` : '')
 	);
 	return json(result, { headers: NO_STORE });
 };

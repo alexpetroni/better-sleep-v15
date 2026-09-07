@@ -2,8 +2,14 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
-	import { baseLocale, deLocalizeUrl, localizeHref } from '$lib/paraglide/runtime';
-	import { canonicalUrl } from '$lib/seo';
+	import {
+		baseLocale,
+		deLocalizeUrl,
+		localizeHref,
+		strategy,
+		type Locale
+	} from '$lib/paraglide/runtime';
+	import { canonicalUrl, hreflangAlternates } from '$lib/seo';
 	import { AnalyticsLoader } from '$lib/modules/analytics';
 	import { ChatWidget } from '$lib/modules/chat';
 	import { NewsletterSignup } from '$lib/modules/crm';
@@ -22,14 +28,17 @@
 	let localDecision = $state<CookieConsentValue | null>(null);
 	const consentDecision = $derived(localDecision ?? data.cookieConsent);
 
-	// Single-locale site (ro only): one self-referential hreflang for the base
-	// locale plus x-default, absolute via PUBLIC_SITE_URL.
+	// hreflang alternates — only when the SITE has more than one locale and
+	// paraglide resolves locales from the URL (FIX-15; see hreflangAlternates).
+	// Today both sites are `ro` only, so nothing is emitted. When they are,
+	// each is the locale-less (base) pathname localized per locale, absolute
+	// via PUBLIC_SITE_URL, with x-default at the base locale.
 	const basePath = $derived(deLocalizeUrl(page.url).pathname);
-	const baseHref = $derived(canonicalUrl(localizeHref(basePath, { locale: baseLocale })));
-	const alternates = $derived([
-		{ hreflang: baseLocale as string, href: baseHref },
-		{ hreflang: 'x-default', href: baseHref }
-	]);
+	const alternates = $derived(
+		hreflangAlternates(data.site.locales, strategy, baseLocale, (locale) =>
+			canonicalUrl(localizeHref(basePath, { locale: locale as Locale }))
+		)
+	);
 </script>
 
 <svelte:head>

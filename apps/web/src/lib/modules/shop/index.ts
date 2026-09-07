@@ -6,6 +6,7 @@ export {
 	CART_COOKIE,
 	cartCount,
 	cartTotalCents,
+	clampLineToStock,
 	parseCartCookie,
 	removeFromCart,
 	serializeCart,
@@ -34,6 +35,7 @@ export {
 } from './night-map.ts';
 export type {
 	BuyerCompany,
+	BuyerCompanyAddress,
 	OrderEventRow,
 	OrderItemRow,
 	OrderRow,

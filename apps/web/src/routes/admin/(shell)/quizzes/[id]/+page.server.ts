@@ -3,26 +3,38 @@ import { getDb } from '$lib/db';
 import { EMAIL_TEMPLATE_KEYS } from '$lib/modules/email';
 import {
 	getQuiz,
+	latestResults,
 	latestResultsWithEmail,
 	publishQuiz,
 	unpublishQuiz,
 	updateQuiz,
 	type QuizPatch
 } from '$lib/modules/quiz/server';
-import { failResult, formStr } from '$lib/server/forms';
+import { failResult, formStr, requireStaff } from '$lib/server/forms';
 import { resolveSitePillars } from '$lib/server/site';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const user = requireStaff(locals);
 	const found = await getQuiz({ db: getDb() }, params.id);
 	if (!found) error(404);
+
+	// Subscriber emails are customer PII: only the admin role sees them.
+	// Editors get the same rows with the email column never queried.
+	const results =
+		user.role === 'admin'
+			? await latestResultsWithEmail({ db: getDb() }, params.id)
+			: (await latestResults({ db: getDb() }, params.id)).map((result) => ({
+					result,
+					email: null
+				}));
 
 	return {
 		quiz: found.quiz,
 		pillarSlug: found.pillarSlug,
 		sitePillars: resolveSitePillars(),
 		templateKeys: EMAIL_TEMPLATE_KEYS,
-		results: await latestResultsWithEmail({ db: getDb() }, params.id)
+		results
 	};
 };
 
@@ -76,14 +88,16 @@ async function saveFrom(request: Request, id: string) {
 }
 
 export const actions: Actions = {
-	save: async ({ request, params }) => {
+	save: async ({ request, params, locals }) => {
+		requireStaff(locals);
 		const outcome = await saveFrom(request, params.id);
 		if (outcome.response) return outcome.response;
 		return { saved: true, slug: outcome.saved!.slug };
 	},
 
 	// Publish/unpublish also persist the current form so no edits are lost.
-	publish: async ({ request, params }) => {
+	publish: async ({ request, params, locals }) => {
+		requireStaff(locals);
 		const outcome = await saveFrom(request, params.id);
 		if (outcome.response) return outcome.response;
 		const result = await publishQuiz({ db: getDb() }, params.id);
@@ -91,7 +105,8 @@ export const actions: Actions = {
 		return { saved: true, slug: result.value.slug };
 	},
 
-	unpublish: async ({ request, params }) => {
+	unpublish: async ({ request, params, locals }) => {
+		requireStaff(locals);
 		const outcome = await saveFrom(request, params.id);
 		if (outcome.response) return outcome.response;
 		const result = await unpublishQuiz({ db: getDb() }, params.id);

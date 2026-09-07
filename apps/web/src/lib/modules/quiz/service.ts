@@ -108,6 +108,17 @@ export async function updateQuiz(
 		set.scoring = patch.scoring;
 	}
 
+	// A LIVE quiz must stay renderable and scorable: validate the merged
+	// config exactly as publish does (FIX-15) — e.g. a form saved without
+	// questions, or a form change that orphans the scoring's question ids.
+	if (existing.status === 'published') {
+		const errors = validateForPublish(
+			set.formSchema ?? existing.formSchema,
+			set.scoring ?? existing.scoring
+		);
+		if (errors.length) return { ok: false, error: 'not-publishable', detail: errors.join(' ') };
+	}
+
 	if (patch.pillarSlug !== undefined) {
 		if (patch.pillarSlug === null) {
 			set.pillarId = null;
@@ -416,6 +427,8 @@ export async function submitQuiz(
 export interface ResultWithQuiz {
 	result: QuizResultRow;
 	quiz: QuizRow;
+	/** The quiz's pillar slug (null when untagged) — the result page gates on it like the quiz page. */
+	pillarSlug: string | null;
 }
 
 export async function getResultWithQuiz(
@@ -423,11 +436,29 @@ export async function getResultWithQuiz(
 	resultId: string
 ): Promise<ResultWithQuiz | null> {
 	const [row] = await deps.db
-		.select({ result: quizResults, quiz: quizzes })
+		.select({ result: quizResults, quiz: quizzes, pillarSlug: pillars.slug })
 		.from(quizResults)
 		.innerJoin(quizzes, eq(quizResults.quizId, quizzes.id))
+		.leftJoin(pillars, eq(quizzes.pillarId, pillars.id))
 		.where(eq(quizResults.id, resultId));
 	return row ?? null;
+}
+
+/**
+ * Published quizzes visible on a site (tagged to one of its active pillars),
+ * for sitemap.xml (FIX-15 — quizzes were missing from it).
+ */
+export async function listPublishedQuizzesForSitemap(
+	deps: QuizDeps,
+	pillarSlugs: string[]
+): Promise<Array<{ slug: string; updatedAt: Date }>> {
+	if (pillarSlugs.length === 0) return [];
+	return deps.db
+		.select({ slug: quizzes.slug, updatedAt: quizzes.updatedAt })
+		.from(quizzes)
+		.innerJoin(pillars, eq(quizzes.pillarId, pillars.id))
+		.where(and(eq(quizzes.status, 'published'), inArray(pillars.slug, pillarSlugs)))
+		.orderBy(asc(quizzes.slug));
 }
 
 /** Latest results with the (optional) claiming subscriber's email — admin view. */

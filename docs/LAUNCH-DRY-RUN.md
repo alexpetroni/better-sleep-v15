@@ -9,6 +9,15 @@ actually executed; outputs are quoted from the run. Steps the walk proved
 wrong or missing in the documents were fixed in the same commit (list at the
 end).
 
+> **Not rehearsed since (FIX-16 note, 2026-09-05):** this walk ran on the
+> `imgproxy` image provider, which was the default at the time. The default
+> is now `IMAGE_PROVIDER=cloudflare` (DEPLOYMENT.md §6) and that provider
+> has NOT been exercised locally — it needs a real zone with Image
+> Transformations enabled, so its first proof is the production
+> `launch:check` image probe and step 3 of §11. Also since this run:
+> `/api/health` split into liveness + `/api/health/ready`, `db:migrate`
+> wrapped in the advisory-lock script, `user:create` prompts for the password.
+
 **Environment**: local docker compose (Postgres 16 on host port 5433, MinIO,
 imgproxy, neon-proxy), adapter-node build served by `vite preview` on
 4173 (sleep) / 4174 (life), mock Stripe / mock chat / mock courier,
@@ -21,13 +30,13 @@ rehearsal, not a walk over an already-working install.
 | Step | Command | Result |
 | --- | --- | --- |
 | Compose stack | `docker compose up -d --wait` | all services healthy |
-| Fresh DBs | `DROP DATABASE …; CREATE DATABASE better_sleep / better_life` | created |
+| Fresh DBs | `DROP DATABASE …; CREATE DATABASE` for each site database | created |
 | Bucket | `pnpm storage:init` | `Bucket "better-base-media": exists` (idempotent) |
 
 ## 2. Per-site setup (DEPLOYMENT §4 / §12 "Deploy order")
 
-Run once with the sleep env (root `.env`), once with
-`SITE_ID=life DATABASE_URL=postgres://better:better@localhost:5433/better_life`:
+Run once with the sleep env (root `.env`), once with the second site's env
+(historical: that site was removed from this repo in BS-0):
 
 | Step | Command | sleep | life |
 | --- | --- | --- | --- |
@@ -53,7 +62,7 @@ that refusal is its job, so a green non-dev run cannot be rehearsed locally.
 | 1. `/api/health` | curl on 4173 and 4174 | `200 {"status":"ok","checks":{"db":"ok","storage":"ok"}}` on both |
 | 2. `/` renders | curl + marker grep | sleep: cookie banner (`data-testid="cookie-consent"`), legal-page links, ANPC markers present; life: all 9 pillar links render |
 | 3. Admin login + upload | curl form-action login (303 → `/admin`, session cookie), then presign → PUT (200) → confirm via `/admin/media/upload` | row confirmed at 320×200 with `blurhash: L.HPf|o3fQo36qa~fQa~w*jufQju`; signed imgproxy thumb answers `200 image/webp`; `ImageSources.placeholder` is a data-URI PNG. Also exercised browser-side by the media e2e |
-| 4. Quiz → email | e2e `funnel-sleep` / `funnel-life` / `quiz` specs (see §6) | pass — double-opt-in email recorded in `email_log` |
+| 4. Quiz → email | e2e `funnel-sleep` / `quiz` specs (see §6) | pass — double-opt-in email recorded in `email_log` |
 | 5. Purchase → `plătită` + invoice | e2e `settings.e2e.ts` "a purchase yields a downloadable invoice" + shop specs | pass on both sites — mock-Stripe webhook creates the paid order, invoice numbered in the declared series, PDF/XML downloadable, confirmation email carries the PDF |
 | 6. AWB from order page | e2e "shipping is priced from settings, charged, invoiced and shipped with an AWB" | pass on both sites (mock courier — deterministic fake AWB, tracking email in `email_log`) |
 | 7. Cron routes | authorized curls with `CRON_SECRET`; unauthorized without | `chat-prune` → `{"sessions":0,…,"retentionDays":30,…}`; `shipment-sync` → `{"polled":0,"updated":0,"errors":0}`; `nurture-send` → `{"claimed":0,"sent":0,…}`; all three answer `401` without the Bearer |
@@ -83,7 +92,7 @@ reload restore, a11y and CLS/perf assertions.
 | Gate | Command | Result |
 | --- | --- | --- |
 | adapter-node build | `pnpm build` | green (serves the walk above) |
-| Vercel build | `DEPLOY_TARGET=vercel pnpm build` | green (see STATE.md NEXT-10 gate record) |
+| Vercel build | `DEPLOY_TARGET=vercel pnpm build` | green (see docs/CHANGELOG.md, NEXT-10 entry) |
 | pg driver | `pnpm lint && pnpm check && pnpm test:unit` | green |
 | neon driver | `docker compose --profile neon up -d` + `pnpm test:neon` | green |
 

@@ -54,12 +54,22 @@ export function defineFunnelSpec(siteId: keyof typeof SITE_DB_NAMES) {
 			const db = createDb(siteDatabaseUrl(siteId));
 
 			try {
-				// --- Ops: the health endpoint answers 200 with both checks green.
-				const health = await page.request.get('/api/health');
-				expect(health.status()).toBe(200);
-				expect(await health.json()).toEqual({
+				// --- Ops (FIX-16): liveness answers 200 with no I/O and names the
+				// site + build; readiness answers 200 with both checks green.
+				const live = await page.request.get('/api/health');
+				expect(live.status()).toBe(200);
+				expect(await live.json()).toMatchObject({
 					status: 'ok',
-					checks: { db: 'ok', storage: 'ok' }
+					site: siteId,
+					chatProvider: 'mock'
+				});
+				const ready = await page.request.get('/api/health/ready');
+				expect(ready.status()).toBe(200);
+				// FIX-14: the payload names the chat provider — the e2e stack is on the mock.
+				expect(await ready.json()).toEqual({
+					status: 'ok',
+					checks: { db: 'ok', storage: 'ok' },
+					chatProvider: 'mock'
 				});
 
 				// --- Home: brand, the BS-5 landing hero, cookie-consent banner.

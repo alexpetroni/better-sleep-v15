@@ -11,7 +11,9 @@ import { createEmailSender } from '../email/service.ts';
 import { hasConsent } from '../crm/consent.ts';
 import { subscribers } from '../crm/schema.ts';
 import { unsubscribeByToken } from '../crm/service.ts';
+import { media } from '../media/schema.ts';
 import { claimQuizResult, type QuizFunnelDeps } from './funnel.ts';
+import { quizzesMediaReferenceCheck } from './media-ref.ts';
 import { quizResults, quizzes, type QuizRow, type StoredAnswer } from './schema.ts';
 import { scoreQuiz, type ScoringConfig } from './scoring.ts';
 import {
@@ -170,12 +172,76 @@ describe('quiz lifecycle', () => {
 		expect(quiz.status).toBe('published');
 	});
 
+	// FIX-15 (audit P2): validateForPublish ran only at publish time, so a
+	// later save could leave a LIVE quiz without questions or with a scoring
+	// config pointing at questions that no longer exist.
+	it('a published quiz refuses a save that would make it unrenderable; a draft accepts it', async () => {
+		const live = await makePublishedQuiz('Publicat, apoi golit');
+		const refused = await updateQuiz(deps, live.id, { formSchema: { steps: [] } });
+		expect(!refused.ok && refused.error).toBe('not-publishable');
+		const [row] = await db.select().from(quizzes).where(eq(quizzes.id, live.id));
+		expect(row.formSchema.steps.length).toBeGreaterThan(0); // untouched
+		// Scoring that references a question the new form no longer has.
+		const [step] = FORM.steps;
+		const [group] = step.groups;
+		const mismatch = await updateQuiz(deps, live.id, {
+			formSchema: {
+				...FORM,
+				steps: [
+					{
+						...step,
+						groups: [{ ...group, questions: group.questions.filter((q) => q.id === 'adormire') }]
+					}
+				]
+			}
+		});
+		expect(!mismatch.ok && mismatch.error).toBe('not-publishable');
+
+		const draft = await createQuiz(deps, { title: 'Ciornă golită', createdBy: USER_ID });
+		if (!draft.ok) throw new Error('createQuiz failed');
+		const accepted = await updateQuiz(deps, draft.value.id, { formSchema: { steps: [] } });
+		expect(accepted.ok).toBe(true);
+	});
+
 	it('drafts are invisible via public getQuizBySlug; unpublish hides again', async () => {
 		const quiz = await makePublishedQuiz('Vizibilitate');
 		expect(await getQuizBySlug(deps, quiz.slug)).not.toBeNull();
 		await unpublishQuiz(deps, quiz.id);
 		expect(await getQuizBySlug(deps, quiz.slug)).toBeNull();
 		expect(await getQuizBySlug(deps, quiz.slug, { includeDrafts: true })).not.toBeNull();
+	});
+});
+
+// FIX-15 (audit P2): quiz intros embed media too, but no reference check
+// guarded them — the library could delete an image a live quiz shows.
+describe('media reference check', () => {
+	it('reports intro references by id and key, titled or not', async () => {
+		const rows = [
+			['qm-id', 'uploads/q/id.png'],
+			['qm-key', 'uploads/q/key.png'],
+			['qm-free', 'uploads/q/free.png']
+		];
+		for (const [id, key] of rows) {
+			await db.insert(media).values({
+				id,
+				kind: 'image',
+				key,
+				filename: 'q.png',
+				mime: 'image/png',
+				size: 1,
+				alt: '',
+				createdBy: USER_ID
+			});
+		}
+		const created = await createQuiz(deps, { title: 'Cu imagini', createdBy: USER_ID });
+		if (!created.ok) throw new Error('createQuiz failed');
+		await updateQuiz(deps, created.value.id, {
+			introMd: 'Intro ![a](media:qm-id "Titlu") și ![b](media:uploads/q/key.png)'
+		});
+
+		expect(await quizzesMediaReferenceCheck.isReferenced(db, 'qm-id')).toBe(true);
+		expect(await quizzesMediaReferenceCheck.isReferenced(db, 'qm-key')).toBe(true);
+		expect(await quizzesMediaReferenceCheck.isReferenced(db, 'qm-free')).toBe(false);
 	});
 });
 

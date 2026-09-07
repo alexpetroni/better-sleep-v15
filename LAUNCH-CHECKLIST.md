@@ -18,8 +18,9 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
       start early). A different courier means implementing another
       `CourierProvider` adapter first (DEPLOYMENT.md §7 "Shipping").
 - [ ] Deploy target decided and provisioned: a VPS/PaaS + Postgres 16
-      (adapter-node, DEPLOYMENT.md §3–§4) or Vercel + Neon (§12); automated
-      database backups enabled and restore tested once.
+      (adapter-node, DEPLOYMENT.md §3–§4) or Vercel + Neon (§12); a SECOND
+      storage provider + its bucket for the nightly backups
+      (`.github/workflows/backup.yml` secrets, `docs/RESTORE.md`).
 - [ ] Image provider decided: `IMAGE_PROVIDER=cloudflare` needs no extra
       account or box (the default — §6). Only if you deliberately choose
       `imgproxy` instead: a Fly.io account, or the adapter-node VPS hosting it
@@ -71,13 +72,16 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
         entity is not VAT-registered — leave "Plătitor de TVA" unchecked so
         invoices carry the neplătitor mention (launch:check enforces the
         required ones);
-      - **VAT rate confirmed with the accountant BEFORE launch**: the whole
-        catalogue is food supplements, which in Romania are commonly at the
-        REDUCED rate (11% after the Aug 2025 reform), NOT the 21% standard
-        default — a wrong rate overstates VAT on every invoice and e-Factura
-        XML from day one. Note the limitation: ONE site-wide rate applies to
-        all products and to shipping (no per-product rate yet — ask for it
-        the day two rates must coexist);
+      - **VAT rates confirmed with the accountant BEFORE launch** (review
+        H-10): the whole catalogue is food supplements, which in Romania are
+        commonly at the REDUCED rate (11% after the Aug 2025 reform), NOT the
+        21% standard default — a wrong rate overstates VAT on every invoice
+        and e-Factura XML from day one. Since FIX-12 the rate is PER PRODUCT
+        (`/admin/products/<id>` → "Cota TVA"; empty = the standard schedule
+        from `invoice.vatStandardRates`, which is what shipping uses): set the
+        reduced rate on every supplement the accountant confirms, and save
+        the standard schedule consciously (`launch:check` refuses the
+        auto-migrated one);
       - confirm with the accountant: the declared series/number regime, the
         per-line VAT rounding documented in `modules/invoice/README.md`, and
         the invoice TEMPLATE itself — download a test PDF from an order page
@@ -86,13 +90,29 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
         work queue filter "Fără factură" lists them; issue each with the
         one-click button on the order page if the accountant did not already
         invoice them by hand.
-- [ ] e-Factura (ANAF): decide the interim process — the app produces the
-      CIUS-RO XML per invoice (downloadable from the order page / monthly
-      export) but does NOT submit it; a human uploads to SPV when the
-      obligation applies. For automated submission later: qualified
-      certificate + SPV enrollment + ANAF OAuth app + implementing the
-      `EFacturaSubmitter` adapter — exact steps in DEPLOYMENT.md §7
-      "Fiscal documents". Record who owns the SPV upload until then.
+- [ ] e-Factura (ANAF) — the duty is real and dated: every invoice and
+      storno MUST reach SPV within 5 calendar days of issuance (B2C included
+      since 2025-01-01). The app queues each document at issuance and
+      `/admin/orders` → "De trimis la ANAF" shows what is still due with the
+      days left, but it does NOT submit until a human completes the
+      enrollment (qualified certificate + SPV enrollment + ANAF OAuth app +
+      implementing the `EFacturaSubmitter` adapter — exact steps in
+      DEPLOYMENT.md §7 "Fiscal documents"). Until then: name the person who
+      uploads the XML (order page / monthly export) in the SPV web interface
+      every working day and checks the queue (a document parked after 5
+      failed automatic attempts is re-queued from the order page or with
+      `pnpm efactura:requeue` — DEPLOYMENT.md §7), and confirm the
+      `efactura-submit` cron is scheduled (below) so the queue is drained
+      the moment the adapter exists.
+- [ ] e-Factura XML validated against ANAF's public validator BEFORE the
+      first live invoice: upload BOTH golden fixtures from
+      `apps/web/tests/fixtures/efactura/` (`factura-cluj.xml`,
+      `factura-bucuresti-sector-b2b.xml`) to ANAF's e-Factura validator
+      (anaf.ro → e-Factura → "Validare XML") and record the result here; the
+      build only runs the offline validator and has NOT called ANAF. Then
+      validate the first real invoice's XML the same way. Any rejection is a
+      renderer bug: fix it and bump `EFACTURA_RENDERER_VERSION` so stored
+      documents re-render.
 
 ## DNS & TLS
 
@@ -117,11 +137,21 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
 - [ ] R2 bucket `bettersleep-media` created; scoped API token issued for the
       app (read+write). Only on the imgproxy provider: a second, read-only
       token for imgproxy.
-- [ ] `CHAT_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` set. Since BS-7,
-      `launch:check` REFUSES a live env (`EMAIL_DRYRUN=false`) on the mock
-      chat provider — launching with canned answers is no longer a silent
-      possibility; turning the widget off instead means `chatWidget: false`
-      in the site config.
+- [ ] R2 bucket `bettersleep-fiscal` created (invoice PDFs + e-Factura XML;
+      DEPLOYMENT.md §5), the same app token granted read+write on it,
+      `S3_INVOICE_BUCKET=bettersleep-fiscal` set, and NO public domain bound
+      to it. `pnpm launch:check` refuses a cloudflare deploy without it and
+      probes that the media domain does not serve `/invoices/`. If any
+      invoice was issued before this bucket existed, run
+      `pnpm storage:fiscal-migrate` once with the prod env.
+- [ ] `CHAT_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` set (or a conscious
+      decision to launch with the widget off / mock). `pnpm launch:check`
+      refuses a live env (`EMAIL_DRYRUN=false`) still on the mock chat or
+      courier provider — and, since FIX-18, a production env still on
+      dry-run email (`EMAIL_DRYRUN=true`/unset) — unless
+      `--allow-mock-providers` is passed for a deliberate rehearsal; the boot
+      log prints `chat provider: <kind>` and `GET /api/health` returns it as
+      `chatProvider`, so verify the deployed kind there.
 - [ ] `COURIER_PROVIDER=sameday` + `SAMEDAY_USERNAME`/`SAMEDAY_PASSWORD`/
       `SAMEDAY_PICKUP_POINT` set from the courier contract (DEPLOYMENT.md §2,
       §7 "Shipping"). The mock default generates FAKE AWBs — fine for
@@ -149,20 +179,45 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
 
 - [ ] Products re-checked in `/admin/products`: names, prices in lei, stock.
 - [ ] Live keys set (`sk_live_…`); live webhook endpoint
-      `https://bettersleep.ro/api/stripe/webhook` created with events
-      `checkout.session.completed` + `charge.refunded`; its `whsec_…` set.
+      `https://bettersleep.ro/api/stripe/webhook` created with the four
+      events `checkout.session.completed`,
+      `checkout.session.async_payment_succeeded`,
+      `checkout.session.async_payment_failed`, `charge.refunded`
+      (DEPLOYMENT.md §7); its `whsec_…` set.
+- [ ] Checkout asks for a **phone number** on the test-mode purchase (it lands
+      on the order's shipping address next to the county; the courier refuses
+      an AWB without either — DEPLOYMENT.md §7 "Stripe" 6).
+- [ ] Payment methods: sessions are card-only by default; only enable
+      "Permite toate metodele de plată" in `/admin/settings` → Magazin if a
+      delayed method (bank debit, voucher) is wanted — then a pending order
+      becomes paid only on `async_payment_succeeded`.
 - [ ] One real LIVE purchase made with a real card and refunded — order
       appears as `plătită`, then `rambursată` in `/admin/orders`; the
       confirmation email arrives WITH the invoice PDF attached; the success
       page offers the invoice download; the refund's storno shows on the
       order page next to the invoice.
+- [ ] One PARTIAL refund from the Stripe dashboard on a second test order:
+      the order stays `plătită` with the "rambursare parțială" badge and the
+      refunded amount, no storno is issued automatically, and "Emite storno
+      parțial (…)" on the order page issues one for exactly that amount.
 - [ ] Stripe receipt/branding settings (logo, statement descriptor) filled.
 
 ## Email (Resend)
 
 - [ ] Domain `bettersleep.ro` verified in Resend (SPF + DKIM records added).
-- [ ] `EMAIL_DRYRUN=false` set only AFTER domain verification.
-- [ ] Test double-opt-in on a real inbox: signup → confirm → unsubscribe.
+- [ ] `EMAIL_DRYRUN=false` set only AFTER domain verification. The dry-run
+      soak before that is harmless: a dry-run record is not a delivery, the
+      same idempotency keys send for real once live (DEPLOYMENT §8).
+- [ ] Resend webhook endpoint `https://<site>/api/webhooks/resend` created
+      for `email.bounced` + `email.complained`, its signing secret set as
+      `RESEND_WEBHOOK_SECRET`, and a dashboard test event answered `200`
+      (`503` means the secret is missing) — DEPLOYMENT §8 step 4.
+- [ ] Test double-opt-in on a real inbox: signup → confirm (the link shows
+      a button; press it) → unsubscribe (same: button). Re-subscribe after
+      the unsubscribe and check a NEW confirm email arrives.
+- [ ] On a delivered nurture email, "show original" contains
+      `List-Unsubscribe` and `List-Unsubscribe-Post` (Gmail/Yahoo bulk-sender
+      requirement); the mail client's own "Unsubscribe" control works.
 - [ ] Deliverability spot-check (Gmail + Yahoo, not in spam).
 
 ## Content
@@ -178,6 +233,16 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
 - [ ] Product photos uploaded (replace SVG placeholders), alt texts filled.
 - [ ] Admin + editor accounts created with strong passwords
       (`pnpm user:create`); dev/e2e accounts NOT present in the prod db.
+      Since FIX-9: staff sessions expire after ~12 h (re-login is expected),
+      failed logins are capped per IP AND per account, and logins, PII/zip
+      exports, media deletes, nurture toggles, legal-page saves and (since
+      FIX-18) settings saves — with the changed keys, and old → new for the
+      invoice IBAN/bank — land in the append-only `admin_audit` table —
+      review it (`select * from admin_audit order by at desc`) as part of
+      any incident response.
+      Editors can no longer open `/admin/pages` (legal pages are admin-only)
+      or see subscriber emails in the quiz editor. TOTP for admins is NOT
+      shipped yet — planned next batch (see docs/CHANGELOG.md, FIX-9 entry).
 
 ## Ops
 
@@ -185,14 +250,26 @@ Pick the deploy target first — adapter-node on a machine you run
 (DEPLOYMENT.md §3) or Vercel + Neon (§12) — then tick the branch that applies
 in the split boxes.
 
-- [ ] GitHub Actions repository secret `DIRECT_DATABASE_URL` set (repo →
-      Settings → Secrets and variables → Actions) and the `migrate` workflow
-      run green once by hand (Actions → migrate → Run workflow) — its log
-      prints the applied migration list (§12 "CI migrations").
+- [ ] GitHub Actions secrets set (repo → Settings → Secrets and variables →
+      Actions) with EXACTLY the names `deploy/sites.json` declares per site —
+      for better-sleep `DIRECT_DATABASE_URL_SLEEP` (the unpooled Neon URL)
+      and `VERCEL_PROJECT_ID_SLEEP` — plus the shared `VERCEL_TOKEN` and
+      `VERCEL_ORG_ID`; the `production` environment exists. The `migrate`
+      and `deploy` JOBS live in `.github/workflows/ci.yml` (there is no
+      separate migrate workflow): they run on every push to `main` and on
+      Actions → ci → Run workflow, and `migrate` fails closed when the
+      site's `DIRECT_DATABASE_URL_*` secret is missing. Watch the first run
+      green once — the migrate job's log prints the applied migration list
+      (`pnpm db:status`; DEPLOYMENT.md §12 "Ordered deploy").
 - [ ] First-deploy setup ran from a checkout with the prod env:
-      `pnpm db:seed`, `pnpm content:init`, `pnpm media:blurhash` (image
+      `pnpm seed:base` (pillars, pages, settings, initial content — safe to
+      re-run, never reverts admin edits), `pnpm media:blurhash` (image
       placeholders for imported media; idempotent), `pnpm user:create`
-      (§12 "Deploy order"; §4 for adapter-node).
+      (§12 "Deploy order"; §4 for adapter-node). `pnpm seed:demo` was NOT
+      run against production (demo articles/quiz/products).
+- [ ] Media host refuses the upload quarantine: `curl -I
+      https://media.<site>/pending/x.png` is not 200 — the WAF rule from
+      DEPLOYMENT.md §5 is in place (R2 serves the whole bucket otherwise).
 - [ ] Retention job, per target:
       - adapter-node: machine cron runs `pnpm chat:prune` daily (§9).
       - Vercel: `CRON_SECRET` set in the project env — `vercel.json` already
@@ -201,24 +278,54 @@ in the split boxes.
 - [ ] Shipment-status sync, per target (§9): Vercel — `vercel.json` already
       schedules `GET /api/cron/shipment-sync` hourly (same `CRON_SECRET`);
       adapter-node — machine cron curls the same route hourly. Verified once
-      by hand: the authorized curl answers `{"polled":…}`.
+      by hand: the authorized curl answers `{"polled":…,"errors":0}` with no
+      `"aborted"` key; someone is alerted when `errors` > 0 or `aborted`
+      appears, and `/admin` shows no "sincronizarea eșuează" banner.
 - [ ] Nurture email queue, per target (§9): Vercel — `vercel.json` already
       schedules `GET /api/cron/nurture-send` every 15 minutes (same
-      `CRON_SECRET`); adapter-node — machine cron curls the same route.
-      Verified once by hand: the authorized curl answers `{"claimed":…}`.
-      The seeded sequences are live-checked in `/admin/nurture` (deactivate
-      any you do not want sending at launch — sends only leave while
-      `EMAIL_DRYRUN=false`).
-- [ ] One real AWB generated and cancelled against the live Sameday account
-      (DEPLOYMENT.md §7 "Shipping" step 4) — the adapter follows the public
-      API but is unverified against a live account until this passes; the
-      shipping email (with tracking link) arrives.
-- [ ] Uptime monitor pointed at `https://bettersleep.ro/api/health`
-      (alert on non-200).
+      `CRON_SECRET`) **and the project is on the Pro plan** (Hobby coalesces
+      every cron to once a day — §12 "Scheduled jobs"); adapter-node —
+      machine cron curls the same route. Verified once by hand: the
+      authorized curl answers `{"claimed":…,"stale":0,…}`. The seeded
+      sequences are live-checked in `/admin/nurture` (deactivate any you do
+      not want sending at launch — sends only leave while
+      `EMAIL_DRYRUN=false`); parked sends show a **retry** button there.
+- [ ] e-Factura submission queue, per target (§9): Vercel — `vercel.json`
+      already schedules `GET /api/cron/efactura-submit` hourly (same
+      `CRON_SECRET`); adapter-node — machine cron curls the same route
+      hourly. Verified once by hand: the authorized curl answers
+      `{"claimed":…,"submitted":0,"skipped":…,"retried":0,"parked":0}`
+      (`skipped` = no enrollment yet — the manual SPV upload above still
+      applies); someone watches `/admin/orders` → "De trimis la ANAF" for
+      red (overdue) badges and `parked` > 0.
+- [ ] One real AWB generated against the live Sameday account from an order
+      with phone + county (DEPLOYMENT.md §7 "Shipping" step 4) — the adapter
+      follows the public API but is unverified against a live account until
+      this passes; the shipping email (with tracking link) arrives; the AWB
+      shows in eAWB with our order id as client reference; cancelled IN eAWB,
+      one hand-run sync moves the order back to `împachetată` ("AWB anulat de
+      curier" on the trail) and the page offers a new AWB.
+- [ ] Sameday status payloads captured as fixtures during that step
+      (DEPLOYMENT.md §7 "Shipping" step 5) and every observed `statusId`
+      added to `SAMEDAY_STATUS_BY_ID`; no "Sameday status unknown" warn line
+      in the logs afterwards.
+- [ ] Uptime monitor pointed at `https://bettersleep.ro/api/health/ready`
+      (readiness: db + storage; alert on non-200). `/api/health` is liveness
+      only and never fails on a dependency.
 - [ ] Log collection captures the app's stderr JSON lines (Vercel: a log
-      drain on the project); someone is notified on `level:error` spikes.
-- [ ] Database backup + restore drill done ONCE before launch (Neon: a
-      point-in-time restore tried once from the console).
+      drain on the project) and/or `ERROR_REPORT_URL` points at a sink;
+      someone is notified on `level:error` spikes. Every line carries the
+      `requestId` the error page shows.
+- [ ] Backups green for 7 consecutive nights (Actions → backup, one run per
+      site in `deploy/sites.json`) AND one verified restore done per
+      `docs/RESTORE.md` (dump → fresh Neon branch → `db:status` current →
+      `launch:check` clean → an invoice downloaded from the restored site).
+      Date and dump file name: ____________
+- [ ] Ordered deploy wired (DEPLOYMENT.md §12 "Ordered deploy"): Vercel
+      automatic production deploys OFF (previews on, on Neon branches), Build
+      Command `pnpm db:status && pnpm build`, GitHub secrets set, branch
+      protection requires `ci / gate`; the first Actions run on `main` was
+      watched end to end (gate → migrate → deploy) by a human.
 
 ## Final smoke (on production, after everything above)
 

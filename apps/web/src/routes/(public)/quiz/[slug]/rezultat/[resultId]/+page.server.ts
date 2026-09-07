@@ -19,7 +19,17 @@ export const load: PageServerLoad = async ({ params }) => {
 	// unpublishing a quiz gates TAKING it (../+page.server.ts), never results
 	// already delivered. The `?/email` action below keeps its stricter gates.
 	const found = await getResultWithQuiz({ db: getDb() }, params.resultId);
-	if (!found || found.quiz.slug !== params.slug) error(404);
+	// Same gate as the quiz page: published AND tagged to a pillar this site
+	// activates (FIX-15) — a result is not a back door to a hidden quiz.
+	if (
+		!found ||
+		found.quiz.slug !== params.slug ||
+		found.quiz.status !== 'published' ||
+		!found.pillarSlug ||
+		!getSite().pillars.includes(found.pillarSlug)
+	) {
+		error(404);
+	}
 	// The winner's /tipuri page — the most natural next click (L-13). Null for
 	// band-mode results and for winner keys without a page.
 	const winnerKey = found.result.profile.winner?.key;
@@ -74,7 +84,14 @@ export const actions: Actions = {
 			// The consent gate above passed, so this signup requests newsletter
 			// (double opt-in). The form offers no other consent — never grant one.
 			newsletter: true,
-			profileEmails: false
+			profileEmails: false,
+			// Proof of the grant: who agreed, from which client, to which copy
+			// (FIX-13 evidence; the copy ref carries the M-11 hash).
+			evidence: {
+				ip: getClientAddress(),
+				userAgent: request.headers.get('user-agent')?.slice(0, 256) || undefined,
+				consentTextVersion: currentConsentTextVersions()
+			}
 		});
 		if (!outcome.ok) {
 			if (outcome.error === 'invalid-email') return fail(400, { error: 'invalid-email' as const });

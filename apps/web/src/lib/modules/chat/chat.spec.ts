@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createDb, type Db } from '../../db/client.ts';
 import { createMockChatProvider, mockReplyFor } from './mock-provider.ts';
-import type { ChatMessage, ChatProvider, ChatStreamOptions } from './provider.ts';
+import type { ChatMessage, ChatProvider, ChatStreamEvent, ChatStreamOptions } from './provider.ts';
 import { ipRateKey } from './rate-limit.ts';
 import { chatMessages, chatRateLimits, chatSessions } from './schema.ts';
 import {
@@ -36,9 +36,9 @@ function deps(overrides: Partial<ChatDeps> = {}): ChatDeps {
 	};
 }
 
-async function collect(iterable: AsyncIterable<string>): Promise<string> {
+async function collect(iterable: AsyncIterable<ChatStreamEvent>): Promise<string> {
 	let out = '';
-	for await (const chunk of iterable) out += chunk;
+	for await (const event of iterable) if ('delta' in event) out += event.delta;
 	return out;
 }
 
@@ -181,7 +181,11 @@ describe('handleChatMessage', () => {
 		}
 
 		const last = seen.at(-1)!;
-		expect(last).toHaveLength(HISTORY_LIMIT);
+		// 23 rows are stored when the provider is called (the reply is not yet);
+		// the newest 20 start with an assistant turn, which is dropped so the
+		// window the API sees starts with a user turn (FIX-14).
+		expect(last).toHaveLength(HISTORY_LIMIT - 1);
+		expect(last[0]).toEqual({ role: 'user', content: 'mesaj 2' });
 		// The newest user message is included; the oldest turns fell off.
 		expect(last.at(-1)).toEqual({ role: 'user', content: 'mesaj 11' });
 		expect(last.some((m) => m.content === 'mesaj 0')).toBe(false);
@@ -280,7 +284,7 @@ describe('handleChatMessage', () => {
 				for (let i = 0; i < 50; i++) {
 					if (signal?.aborted) return;
 					await new Promise((resolve) => setTimeout(resolve, 5));
-					yield `cuvânt${i} `;
+					yield { delta: `cuvânt${i} ` };
 				}
 				providerFinished = true;
 			}
@@ -310,6 +314,52 @@ describe('handleChatMessage', () => {
 			.where(eq(chatMessages.sessionId, outcome.sessionId));
 		expect(stored.map((m) => m.role)).toEqual(['user']);
 	}, 5_000);
+});
+
+describe('abuse bounds (FIX-14)', () => {
+	it('a cookieless caller past the IP cap creates no session row (one per call before the fix)', async () => {
+		const d = deps({ rateConfig: { max: 2, windowMs: 60 * 60 * 1000 } });
+		const ip = '198.51.100.140';
+		for (let i = 0; i < 2; i++) {
+			const { outcome } = await roundTrip({ message: `mesaj ${i}`, ip }, d);
+			if (outcome.kind !== 'stream') throw new Error(`message ${i} unexpectedly ${outcome.kind}`);
+		}
+		const count = async () =>
+			(await db.select({ n: sql<number>`count(*)::int` }).from(chatSessions))[0].n;
+		const before = await count();
+
+		const blocked = await handleChatMessage(d, { message: 'mesaj 2', sessionToken: null, ip });
+		expect(blocked.kind).toBe('rate-limited');
+		expect(await count()).toBe(before);
+	});
+});
+
+describe('handleChatMessage stop events (FIX-14)', () => {
+	it('forwards a max_tokens stop and does not persist the truncated reply as an answer', async () => {
+		const truncating: ChatProvider = {
+			kind: 'mock',
+			async *stream() {
+				yield { delta: 'Un răspuns tă' };
+				yield { stop: 'max_tokens' };
+			}
+		};
+		const outcome = await handleChatMessage(deps({ provider: truncating }), {
+			message: 'Explică-mi somnul',
+			sessionToken: null,
+			ip: '198.51.100.90'
+		});
+		expect(outcome.kind).toBe('stream');
+		if (outcome.kind !== 'stream') return;
+		const seen: ChatStreamEvent[] = [];
+		for await (const event of outcome.stream) seen.push(event);
+		expect(seen).toEqual([{ delta: 'Un răspuns tă' }, { stop: 'max_tokens' }]);
+
+		const stored = await db
+			.select()
+			.from(chatMessages)
+			.where(eq(chatMessages.sessionId, outcome.sessionId));
+		expect(stored.map((m) => m.role)).toEqual(['user']);
+	});
 });
 
 describe('getChatHistory', () => {

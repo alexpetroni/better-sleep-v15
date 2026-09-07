@@ -113,6 +113,7 @@ const PRODUCT_ROW = {
 	currency: 'ron',
 	stripeProductId: 'prod_x',
 	stripePriceId: 'price_x',
+	vatRateBp: null,
 	status: 'active',
 	coverMediaId: 'm-1',
 	gallery: ['m-1'],
@@ -239,6 +240,14 @@ describe('parseBundle', () => {
 		expect(parseBundle(articleBundle({ article: { slug: '' } })).ok).toBe(false);
 		const quizWithoutPayload = { ...(articleBundle() as Record<string, unknown>), type: 'quiz' };
 		expect(parseBundle(quizWithoutPayload).ok).toBe(false);
+	});
+
+	// FIX-15 (audit P2): unknown keys used to spread straight into the insert.
+	it('rejects unknown keys at every level', () => {
+		expect(parseBundle(articleBundle({ extra: true })).ok).toBe(false);
+		const article = (articleBundle() as { article: Record<string, unknown> }).article;
+		expect(parseBundle(articleBundle({ article: { ...article, createdBy: 'x' } })).ok).toBe(false);
+		expect(parseBundle(articleBundle({ media: [{ ...IMAGE, createdAt: 'now' }] })).ok).toBe(false);
 	});
 
 	it('round-trips through JSON', () => {

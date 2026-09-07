@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { isActionFailure } from '@sveltejs/kit';
 import { createDb, type Db } from '../../../../lib/db/client.ts';
-import { users } from '../../../../lib/modules/auth/schema.ts';
+import { adminAudit, users } from '../../../../lib/modules/auth/schema.ts';
 import { siteSettings } from '../../../../lib/modules/settings/schema.ts';
 import { createSettingsLoader } from '../../../../lib/modules/settings/service.ts';
 
@@ -44,17 +45,22 @@ function saveEvent(fields: Record<string, string>): { request: Request; locals: 
 	for (const [key, value] of Object.entries(fields)) body.set(key, value);
 	return {
 		request: new Request('http://localhost/admin/settings?/save', { method: 'POST', body }),
-		locals: { user: STAFF, settings: createSettingsLoader(() => db) }
+		locals: { user: STAFF, settings: createSettingsLoader(() => db), requestId: 'spec' }
 	};
 }
 
 const COMPANY_FIELDS = {
 	group: 'company',
 	'company.legalName': 'Exemplu SRL',
-	'company.cui': 'RO12345678',
+	'company.cui': 'RO12345676',
 	'company.vatRegistered': 'on',
 	'company.regCom': 'J40/1234/2024',
 	'company.address': 'Str. Exemplu 1, București',
+	'company.street': 'Str. Exemplu 1',
+	'company.city': 'Sector 3',
+	'company.county': 'RO-B',
+	'company.postalCode': '030167',
+	'company.shareCapital': '200 lei',
 	'company.contactEmail': 'contact@exemplu.ro',
 	'company.contactPhone': '+40 700 000 000',
 	'company.iban': '',
@@ -138,22 +144,157 @@ describe('/admin/settings save action', () => {
 		expect(await db.select().from(siteSettings)).toHaveLength(0);
 	});
 
-	it('converts percent/lei input to integer bp/bani on save', async () => {
+	it('stores the invoice group: integer next number, the rate schedule as trimmed text', async () => {
 		const result = await saveAction(
 			saveEvent({
 				group: 'invoice',
 				'invoice.seriesPrefix': 'BSL',
 				'invoice.nextNumber': '7',
 				'invoice.issuerPlace': 'București',
-				'invoice.vatRateBp': '19,5',
+				'invoice.vatStandardRates': ' 2017-01-01 19\n2025-08-01 21 ',
 				'invoice.paymentTermsNote': ''
 			})
 		);
 		expect(result).toEqual({ saved: true, group: 'invoice' });
 		const rows = await db.select().from(siteSettings);
 		const value = (key: string) => rows.find((row) => row.key === key)?.value;
-		expect(value('invoice.vatRateBp')).toBe(1950);
+		expect(value('invoice.vatStandardRates')).toBe('2017-01-01 19\n2025-08-01 21');
 		expect(value('invoice.nextNumber')).toBe(7);
+	});
+
+	it('refuses a rate schedule with a zero or unlisted rate, echoing the input', async () => {
+		const result = await saveAction(
+			saveEvent({
+				group: 'invoice',
+				'invoice.seriesPrefix': 'BSL',
+				'invoice.nextNumber': '7',
+				'invoice.issuerPlace': 'București',
+				'invoice.vatStandardRates': '2025-08-01 0',
+				'invoice.paymentTermsNote': ''
+			})
+		);
+		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
+		const data = result.data as unknown as {
+			errors: Record<string, string>;
+			values: Record<string, string>;
+		};
+		expect(data.errors).toEqual({ 'invoice.vatStandardRates': 'invalid-vat-rate' });
+		expect(data.values['invoice.vatStandardRates']).toBe('2025-08-01 0');
+		expect(
+			(await db.select().from(siteSettings)).find((row) => row.key === 'invoice.vatStandardRates')
+		).toBeUndefined();
+	});
+});
+
+// Review 2026-09-05 #6: settings saves — the invoice IBAN included — left no
+// audit trail, and the IBAN had no checksum.
+describe('/admin/settings audit row and IBAN validation (FIX-18)', () => {
+	// admin_audit is append-only (a trigger forbids UPDATE/DELETE), so every
+	// case counts the rows it added on top of what earlier cases wrote.
+	const settingsSaves = () =>
+		db
+			.select()
+			.from(adminAudit)
+			.where(sql`${adminAudit.action} = 'settings-save'`)
+			.orderBy(adminAudit.id);
+
+	it('writes one settings-save row per successful save: actor, group, changed keys, IBAN old → new', async () => {
+		const baseline = (await settingsSaves()).length;
+		const first = await saveAction(
+			saveEvent({
+				...COMPANY_FIELDS,
+				'company.iban': 'RO49AAAA1B31007593840000',
+				'company.bank': 'Banca X'
+			})
+		);
+		expect(first).toEqual({ saved: true, group: 'company' });
+		const rows = (await settingsSaves()).slice(baseline);
+		expect(rows).toHaveLength(1);
+		expect(rows[0].actor).toBe(STAFF.email);
+		expect(rows[0].target).toContain('company');
+		expect(rows[0].target).toContain('company.legalName');
+		expect(rows[0].target).toContain('company.iban');
+		expect(rows[0].target).toContain('"" → "RO49AAAA1B31007593840000"');
+		expect(rows[0].target).toContain('"" → "Banca X"');
+
+		// Changing only the IBAN records that change with both values.
+		const second = await saveAction(
+			saveEvent({
+				...COMPANY_FIELDS,
+				'company.iban': 'DE89370400440532013000',
+				'company.bank': 'Banca X'
+			})
+		);
+		expect(second).toEqual({ saved: true, group: 'company' });
+		const after = (await settingsSaves()).slice(baseline);
+		expect(after).toHaveLength(2);
+		expect(after[1].target).toContain('"RO49AAAA1B31007593840000" → "DE89370400440532013000"');
+		expect(after[1].target).not.toContain('company.legalName');
+	});
+
+	it('a save that changes nothing writes no audit row', async () => {
+		const baseline = (await settingsSaves()).length;
+		await saveAction(saveEvent(COMPANY_FIELDS));
+		expect(await settingsSaves()).toHaveLength(baseline + 1);
+		expect(await saveAction(saveEvent(COMPANY_FIELDS))).toEqual({ saved: true, group: 'company' });
+		expect(await settingsSaves()).toHaveLength(baseline + 1);
+	});
+
+	it('refuses an IBAN that fails mod-97 with a field error and writes NOTHING', async () => {
+		const baseline = (await settingsSaves()).length;
+		const result = await saveAction(
+			saveEvent({ ...COMPANY_FIELDS, 'company.iban': 'RO49AAAA1B31007593480000' })
+		);
+		if (!isActionFailure(result)) throw new Error('expected an ActionFailure');
+		expect(result.status).toBe(400);
+		const data = result.data as unknown as { errors: Record<string, string> };
+		expect(data.errors).toEqual({ 'company.iban': 'invalid-iban' });
+		expect(await db.select().from(siteSettings)).toHaveLength(0);
+		expect(await settingsSaves()).toHaveLength(baseline);
+	});
+
+	it('stores the IBAN normalised (upper case, no spaces)', async () => {
+		await saveAction(
+			saveEvent({ ...COMPANY_FIELDS, 'company.iban': 'ro49 aaaa 1b31 0075 9384 0000' })
+		);
+		const row = (await db.select().from(siteSettings)).find((r) => r.key === 'company.iban');
+		expect(row?.value).toBe('RO49AAAA1B31007593840000');
+	});
+});
+
+describe('/admin/settings auto-migrated VAT schedule warning (FIX-18)', () => {
+	it('flags the schedule migration 0024 derived from a legacy rate until the group is saved', async () => {
+		await db.insert(siteSettings).values({
+			key: 'invoice.vatRateBp',
+			value: 1900,
+			updatedAt: new Date('2025-03-01T10:00:00Z'),
+			updatedBy: STAFF.id
+		});
+		const backfill = readFileSync(
+			path.resolve(import.meta.dirname, '../../../../../drizzle/0024_vat_model.sql'),
+			'utf8'
+		)
+			.split('--> statement-breakpoint')
+			.find((statement) => statement.includes('INSERT INTO "site_settings"'))!;
+		await db.execute(sql.raw(backfill));
+
+		type Data = { vatScheduleAutoMigrated: boolean };
+		const before = (await load(saveEvent({}) as unknown as Parameters<typeof load>[0])) as Data;
+		expect(before.vatScheduleAutoMigrated).toBe(true);
+
+		const result = await saveAction(
+			saveEvent({
+				group: 'invoice',
+				'invoice.seriesPrefix': 'BSL',
+				'invoice.nextNumber': '7',
+				'invoice.issuerPlace': 'București',
+				'invoice.vatStandardRates': '2025-08-01 19',
+				'invoice.paymentTermsNote': ''
+			})
+		);
+		expect(result).toEqual({ saved: true, group: 'invoice' });
+		const after = (await load(saveEvent({}) as unknown as Parameters<typeof load>[0])) as Data;
+		expect(after.vatScheduleAutoMigrated).toBe(false);
 	});
 });
 
@@ -167,7 +308,7 @@ describe('client exposure through the public layout', () => {
 				'invoice.seriesPrefix': 'SECRET-SERIES',
 				'invoice.nextNumber': '1',
 				'invoice.issuerPlace': 'București',
-				'invoice.vatRateBp': '21',
+				'invoice.vatStandardRates': '2025-08-01 21',
 				'invoice.paymentTermsNote': ''
 			})
 		);

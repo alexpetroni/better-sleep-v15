@@ -1,11 +1,24 @@
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import { pillars } from '../../db/schema/core.ts';
-import { CUI_PATTERN } from '../../util/cui.ts';
+import { isValidCui, normalizeCui } from '../../util/cui.ts';
+import {
+	BUCHAREST_COUNTY_CODE,
+	bucharestSector,
+	isRoCountyCode,
+	roCountyCodeFor
+} from '../../util/ro-counties.ts';
+import type { SiteSettings } from '../settings/registry.ts';
 import { cartTotalCents, type CartItem } from './cart.ts';
 import type { StripeGateway } from './gateway.ts';
-import { productPillars, products, type BuyerCompany, type ProductRow } from './schema.ts';
-import { isPurchasable } from './service.ts';
+import {
+	productPillars,
+	products,
+	type BuyerCompany,
+	type BuyerCompanyAddress,
+	type ProductRow
+} from './schema.ts';
+import { isOutOfStock } from './service.ts';
 import {
 	buildShippingMetadata,
 	findShippingOption,
@@ -28,20 +41,30 @@ export interface CheckoutDeps {
 	baseUrl: string;
 }
 
-/** What the webhook needs to rebuild order items: id, qty, unit price paid. */
+/**
+ * What the webhook needs to rebuild order items: id, qty, unit price paid,
+ * and (FIX-12) the product's VAT rate at checkout — `v` is omitted for the
+ * standard rate, so older sessions and standard-rate lines look alike.
+ */
 export interface CartMetadataItem {
 	i: string;
 	q: number;
 	p: number;
+	v?: number;
 }
 
 export const CART_METADATA_KEY = 'cart';
 
 export function buildCartMetadata(
-	lines: Array<{ productId: string; qty: number; priceCents: number }>
+	lines: Array<{ productId: string; qty: number; priceCents: number; vatRateBp?: number | null }>
 ): string {
 	return JSON.stringify(
-		lines.map((l): CartMetadataItem => ({ i: l.productId, q: l.qty, p: l.priceCents }))
+		lines.map((l): CartMetadataItem => ({
+			i: l.productId,
+			q: l.qty,
+			p: l.priceCents,
+			...(l.vatRateBp != null ? { v: l.vatRateBp } : {})
+		}))
 	);
 }
 
@@ -63,46 +86,117 @@ export function parseCartMetadata(value: string | undefined): CartMetadataItem[]
 			Number.isInteger((entry as CartMetadataItem).q) &&
 			(entry as CartMetadataItem).q > 0 &&
 			Number.isInteger((entry as CartMetadataItem).p) &&
-			(entry as CartMetadataItem).p >= 0
+			(entry as CartMetadataItem).p >= 0 &&
+			((entry as CartMetadataItem).v === undefined ||
+				(Number.isInteger((entry as CartMetadataItem).v) && (entry as CartMetadataItem).v! > 0))
 	);
 }
 
 export const BUYER_COMPANY_METADATA_KEY = 'company';
 
-/** Stripe metadata values are capped at 500 chars; keep each field well under. */
-const COMPANY_FIELD_MAX = 120;
+/**
+ * Stripe metadata values are capped at 500 chars; every field is bounded so
+ * the whole company snapshot (name, CUI, Reg. Com., seat) fits with room.
+ */
+const COMPANY_FIELD_MAX = { name: 120, cui: 12, regCom: 30, street: 120, city: 60, postalCode: 12 };
 
 export type BuyerCompanyParse =
-	{ ok: true; value: BuyerCompany | null } | { ok: false; error: 'company-name' | 'company-cui' };
+	| { ok: true; value: BuyerCompany | null }
+	| {
+			ok: false;
+			error:
+				| 'company-name'
+				| 'company-cui'
+				/** Some seat fields typed, some not — the address is all-or-nothing. */
+				| 'company-address'
+				| 'company-county'
+				/** A București seat must name its sector (CIUS-RO: SECTORn is the city). */
+				| 'company-sector';
+	  };
+
+function clean(value: string, max: number): string {
+	return value.trim().slice(0, max);
+}
 
 /**
  * Validate the cart page's optional B2B fields. All empty → no company (null).
  * A CUI or Reg. Com. without a company name is rejected (an invoice cannot
- * name a company it does not know), as is a CUI that is not shaped like one.
+ * name a company it does not know); the CUI must pass the mod-11 checksum
+ * and is stored uppercase. The seat (FIX-12) is optional but all-or-
+ * nothing, the county is normalized to its ISO 3166-2:RO code, and a
+ * București seat must name its sector in the city or the street.
  */
 export function parseBuyerCompanyForm(input: {
 	name: string;
 	cui: string;
 	regCom: string;
+	street: string;
+	city: string;
+	county: string;
+	postalCode: string;
 }): BuyerCompanyParse {
-	const name = input.name.trim().slice(0, COMPANY_FIELD_MAX);
-	const cui = input.cui.trim().slice(0, COMPANY_FIELD_MAX);
-	const regCom = input.regCom.trim().slice(0, COMPANY_FIELD_MAX);
-	if (!name && !cui && !regCom) return { ok: true, value: null };
+	const name = clean(input.name, COMPANY_FIELD_MAX.name);
+	const cui = clean(input.cui, COMPANY_FIELD_MAX.cui);
+	const regCom = clean(input.regCom, COMPANY_FIELD_MAX.regCom);
+	const street = clean(input.street, COMPANY_FIELD_MAX.street);
+	const city = clean(input.city, COMPANY_FIELD_MAX.city);
+	const countyRaw = input.county.trim();
+	const postalCode = clean(input.postalCode, COMPANY_FIELD_MAX.postalCode);
+	const seatTyped = !!(street || city || countyRaw || postalCode);
+	if (!name && !cui && !regCom && !seatTyped) return { ok: true, value: null };
 	if (!name) return { ok: false, error: 'company-name' };
-	if (cui && !CUI_PATTERN.test(cui)) return { ok: false, error: 'company-cui' };
+	const normalizedCui = cui ? normalizeCui(cui) : null;
+	if (cui && (!normalizedCui || !isValidCui(cui))) return { ok: false, error: 'company-cui' };
+
+	let address: BuyerCompanyAddress | undefined;
+	if (seatTyped) {
+		if (!street || !city || !countyRaw || !postalCode) {
+			return { ok: false, error: 'company-address' };
+		}
+		const county = isRoCountyCode(countyRaw) ? countyRaw : roCountyCodeFor(countyRaw);
+		if (!county) return { ok: false, error: 'company-county' };
+		if (
+			county === BUCHAREST_COUNTY_CODE &&
+			bucharestSector(city) === null &&
+			bucharestSector(street) === null
+		) {
+			return { ok: false, error: 'company-sector' };
+		}
+		address = { street, city, county, postalCode };
+	}
 	return {
 		ok: true,
-		value: { name, ...(cui ? { cui } : {}), ...(regCom ? { regCom } : {}) }
+		value: {
+			name,
+			...(normalizedCui
+				? { cui: `${normalizedCui.prefixed ? 'RO' : ''}${normalizedCui.digits}` }
+				: {}),
+			...(regCom ? { regCom } : {}),
+			...(address ? { address } : {})
+		}
 	};
 }
 
-/** Compact company snapshot for session metadata: `{n, c, r}`. */
+/** Compact company snapshot for session metadata: `{n, c, r, a: {s, ci, co, pc}}`. */
 export function buildBuyerCompanyMetadata(company: BuyerCompany): string {
-	return JSON.stringify({ n: company.name, c: company.cui ?? '', r: company.regCom ?? '' });
+	return JSON.stringify({
+		n: company.name,
+		c: company.cui ?? '',
+		r: company.regCom ?? '',
+		...(company.address
+			? {
+					a: {
+						s: company.address.street,
+						ci: company.address.city,
+						co: company.address.county,
+						pc: company.address.postalCode
+					}
+				}
+			: {})
+	});
 }
 
-/** Parse it back from the webhook's session; anything malformed → null. */
+/** Parse it back from the webhook's session; a malformed seat is dropped, anything else malformed → null. */
 export function parseBuyerCompanyMetadata(value: string | undefined): BuyerCompany | null {
 	if (!value) return null;
 	let data: unknown;
@@ -112,12 +206,29 @@ export function parseBuyerCompanyMetadata(value: string | undefined): BuyerCompa
 		return null;
 	}
 	if (typeof data !== 'object' || data === null) return null;
-	const { n, c, r } = data as { n?: unknown; c?: unknown; r?: unknown };
+	const { n, c, r, a } = data as { n?: unknown; c?: unknown; r?: unknown; a?: unknown };
 	if (typeof n !== 'string' || !n) return null;
+	let address: BuyerCompanyAddress | undefined;
+	if (typeof a === 'object' && a !== null) {
+		const { s, ci, co, pc } = a as { s?: unknown; ci?: unknown; co?: unknown; pc?: unknown };
+		if (
+			typeof s === 'string' &&
+			s &&
+			typeof ci === 'string' &&
+			ci &&
+			typeof co === 'string' &&
+			isRoCountyCode(co) &&
+			typeof pc === 'string' &&
+			pc
+		) {
+			address = { street: s, city: ci, county: co, postalCode: pc };
+		}
+	}
 	return {
 		name: n,
 		...(typeof c === 'string' && c ? { cui: c } : {}),
-		...(typeof r === 'string' && r ? { regCom: r } : {})
+		...(typeof r === 'string' && r ? { regCom: r } : {}),
+		...(address ? { address } : {})
 	};
 }
 
@@ -126,15 +237,13 @@ export interface CartLine {
 	qty: number;
 	/** qty × unit price, integer cents. */
 	lineTotalCents: number;
-	/** False when the product went inactive/out of stock since it was added. */
-	available: boolean;
 	/**
-	 * True when the requested quantity exceeded the tracked stock and `qty`
-	 * was clamped down to it (review M-3). The cart page explains the
-	 * adjustment; checkout charges the clamped quantity — the webhook's
-	 * oversell clamp stays as the backstop for the concurrent-buyer race only.
+	 * False when the product went inactive, out of stock, or the line asks
+	 * for more units than are in stock since it was added.
 	 */
-	stockLimited: boolean;
+	available: boolean;
+	/** Units purchasable right now (the tracked stock); null = untracked, no cap. */
+	maxQty: number | null;
 }
 
 export interface CartDetails {
@@ -146,7 +255,8 @@ export interface CartDetails {
 /**
  * Join cookie items against the catalog. Lines whose product disappeared are
  * dropped; lines that became unavailable (inactive, untagged for this site,
- * out of stock) are kept but flagged so the cart page can say why.
+ * out of stock, or asking for more than the stock) are kept but flagged, with
+ * `maxQty`, so the cart page can say why and cap the input.
  */
 export async function loadCartDetails(
 	deps: Pick<CheckoutDeps, 'db'>,
@@ -171,18 +281,14 @@ export async function loadCartDetails(
 		const tagged = tagRows.some(
 			(t) => t.productId === product.id && sitePillarSlugs.includes(t.slug)
 		);
-		// M-3: quantity is checked against tracked stock BEFORE payment. A qty
-		// above what can ship is clamped (not refused — the buyer still gets
-		// everything available) and flagged so the cart page says why.
-		const qty =
-			product.stock !== null && product.stock > 0 ? Math.min(item.qty, product.stock) : item.qty;
-		const stockLimited = qty < item.qty;
+		const maxQty = product.stock;
+		const inStock = !isOutOfStock(product) && (maxQty === null || item.qty <= maxQty);
 		lines.push({
 			product,
-			qty,
-			lineTotalCents: product.priceCents * qty,
-			available: product.status === 'active' && tagged && isPurchasable(product),
-			stockLimited
+			qty: item.qty,
+			lineTotalCents: product.priceCents * item.qty,
+			available: product.status === 'active' && tagged && inStock,
+			maxQty
 		});
 	}
 	return {
@@ -194,6 +300,17 @@ export async function loadCartDetails(
 		),
 		currency: lines[0]?.product.currency ?? 'ron'
 	};
+}
+
+/** The registry key that decides which Stripe payment methods a session offers. */
+export type PaymentSettings = Pick<SiteSettings, 'shop.allowAllPaymentMethods'>;
+
+/**
+ * Card-only unless the operator opened all methods (undefined = Stripe's
+ * dashboard configuration decides). Absent settings mean the safe default.
+ */
+export function paymentMethodTypesFor(settings?: PaymentSettings): string[] | undefined {
+	return settings?.['shop.allowAllPaymentMethods'] ? undefined : ['card'];
 }
 
 export type CheckoutOutcome =
@@ -214,6 +331,8 @@ export async function createCheckoutFromCart(
 		/** Option id chosen in the cart; validated against the offered options. */
 		shippingOptionId: string;
 		buyerCompany?: BuyerCompany | null;
+		/** `shop.allowAllPaymentMethods`; omitted = card-only. */
+		paymentSettings?: PaymentSettings;
 	}
 ): Promise<CheckoutOutcome> {
 	const details = await loadCartDetails(deps, input.items, input.sitePillarSlugs);
@@ -221,10 +340,16 @@ export async function createCheckoutFromCart(
 
 	const unavailable = details.lines.filter((l) => !l.available);
 	if (unavailable.length > 0) {
+		// A line over the stock names the count still available; the cart page
+		// renders this list verbatim, so it stays language-neutral.
 		return {
 			ok: false,
 			error: 'unavailable',
-			detail: unavailable.map((l) => l.product.name).join(', ')
+			detail: unavailable
+				.map((l) =>
+					l.maxQty !== null && l.maxQty > 0 ? `${l.product.name} (max ${l.maxQty})` : l.product.name
+				)
+				.join(', ')
 		};
 	}
 
@@ -252,12 +377,14 @@ export async function createCheckoutFromCart(
 				amountCents: shipping.priceCents,
 				currency: details.currency
 			},
+			paymentMethodTypes: paymentMethodTypesFor(input.paymentSettings),
 			metadata: {
 				[CART_METADATA_KEY]: buildCartMetadata(
 					details.lines.map((l) => ({
 						productId: l.product.id,
 						qty: l.qty,
-						priceCents: l.product.priceCents
+						priceCents: l.product.priceCents,
+						vatRateBp: l.product.vatRateBp
 					}))
 				),
 				[SHIPPING_METADATA_KEY]: buildShippingMetadata(shipping),

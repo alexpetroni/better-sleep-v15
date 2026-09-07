@@ -37,6 +37,13 @@ export interface LaunchCheckOptions {
 	 * conditional requirements are still enforced.
 	 */
 	dev?: boolean;
+	/**
+	 * `--allow-mock-providers`: launching a live env (EMAIL_DRYRUN=false) on
+	 * the mock chat and/or courier provider is a deliberate decision, not a
+	 * mistake (FIX-14); likewise a production env still on dry-run email is a
+	 * rehearsal, not the launch (FIX-18).
+	 */
+	allowMockProviders?: boolean;
 }
 
 /** Every problem found in `env` for the given target; empty means launch-worthy. */
@@ -68,55 +75,34 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 		problems.push(cause instanceof Error ? cause.message : String(cause));
 	}
 
-	// EMAIL_DRYRUN=false is the "this env is live" signal: real emails go out,
-	// so every mock-by-default provider must be its REAL implementation. These
-	// are conditional requirements (like RESEND_API_KEY above), so they hold
-	// even under --dev — a dev env is simply never EMAIL_DRYRUN=false.
-	// Without them a preflight-green deploy would redirect paying customers to
-	// a dead stripe.com URL (mock gateway), serve canned chat answers, and mail
-	// customers FAKE AWBs (review 2026-08-21 C-1/H-7).
-	if (env.EMAIL_DRYRUN === 'false') {
-		if (!env.STRIPE_SECRET_KEY) {
+	// One WebSocket for the whole server: the neon driver exists for
+	// short-lived functions, never for the long-lived adapter-node process
+	// (audit 2026-09-03 "Ops & platform"). Wrong in dev too.
+	if (opts.target === 'node' && env.DB_DRIVER === 'neon') {
+		problems.push(
+			'DB_DRIVER=neon on the node target — the serverless driver holds one WebSocket per process; use pg (or deploy with --target=vercel)'
+		);
+	}
+
+	// Review H-4 (BS-8): login/chat/public-email/quiz throttles key on
+	// getClientAddress(). The documented node topology always terminates TLS
+	// at a proxy (DEPLOYMENT.md §3), so without adapter-node's trusted address
+	// header every visitor collapses into the proxy's own socket IP — the
+	// per-IP throttles are NOT load-bearing. Vercel resolves the client
+	// address itself; no configuration exists or is needed there. A
+	// conditional requirement like the ones above: it holds even under --dev,
+	// because a dev env is simply never EMAIL_DRYRUN=false.
+	if (env.EMAIL_DRYRUN === 'false' && opts.target === 'node') {
+		if (!env.ADDRESS_HEADER) {
 			problems.push(
-				'STRIPE_SECRET_KEY is not set in a live env (EMAIL_DRYRUN=false) — the mock gateway would redirect customers to a dead checkout.stripe.com URL; set the sk_live_ key'
+				'ADDRESS_HEADER is not set in a live env (EMAIL_DRYRUN=false) on the node target — behind the TLS proxy all visitors share one rate-limit bucket and the per-IP throttles are not load-bearing; configure it per DEPLOYMENT.md §3'
 			);
-		} else if (env.STRIPE_SECRET_KEY.startsWith('sk_test_')) {
-			problems.push(
-				'STRIPE_SECRET_KEY is a TEST key (sk_test_…) in a live env (EMAIL_DRYRUN=false) — set the live key, or keep EMAIL_DRYRUN=true until launch'
-			);
-		} else if (!env.STRIPE_SECRET_KEY.startsWith('sk_live_')) {
-			problems.push(
-				'STRIPE_SECRET_KEY does not look like a live secret key (sk_live_…) in a live env (EMAIL_DRYRUN=false)'
-			);
-		}
-		if (env.CHAT_PROVIDER !== 'anthropic') {
-			problems.push(
-				`CHAT_PROVIDER is ${env.CHAT_PROVIDER ? `"${env.CHAT_PROVIDER}"` : 'unset'} in a live env (EMAIL_DRYRUN=false) — the mock serves canned answers to real visitors; set CHAT_PROVIDER=anthropic (+ ANTHROPIC_API_KEY)`
-			);
-		}
-		if (env.COURIER_PROVIDER !== 'sameday') {
-			problems.push(
-				`COURIER_PROVIDER is ${env.COURIER_PROVIDER ? `"${env.COURIER_PROVIDER}"` : 'unset'} in a live env (EMAIL_DRYRUN=false) — the mock issues FAKE AWBs to real customers; set COURIER_PROVIDER=sameday (+ SAMEDAY_* credentials)`
-			);
-		}
-		// Review H-4: login/chat/public-email/quiz throttles key on
-		// getClientAddress(). The documented node topology always terminates
-		// TLS at a proxy (DEPLOYMENT.md §3), so without adapter-node's trusted
-		// address header every visitor collapses into the proxy's own socket
-		// IP — the per-IP throttles are NOT load-bearing. Vercel resolves the
-		// client address itself; no configuration exists or is needed there.
-		if (opts.target === 'node') {
-			if (!env.ADDRESS_HEADER) {
+		} else if (env.ADDRESS_HEADER.toLowerCase() === 'x-forwarded-for') {
+			const depth = Number(env.XFF_DEPTH);
+			if (!Number.isInteger(depth) || depth < 1) {
 				problems.push(
-					'ADDRESS_HEADER is not set in a live env (EMAIL_DRYRUN=false) on the node target — behind the TLS proxy all visitors share one rate-limit bucket and the per-IP throttles are not load-bearing; configure it per DEPLOYMENT.md §3'
+					'ADDRESS_HEADER=x-forwarded-for needs XFF_DEPTH set to the number of trusted proxy hops, or the header stays client-spoofable — see DEPLOYMENT.md §3'
 				);
-			} else if (env.ADDRESS_HEADER.toLowerCase() === 'x-forwarded-for') {
-				const depth = Number(env.XFF_DEPTH);
-				if (!Number.isInteger(depth) || depth < 1) {
-					problems.push(
-						'ADDRESS_HEADER=x-forwarded-for needs XFF_DEPTH set to the number of trusted proxy hops, or the header stays client-spoofable — see DEPLOYMENT.md §3'
-					);
-				}
 			}
 		}
 	}
@@ -124,6 +110,16 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 	if (opts.dev) return problems;
 
 	// --- production-only rules below ---------------------------------------
+
+	// An empty key selects the in-memory MOCK gateway (shop/server.ts): orders
+	// are "taken" per function instance and no webhook ever arrives. Dev's
+	// default, never a deploy's (audit 2026-09-03 "launch:check blesses a
+	// deploy whose shop is a mock").
+	if (!env.STRIPE_SECRET_KEY) {
+		problems.push(
+			'STRIPE_SECRET_KEY is empty — the shop would run on the in-memory MOCK gateway (orders taken, never paid); set the Stripe key (DEPLOYMENT.md §7)'
+		);
+	}
 
 	for (const spec of ENV_MATRIX) {
 		const problem = devDefaultProblem(spec.name, env[spec.name]);
@@ -157,8 +153,69 @@ export function launchCheckProblems(env: Env, opts: LaunchCheckOptions): string[
 	}
 
 	problems.push(...imageProviderProblems(env));
+	problems.push(...fiscalStorageProblems(env));
+
+	// EMAIL_DRYRUN=false is the "this env is live" signal: real emails go out,
+	// so a test-mode Stripe key is a mistake, not a stage.
+	if (env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && env.EMAIL_DRYRUN === 'false') {
+		problems.push(
+			'STRIPE_SECRET_KEY is a TEST key (sk_test_…) in a live env (EMAIL_DRYRUN=false) — set the live key, or keep EMAIL_DRYRUN=true until launch'
+		);
+	}
+
+	// Dry-run email in production is the silent failure (review 2026-09-05
+	// #3): paid orders, issued invoices, and every send a `dryrun` log row that
+	// nobody receives. Unset means dry-run too (email/server.ts). A rehearsal
+	// on purpose passes the same acknowledgement as the mock providers.
+	if (env.EMAIL_DRYRUN !== 'false' && !opts.allowMockProviders) {
+		problems.push(
+			`EMAIL_DRYRUN is "${env.EMAIL_DRYRUN ?? '(unset)'}" — defaults to true: this deploy would send NO email (order confirmations, invoices, shipping notices, nurture); set EMAIL_DRYRUN=false + RESEND_API_KEY, or pass --allow-mock-providers to rehearse on dry-run email on purpose`
+		);
+	}
+
+	// A mock provider in production is otherwise undetectable (audit P2,
+	// FIX-14): the canned assistant answers, the fake courier issues AWBs.
+	if (env.EMAIL_DRYRUN === 'false' && !opts.allowMockProviders) {
+		const chat = env.CHAT_PROVIDER?.trim() || 'mock';
+		if (chat !== 'anthropic') {
+			problems.push(
+				`CHAT_PROVIDER is "${chat}" in a live env (EMAIL_DRYRUN=false) — set anthropic + ANTHROPIC_API_KEY, or pass --allow-mock-providers to launch with the canned assistant on purpose`
+			);
+		}
+		const courier = env.COURIER_PROVIDER?.trim() || 'mock';
+		if (courier !== 'sameday') {
+			problems.push(
+				`COURIER_PROVIDER is "${courier}" in a live env (EMAIL_DRYRUN=false) — set sameday + its credentials, or pass --allow-mock-providers to launch with FAKE AWBs on purpose`
+			);
+		}
+	}
 
 	return problems;
+}
+
+/**
+ * Advisory findings (FIX-16): printed by `pnpm launch:check`, never fatal.
+ * Each names a configuration that works but is very likely not what the
+ * operator meant on this target.
+ */
+export function launchCheckWarnings(env: Env, opts: LaunchCheckOptions): string[] {
+	const warnings: string[] = [];
+	if (opts.target === 'vercel' && env.DB_DRIVER !== 'neon') {
+		warnings.push(
+			'DB_DRIVER is not neon on the vercel target — a pg pool churns connections per function instance; set DB_DRIVER=neon (DEPLOYMENT.md §12)'
+		);
+	}
+	if (env.DB_DRIVER === 'neon' && env.DB_POOL_MAX && Number(env.DB_POOL_MAX) > 2) {
+		warnings.push(
+			`DB_POOL_MAX=${env.DB_POOL_MAX} with DB_DRIVER=neon — each function instance would open that many WebSockets; leave it unset (default 1) or ≤ 2`
+		);
+	}
+	if (!opts.dev && !env.ERROR_REPORT_URL) {
+		warnings.push(
+			'ERROR_REPORT_URL is not set — server errors are only on stderr; wire a sink or a log drain so someone is notified (DEPLOYMENT.md §11)'
+		);
+	}
+	return warnings;
 }
 
 /**
@@ -218,6 +275,87 @@ export function imageProviderProblems(env: Env): string[] {
 	}
 	if (env.IMGPROXY_KEY && env.IMGPROXY_KEY === env.IMGPROXY_SALT) {
 		problems.push('IMGPROXY_SALT must differ from IMGPROXY_KEY — generate a separate value');
+	}
+	return problems;
+}
+
+/**
+ * Production-only fiscal-storage rules (FIX-12, audit P0 #4). Under the
+ * cloudflare provider the media bucket is bound to a public domain and R2
+ * public access is not prefix-scoped, so fiscal documents need their OWN
+ * bucket, named explicitly — a derived default would silently be a bucket
+ * nobody created or bound correctly. On every target the two must differ.
+ */
+export function fiscalStorageProblems(env: Env): string[] {
+	const problems: string[] = [];
+	const fiscal = env.S3_INVOICE_BUCKET;
+	if (!fiscal && imageProviderNameFromEnv(env) === 'cloudflare') {
+		problems.push(
+			'S3_INVOICE_BUCKET is required when IMAGE_PROVIDER=cloudflare — the media bucket is publicly bound, fiscal documents need a private one (DEPLOYMENT.md §5)'
+		);
+	}
+	if (fiscal && fiscal === env.S3_BUCKET) {
+		problems.push(
+			`S3_INVOICE_BUCKET must not be the media bucket ("${fiscal}") — invoice PDFs/XML would sit behind the public media domain`
+		);
+	}
+	return problems;
+}
+
+/**
+ * Why the fiscal privacy probe cannot run with this env, or null when it
+ * can: it needs storage credentials and a public media origin to test.
+ */
+export function fiscalProbeBlocker(env: Env): string | null {
+	const storage = storageConfigFromEnv(env);
+	if (!storage.endpoint || !storage.accessKey || !storage.secretKey || !storage.bucket) {
+		return 'S3_* incomplete';
+	}
+	if (!env.MEDIA_PUBLIC_BASE_URL)
+		return 'MEDIA_PUBLIC_BASE_URL is not set (no public media origin)';
+	return null;
+}
+
+/** Where the privacy probe object lives while the probe runs; deleted afterwards. */
+export const FISCAL_PROBE_KEY = 'invoices/launch-check-probe.txt';
+
+/**
+ * Live fiscal privacy probe (FIX-12, audit P0 #4): upload a tiny object under
+ * `invoices/` in the MEDIA bucket and prove the public media origin does NOT
+ * serve it. Whatever the bucket layout, a 200 here means a leftover or
+ * misrouted fiscal document would be world-readable. A failed cleanup is
+ * reported, not fatal.
+ */
+export async function probeFiscalPrivacy(env: Env): Promise<string[]> {
+	const storage = createStorage(storageConfigFromEnv(env));
+	const problems: string[] = [];
+	try {
+		await storage.putObject(FISCAL_PROBE_KEY, 'launch-check fiscal privacy probe', 'text/plain');
+	} catch (err) {
+		return [
+			`fiscal privacy probe: could not upload s3://${storage.bucket}/${FISCAL_PROBE_KEY} — S3 endpoint/credentials/bucket broken? (${err instanceof Error ? err.message : err})`
+		];
+	}
+	const url = `${env.MEDIA_PUBLIC_BASE_URL!.replace(/\/$/, '')}/${FISCAL_PROBE_KEY}`;
+	try {
+		const res = await fetch(url);
+		if (res.status === 200) {
+			problems.push(
+				`fiscal privacy probe: ${url} is PUBLICLY readable (200) — the media origin serves invoices/; move documents to S3_INVOICE_BUCKET (pnpm storage:fiscal-migrate) and block /invoices/* on the media host (DEPLOYMENT.md §5)`
+			);
+		}
+	} catch (err) {
+		problems.push(
+			`fiscal privacy probe: ${env.MEDIA_PUBLIC_BASE_URL} is not reachable from here (${err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : err})`
+		);
+	} finally {
+		try {
+			await storage.deleteObject(FISCAL_PROBE_KEY);
+		} catch {
+			problems.push(
+				`fiscal privacy probe: cleanup failed — delete s3://${storage.bucket}/${FISCAL_PROBE_KEY} by hand`
+			);
+		}
 	}
 	return problems;
 }

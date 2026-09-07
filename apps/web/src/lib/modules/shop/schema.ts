@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
 	boolean,
 	index,
@@ -28,6 +29,14 @@ export const products = pgTable(
 		/** Unit price in bani (RON cents). Integer only. */
 		priceCents: integer('price_cents').notNull().default(0),
 		currency: text('currency').notNull().default('ron'),
+		/**
+		 * VAT rate in basis points from the RO allowlist (`$lib/util/vat-rates`),
+		 * e.g. 1100 for a reduced-rate food item; null = the STANDARD rate in
+		 * force on the order date (`invoice.vatStandardRates`). Snapshotted onto
+		 * `order_items` at checkout and from there onto the invoice lines
+		 * (FIX-12).
+		 */
+		vatRateBp: integer('vat_rate_bp'),
 		/** Mirrored Stripe catalog ids, filled by the sync (null until synced). */
 		stripeProductId: text('stripe_product_id'),
 		stripePriceId: text('stripe_price_id'),
@@ -82,11 +91,28 @@ export interface BuyerCompany {
 	name: string;
 	cui?: string;
 	regCom?: string;
+	/** The company's seat (FIX-12) — the invoice's buyer address for B2B; absent = the parcel address is used. */
+	address?: BuyerCompanyAddress;
+}
+
+export interface BuyerCompanyAddress {
+	street: string;
+	/** For București: `Sector n`. */
+	city: string;
+	/** ISO 3166-2:RO code. */
+	county: string;
+	postalCode: string;
 }
 
 /** Postal address as collected by Stripe Checkout (subset we care about). */
 export interface ShippingAddress {
 	name?: string;
+	/**
+	 * Recipient phone from Stripe's `customer_details` (Checkout collects it
+	 * since FIX-11) — the courier refuses an AWB without one. Erased with the
+	 * rest of the address by GDPR erasure.
+	 */
+	phone?: string;
 	line1?: string;
 	line2?: string;
 	city?: string;
@@ -138,14 +164,35 @@ export const orders = pgTable(
 		/** Display name of the delivery option chosen at checkout ('' pre-NEXT-8). */
 		shippingName: text('shipping_name').notNull().default(''),
 		shippingAddress: jsonb('shipping_address').$type<ShippingAddress>(),
+		/**
+		 * The PAYER's name (Stripe `customer_details.name`, FIX-12) — whom a
+		 * B2C invoice names; the parcel recipient may differ. Erased with the
+		 * address by GDPR erasure.
+		 */
+		customerName: text('customer_name').notNull().default(''),
+		/**
+		 * How the session was paid, for the invoice's payment means: `card`
+		 * (the pinned default) or `online` (a session open to every method the
+		 * dashboard enables); '' for orders created before FIX-12.
+		 */
+		paymentMethod: text('payment_method').notNull().default(''),
 		/** Optional company details for a B2B invoice, as entered at checkout. */
 		billingCompany: jsonb('billing_company').$type<BuyerCompany>(),
+		/**
+		 * Cumulative amount refunded by Stripe, in bani (`charge.amount_refunded`).
+		 * A partial refund leaves `status` at `paid` and only moves this column;
+		 * a full one flips the status too. Backfilled from the status by the
+		 * migration (refunded → amount_total_cents).
+		 */
+		refundedCents: integer('refunded_cents').notNull().default(0),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(table) => [
 		index('orders_created_at_idx').on(table.createdAt),
 		// GDPR erase anonymizes by email; the refund webhook matches by intent.
 		index('orders_email_idx').on(table.email),
+		// Erase matches on lower(email): historical rows kept Stripe's casing.
+		index('orders_email_lower_idx').on(sql`lower(${table.email})`),
 		index('orders_stripe_payment_intent_idx').on(table.stripePaymentIntent),
 		// The admin work queue filters on the fulfillment dimension.
 		index('orders_fulfillment_status_idx').on(table.fulfillmentStatus)
@@ -190,7 +237,13 @@ export const orderItems = pgTable(
 		/** Name + unit price snapshot as sold. */
 		name: text('name').notNull(),
 		priceCents: integer('price_cents').notNull(),
-		qty: integer('qty').notNull()
+		qty: integer('qty').notNull(),
+		/**
+		 * The product's VAT rate (bp) as it was at checkout; null = the standard
+		 * rate on the order date. Issuance copies it to the invoice line, so a
+		 * later product edit never changes what an order is invoiced at.
+		 */
+		vatRateBp: integer('vat_rate_bp')
 	},
 	(table) => [
 		index('order_items_order_id_idx').on(table.orderId),
@@ -199,12 +252,17 @@ export const orderItems = pgTable(
 );
 
 /**
- * One courier shipment (AWB) per order, created by the admin "generate AWB"
- * action through the CourierProvider seam. The unique order id is the
- * idempotency backstop — pressing the button twice can never register two
- * shipments. `status` mirrors the courier's tracking state (normalized by the
- * provider adapter); the cron sync polls rows still in flight
- * (`registered`/`in-transit`) and stops once a terminal state is reached.
+ * Courier shipments (AWBs) of an order, created by the admin "generate AWB"
+ * action through the CourierProvider seam in two phases (FIX-11): a
+ * `creating` claim row is committed first, the courier is called outside any
+ * row lock, then the row becomes `registered` (awb, tracking) or `failed`
+ * (last_error). ONE live row per order: the partial unique index excludes
+ * `cancelled` and `failed`, so a courier-side cancellation or a refused AWB
+ * can be followed by a replacement, while a double click can never register
+ * two. `status` mirrors the courier's tracking state (normalized by the
+ * adapter); the cron sync polls rows still in flight (`registered`/
+ * `in-transit`) that are due (`next_sync_at`), backs a throwing row off
+ * exponentially (`error_count`, `last_error`) and stops at a terminal state.
  */
 export const shipments = pgTable(
 	'shipments',
@@ -215,23 +273,67 @@ export const shipments = pgTable(
 			.references(() => orders.id, { onDelete: 'cascade' }),
 		/** Courier adapter that registered the AWB (`mock` | `sameday`). */
 		provider: text('provider').notNull(),
-		awb: text('awb').notNull(),
+		/** The courier's AWB number; null while `creating` and on a `failed` claim. */
+		awb: text('awb'),
 		trackingUrl: text('tracking_url').notNull().default(''),
 		status: text('status', {
-			enum: ['registered', 'in-transit', 'delivered', 'returned', 'cancelled']
+			enum: ['creating', 'registered', 'in-transit', 'delivered', 'returned', 'cancelled', 'failed']
 		})
 			.notNull()
 			.default('registered'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 		/** When the cron sync last polled this AWB; orders the per-run batch. */
-		lastSyncedAt: timestamp('last_synced_at', { withTimezone: true })
+		lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+		/**
+		 * Earliest next poll after a tracking failure (exponential backoff);
+		 * null = due whenever the batch reaches the row.
+		 */
+		nextSyncAt: timestamp('next_sync_at', { withTimezone: true }),
+		/** Consecutive tracking failures; reset by the first successful poll. */
+		errorCount: integer('error_count').notNull().default(0),
+		/**
+		 * Bounded text of the last failure: the courier's AWB refusal on a
+		 * `failed` row, the last tracking error on an in-flight one.
+		 */
+		lastError: text('last_error')
 	},
 	(table) => [
-		uniqueIndex('shipments_order_id_uq').on(table.orderId),
+		// One LIVE shipment per order — mirrors SHIPMENT_REPLACEABLE_STATUSES
+		// in shipment-service.ts: a cancelled or failed row may be replaced.
+		uniqueIndex('shipments_order_id_active_uq')
+			.on(table.orderId)
+			.where(sql`${table.status} not in ('cancelled', 'failed')`),
+		index('shipments_order_id_idx').on(table.orderId),
 		// The cron sync selects in-flight rows by status.
 		index('shipments_status_idx').on(table.status)
 	]
+);
+
+/**
+ * Refunds whose order does not exist yet (audit 2026-09-03 P0 #3): Stripe
+ * does not order deliveries, so `charge.refunded` can land before its
+ * `checkout.session.completed` (rotated secret, bad deploy, retry backlog).
+ * The refund handler records the charge here instead of dropping it, and
+ * order creation consults the row for its payment intent — a full pending
+ * refund creates the order already `refunded`, a partial one sets
+ * `refunded_cents`. `matched_at` marks consumption; the retention sweep prunes
+ * matched rows after the ledger window (unmatched ones stay for the operator).
+ */
+export const pendingRefunds = pgTable(
+	'pending_refunds',
+	{
+		paymentIntent: text('payment_intent').primaryKey(),
+		chargeId: text('charge_id').notNull(),
+		/** The charge's total, in bani (`charge.amount`). */
+		amountCents: integer('amount_cents').notNull(),
+		/** Cumulative refunded amount, in bani (`charge.amount_refunded`). */
+		amountRefundedCents: integer('amount_refunded_cents').notNull(),
+		receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+		matchedAt: timestamp('matched_at', { withTimezone: true }),
+		orderId: text('order_id').references(() => orders.id, { onDelete: 'set null' })
+	},
+	(table) => [index('pending_refunds_matched_at_idx').on(table.matchedAt)]
 );
 
 export type ProductRow = typeof products.$inferSelect;
@@ -242,3 +344,4 @@ export type OrderItemRow = typeof orderItems.$inferSelect;
 export type OrderEventRow = typeof orderEvents.$inferSelect;
 export type ShipmentRow = typeof shipments.$inferSelect;
 export type ShipmentStatus = ShipmentRow['status'];
+export type PendingRefundRow = typeof pendingRefunds.$inferSelect;

@@ -1,6 +1,6 @@
 {
-	"id": "6254b3a1-feb7-42f4-87c5-4e422881396c",
-	"prevId": "ff7251cd-a8d8-483a-8a54-7cfc8fd8ed27",
+	"id": "774a7e83-ca3c-42a5-a7f8-c837575f7b4a",
+	"prevId": "9b97d416-0781-482b-9b4b-67fa2fc9f4ad",
 	"version": "7",
 	"dialect": "postgresql",
 	"tables": {
@@ -281,6 +281,78 @@
 					"onUpdate": "no action"
 				}
 			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.admin_audit": {
+			"name": "admin_audit",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"identity": {
+						"type": "always",
+						"name": "admin_audit_id_seq",
+						"schema": "public",
+						"increment": "1",
+						"startWith": "1",
+						"minValue": "1",
+						"maxValue": "2147483647",
+						"cache": "1",
+						"cycle": false
+					}
+				},
+				"actor": {
+					"name": "actor",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"action": {
+					"name": "action",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"target": {
+					"name": "target",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "''"
+				},
+				"at": {
+					"name": "at",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {
+				"admin_audit_at_idx": {
+					"name": "admin_audit_at_idx",
+					"columns": [
+						{
+							"expression": "at",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				}
+			},
+			"foreignKeys": {},
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"policies": {},
@@ -729,12 +801,6 @@
 					"primaryKey": false,
 					"notNull": false
 				},
-				"import_key": {
-					"name": "import_key",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false
-				},
 				"created_by": {
 					"name": "created_by",
 					"type": "text",
@@ -757,21 +823,6 @@
 				}
 			},
 			"indexes": {
-				"articles_import_key_uq": {
-					"name": "articles_import_key_uq",
-					"columns": [
-						{
-							"expression": "import_key",
-							"isExpression": false,
-							"asc": true,
-							"nulls": "last"
-						}
-					],
-					"isUnique": true,
-					"concurrently": false,
-					"method": "btree",
-					"with": {}
-				},
 				"articles_status_published_at_idx": {
 					"name": "articles_status_published_at_idx",
 					"columns": [
@@ -1210,6 +1261,21 @@
 							"expression": "to_email",
 							"isExpression": false,
 							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				},
+				"email_log_to_email_lower_idx": {
+					"name": "email_log_to_email_lower_idx",
+					"columns": [
+						{
+							"expression": "lower(\"to_email\")",
+							"asc": true,
+							"isExpression": true,
 							"nulls": "last"
 						}
 					],
@@ -1825,12 +1891,6 @@
 					"notNull": true,
 					"default": "'active'"
 				},
-				"result_id": {
-					"name": "result_id",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false
-				},
 				"enrolled_at": {
 					"name": "enrolled_at",
 					"type": "timestamp with time zone",
@@ -1921,15 +1981,6 @@
 					"columnsFrom": ["subscriber_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
-					"onUpdate": "no action"
-				},
-				"nurture_enrollments_result_id_quiz_results_id_fk": {
-					"name": "nurture_enrollments_result_id_quiz_results_id_fk",
-					"tableFrom": "nurture_enrollments",
-					"tableTo": "quiz_results",
-					"columnsFrom": ["result_id"],
-					"columnsTo": ["id"],
-					"onDelete": "set null",
 					"onUpdate": "no action"
 				}
 			},
@@ -2853,6 +2904,21 @@
 					"method": "btree",
 					"with": {}
 				},
+				"orders_email_lower_idx": {
+					"name": "orders_email_lower_idx",
+					"columns": [
+						{
+							"expression": "lower(\"email\")",
+							"asc": true,
+							"isExpression": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				},
 				"orders_stripe_payment_intent_idx": {
 					"name": "orders_stripe_payment_intent_idx",
 					"columns": [
@@ -3043,12 +3109,6 @@
 					"primaryKey": false,
 					"notNull": false
 				},
-				"import_key": {
-					"name": "import_key",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false
-				},
 				"created_at": {
 					"name": "created_at",
 					"type": "timestamp with time zone",
@@ -3065,21 +3125,6 @@
 				}
 			},
 			"indexes": {
-				"products_import_key_uq": {
-					"name": "products_import_key_uq",
-					"columns": [
-						{
-							"expression": "import_key",
-							"isExpression": false,
-							"asc": true,
-							"nulls": "last"
-						}
-					],
-					"isUnique": true,
-					"concurrently": false,
-					"method": "btree",
-					"with": {}
-				},
 				"products_status_idx": {
 					"name": "products_status_idx",
 					"columns": [

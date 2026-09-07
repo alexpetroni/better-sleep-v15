@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { armCspGuard, assertNoCspViolations } from './helpers.ts';
 
 // The chat runs on the MOCK provider (playwright.config forces CHAT_PROVIDER=mock
 // and an empty ANTHROPIC_API_KEY into the preview servers) — replies below are
@@ -21,6 +22,7 @@ async function send(page: Page, text: string) {
 }
 
 test('widget: streamed mock reply, disclaimer, reset starts a new session', async ({ page }) => {
+	const cspGuard = await armCspGuard(page);
 	await page.goto('/');
 	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
 
@@ -46,6 +48,9 @@ test('widget: streamed mock reply, disclaimer, reset starts a new session', asyn
 	const secondSession = await chatCookie(page);
 	expect(secondSession).toBeTruthy();
 	expect(secondSession).not.toBe(firstSession);
+
+	// FIX-9: the whole streamed round-trip ran under the enforced CSP.
+	await assertNoCspViolations(page, cspGuard);
 });
 
 test('reloading the page restores the conversation without duplicates', async ({ page }) => {
@@ -135,6 +140,59 @@ test('a mid-stream error marks the partial reply failed and retry re-asks it', a
 	await expect(messages(page, 'assistant').last()).toContainText(SLEEP_REPLY_SNIPPET);
 	await expect(failed).toHaveCount(0);
 	await expect(messages(page, 'user')).toHaveCount(1);
+});
+
+// FIX-14: a stream that closes without a terminal frame is a broken reply,
+// and a `stop` frame renders as truncated/declined with the same retry.
+test('a stream that closes without done marks the reply failed', async ({ page }) => {
+	await page.goto('/asistent');
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'text/event-stream',
+			body: 'data: {"delta":"Un început de răspuns"}\n\n'
+		})
+	);
+	await send(page, SLEEP_QUESTION);
+	const failed = page.locator('[data-testid="chat-message"][data-failed="true"]');
+	await expect(failed).toContainText('Un început de răspuns');
+	await expect(page.getByTestId('chat-error')).toBeVisible();
+	await expect(page.getByTestId('chat-retry')).toBeVisible();
+});
+
+test('a stop frame renders a truncated reply with retry, and a refusal a declined one', async ({
+	page
+}) => {
+	await page.goto('/asistent');
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'text/event-stream',
+			body: 'data: {"delta":"Un răspuns tă"}\n\ndata: {"stop":"max_tokens"}\n\n'
+		})
+	);
+	await send(page, SLEEP_QUESTION);
+	const truncated = page.locator('[data-testid="chat-message"][data-stop="max_tokens"]');
+	await expect(truncated).toContainText('Un răspuns tă');
+	await expect(truncated).toContainText('Răspunsul a fost tăiat');
+	await expect(page.getByTestId('chat-error')).toHaveCount(0);
+
+	// Retry against a refusal: the truncated bubble is replaced by a declined one.
+	await page.route('**/api/chat', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'text/event-stream',
+			body: 'data: {"stop":"refusal"}\n\n'
+		})
+	);
+	await page.getByTestId('chat-retry').click();
+	await expect(truncated).toHaveCount(0);
+	const declined = page.locator('[data-testid="chat-message"][data-stop="refusal"]');
+	await expect(declined).toContainText('nu a putut răspunde');
+	await expect(messages(page, 'user')).toHaveCount(1);
+	await expect(page.getByTestId('chat-retry')).toBeVisible();
 });
 
 test('rate limit surfaces as a friendly ro message in the widget', async ({ page }) => {

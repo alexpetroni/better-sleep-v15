@@ -92,12 +92,15 @@ export function createStripeGateway(
 		async createCheckoutSession(input) {
 			const session = await stripe.checkout.sessions.create({
 				mode: 'payment',
-				// Pinned on purpose (review M-4): without this, enabling any
-				// delayed-notification method in the Stripe DASHBOARD would arm
-				// the pending→paid async flow with zero code change. Cards settle
-				// synchronously; the async webhook handlers exist as the safety
-				// net for the day this list is deliberately widened.
-				payment_method_types: ['card'],
+				// Pinned unless the operator opened all methods: an unpinned
+				// session offers whatever the dashboard enables, delayed methods
+				// included (audit 2026-09-03 P1 "pending orders").
+				...(input.paymentMethodTypes
+					? {
+							payment_method_types:
+								input.paymentMethodTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[]
+						}
+					: {}),
 				line_items: input.lineItems.map((li) => ({
 					quantity: li.qty,
 					price_data: {
@@ -108,6 +111,9 @@ export function createStripeGateway(
 				})),
 				success_url: input.successUrl,
 				cancel_url: input.cancelUrl,
+				// The courier (Sameday) refuses an AWB without a recipient phone;
+				// Checkout is the only place the customer is asked for one.
+				phone_number_collection: { enabled: true },
 				shipping_address_collection: {
 					// Site config lists plain ISO country codes; Stripe's type is a
 					// closed enum union of the same codes.

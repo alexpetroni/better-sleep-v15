@@ -30,7 +30,7 @@ beforeAll(async () => {
 		id: 'sar-sub',
 		email: EMAIL,
 		consents: {
-			newsletter: { granted: true, at: '2026-07-01T00:00:00Z', source: 'footer', copy: 'v1:x' }
+			newsletter: { granted: true, at: '2026-07-01T00:00:00Z', source: 'footer', consentTextVersion: 'newsletter_consent_label@1:sha256:x' }
 		},
 		unsubscribeToken: 'sar-spec-token'
 	});
@@ -100,7 +100,9 @@ describe('exportSubscriberData', () => {
 
 		expect(data.email).toBe(EMAIL);
 		expect(data.subscriber?.id).toBe('sar-sub');
-		expect(data.subscriber?.consents.newsletter?.copy).toBe('v1:x');
+		expect(data.subscriber?.consents.newsletter?.consentTextVersion).toBe(
+			'newsletter_consent_label@1:sha256:x'
+		);
 		expect(data.quizResults.map((r) => r.id)).toEqual(['sar-result']);
 		expect(data.nurtureEnrollments.map((e) => e.id)).toEqual(['sar-enrollment']);
 		expect(data.orders.map((o) => o.id)).toEqual(['sar-order']);
