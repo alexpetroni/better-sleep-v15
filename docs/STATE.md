@@ -253,7 +253,7 @@ Real command output from this run (container, compose stack on 5434 / 9010 /
   svelte-check: formcomp 481 files, web 3809 files, 0 errors 0 warnings;
   test:unit — web 148 files, Tests 1457 passed | 4 skipped (1461); formcomp 9 files, Tests 146 passed (146)
   (upstream at FIX-18: 1275; local at BS-10: 955 — both suites are present).
-  `pnpm audit --prod --audit-level=high`: exit 0, "4 vulnerabilities found" — the two
+  `pnpm audit --prod --audit-level=high`: exit 0, "4 vulnerabilities found — Severity: 1 low | 1 moderate | 2 high (2 ignored)" — the two
   ignored highs are the accepted image-size advisories, the moderate/low pair
   is below the level (see "Inherited backlog").
 - `packages/formcomp`: version 0.4.0; `diff -r .initialData/formcomp-0.4.0/src
