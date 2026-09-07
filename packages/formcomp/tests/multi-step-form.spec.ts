@@ -107,7 +107,7 @@ test('validation blocks progression and announces an error', async ({ page }) =>
 	await expect(page.getByRole('heading', { name: 'Follow-up' })).toBeVisible();
 });
 
-test('out-of-range number blocks progression', async ({ page }) => {
+test('out-of-range number is kept as typed, rejected with the invalid message and exposed via ARIA', async ({ page }) => {
 	await gotoForm(page);
 
 	await page.getByRole('radio', { name: 'Yes' }).check();
@@ -115,15 +115,36 @@ test('out-of-range number blocks progression', async ({ page }) => {
 	await next(page).click();
 	await expect(page.getByRole('heading', { name: 'Trip Details' })).toBeVisible();
 
-	// trip_length max is 365; the input clamps on change, so bypass the input
-	// component's own clamping by writing state directly is not possible from
-	// the UI — instead check the empty-required path and the happy path.
-	await next(page).click();
-	await expect(page.getByRole('alert')).toBeVisible();
+	// trip_length is required with max 365. Its accessible name is the plain
+	// label text (the required marker must not leak into it).
+	const days = page.getByRole('spinbutton', { name: 'How many days will you travel?', exact: true });
+	await expect(days).toHaveAttribute('aria-required', 'true');
+	await expect(days).not.toHaveAttribute('aria-invalid');
+	await expect(days).not.toHaveAttribute('aria-describedby');
 
-	await page.getByLabel(/How many days/).fill('14');
+	// The value is stored as typed — not clamped to 365 — and validation rejects it
+	await days.fill('999');
+	await next(page).click();
+	const alert = page.getByRole('alert');
+	await expect(alert).toContainText('Please correct the highlighted answers in this section.');
+	await expect(page.getByRole('heading', { name: 'Trip Details' })).toBeVisible();
+	await expect(days).toHaveValue('999');
+	await expect(days).toHaveAttribute('aria-invalid', 'true');
+	await expect(days).toHaveAttribute('aria-required', 'true');
+	const describedBy = await days.getAttribute('aria-describedby');
+	expect(describedBy).toBeTruthy();
+	await expect(alert).toHaveAttribute('id', describedBy!);
+
+	// Correcting the value clears the block
+	await days.fill('14');
 	await next(page).click();
 	await expect(page.getByRole('heading', { name: 'Follow-up' })).toBeVisible();
+
+	// The optional email on Follow-up carries no required/invalid state
+	const email = page.getByLabel(/Email/);
+	await expect(email).toBeVisible();
+	await expect(email).not.toHaveAttribute('aria-required');
+	await expect(email).not.toHaveAttribute('aria-invalid');
 });
 
 test('submitted payload contains only visible answers', async ({ page }) => {

@@ -15,12 +15,13 @@ const QUIZ_SLUG = 'evaluare-somn';
 
 /** Pick an option by question id + option value (stable against copy edits). */
 async function pick(page: Page, questionId: string, value: string) {
-	await page.locator(`input[name="${questionId}"][value="${value}"]`).check();
+	// formComp 0.4.0 prefixes radio names with the form instance id: match the suffix.
+	await page.locator(`input[name$="-${questionId}"][value="${value}"]`).check();
 }
 
 /** Likert inputs are sr-only — click their wrapping label instead. */
 async function pickLikert(page: Page, questionId: string, value: string) {
-	await page.locator(`label:has(input[name="${questionId}"][value="${value}"])`).click();
+	await page.locator(`label:has(input[name$="-${questionId}"][value="${value}"])`).click();
 }
 
 test('visitor completes the seeded quiz, opts into the funnel, confirms and unsubscribes; admin sees everything', async ({

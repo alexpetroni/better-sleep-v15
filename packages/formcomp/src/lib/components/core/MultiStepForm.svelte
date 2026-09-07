@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { setContext, tick, type Snippet } from 'svelte';
+	import { setContext, tick, untrack, type Snippet } from 'svelte';
 	import type { FormConfig, FormStateController, TranslateFn, FormCallbacks, SubmitPayload } from '../../types.js';
-	import { FORM_STATE_KEY, TRANSLATE_KEY } from '../../types.js';
+	import { FORM_STATE_KEY, TRANSLATE_KEY, FORM_ID_KEY } from '../../types.js';
 	import { createFormState } from '../../state/form-state.svelte.js';
 	import { validateStep, collectResponses, isStepVisible } from '../../validation/validator.js';
 	import { validateConfig } from '../../validation/config-check.js';
-	import { buildSubmitPayload, HONEYPOT_FIELD } from '../../submission.js';
-	import { cn } from '../../utils.js';
+	import { buildSubmitPayload, HONEYPOT_FIELD, SubmitError } from '../../submission.js';
+	import { cn, scopedId, groupElementId } from '../../utils.js';
 	import ProgressBar from '../layout/ProgressBar.svelte';
 	import NavigationButtons from '../layout/NavigationButtons.svelte';
 	import FormStep from './FormStep.svelte';
@@ -17,7 +17,7 @@
 		translate?: TranslateFn;
 		state?: FormStateController;
 		callbacks?: FormCallbacks;
-		/** Custom success screen, rendered in place of the built-in one after a successful POST */
+		/** Custom success screen, rendered in place of the built-in one after a successful submission (POST or callback transport) */
 		success?: Snippet<[SubmitPayload, unknown]>;
 	}
 
@@ -45,6 +45,11 @@
 	let honeypotValue = $state('');
 
 	setContext(FORM_STATE_KEY, formState);
+	// Per-instance prefix for every DOM id and radio name inside this form, so
+	// two forms on one page (or a host element with the same id) do not
+	// collide. Stable across SSR and hydration.
+	const formId = $props.id();
+	setContext(FORM_ID_KEY, formId);
 	// Context is init-only in Svelte — a runtime translate swap is not part of
 	// the API (re-create with {#key}), so the initial capture is deliberate.
 	// svelte-ignore state_referenced_locally
@@ -74,25 +79,34 @@
 
 	// A persisted step index can point at a step that current answers hide —
 	// snap back to the nearest earlier visible step (or the first one). Runs
-	// once at mount, before the first render — the initial-config reads below
-	// are that one-shot on purpose (L-1).
-	{
+	// right after hydration; it moves the controller directly (no `goTo`), so
+	// `onStepChange` is not fired.
+	function snapBackToVisibleStep() {
 		const idx = formState.currentStepIndex;
-		// svelte-ignore state_referenced_locally
 		const step = config.steps[idx];
-		if (step && !isStepVisible(step, getResponse)) {
-			// svelte-ignore state_referenced_locally
-			let target = config.steps.findIndex((s) => isStepVisible(s, getResponse));
-			for (let i = idx - 1; i >= 0; i--) {
-				// svelte-ignore state_referenced_locally
-				if (isStepVisible(config.steps[i], getResponse)) {
-					target = i;
-					break;
-				}
+		if (!step || isStepVisible(step, getResponse)) return;
+		let target = config.steps.findIndex((s) => isStepVisible(s, getResponse));
+		for (let i = idx - 1; i >= 0; i--) {
+			if (isStepVisible(config.steps[i], getResponse)) {
+				target = i;
+				break;
 			}
-			if (target >= 0) formState.goToStep(target);
 		}
+		if (target >= 0) formState.goToStep(target);
 	}
+
+	// Persisted answers are applied after mount, not during init: the server
+	// has no storage and renders the first step, so the first client render
+	// must be the same for hydration to be clean (R-2). `$effect` — not
+	// `$effect.pre`, which runs before the first client render and would
+	// reproduce the mismatch — and `untrack` keeps it a one-shot: nothing read
+	// in here becomes a dependency.
+	$effect(() => {
+		untrack(() => {
+			formState.hydrate?.();
+			snapBackToVisibleStep();
+		});
+	});
 
 	/** Scroll to the top of the form and move focus to the new step heading. */
 	async function focusStepStart() {
@@ -109,7 +123,11 @@
 		submitError = null;
 		const fromIndex = formState.currentStepIndex;
 		formState.goToStep(absoluteIndex);
-		callbacks?.onStepChange?.(fromIndex, absoluteIndex);
+		const toIndex = formState.currentStepIndex;
+		// Only a real move is a step change: the controller may ignore an
+		// out-of-range index, and editing the current step from the summary
+		// lands on the index it already had.
+		if (toIndex !== fromIndex) callbacks?.onStepChange?.(fromIndex, toIndex);
 		focusStepStart();
 	}
 
@@ -130,16 +148,20 @@
 					? (settings.invalidMessage ?? 'Please correct the highlighted answers in this section.')
 					: settings.requiredMessage;
 			if (warningGroupId) {
-				const el = document.getElementById(`formcomp-group-${warningGroupId}`);
+				// Scoped to this instance's root: ids are per form, never global
+				const el = rootEl?.querySelector<HTMLElement>(
+					`#${CSS.escape(groupElementId(scopedId(formId, warningGroupId)))}`
+				);
 				el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			}
 			return;
 		}
 
 		warningGroupId = null;
+		// Once per validated step, whichever exit follows
+		callbacks?.onStepComplete?.(currentStep.id, formState.currentStepIndex);
 
 		if (isLastStep) {
-			callbacks?.onStepComplete?.(currentStep.id, formState.currentStepIndex);
 			if (settings.showSummary) {
 				showingSummary = true;
 				focusStepStart();
@@ -147,45 +169,81 @@
 				submitForm();
 			}
 		} else {
-			callbacks?.onStepComplete?.(currentStep.id, formState.currentStepIndex);
 			const next = visibleSteps[currentVisibleIndex + 1];
 			goTo(config.steps.indexOf(next));
 		}
 	}
 
+	const defaultSubmitError = () =>
+		t(settings.submitErrorMessage ?? 'Something went wrong while submitting. Please try again.');
+
+	/**
+	 * Show the success screen from the captured payload / response, then clear
+	 * the answers and the persisted entry so a reload cannot resubmit them.
+	 * `text` (a server response) may override the configured title / message.
+	 */
+	function succeed(payload: SubmitPayload, response: unknown, text?: Record<string, unknown> | null) {
+		successPayload = payload;
+		successResponse = response;
+		successText = {
+			title: typeof text?.title === 'string' ? text.title : t(settings.successTitle ?? 'Thank you!'),
+			message:
+				typeof text?.message === 'string'
+					? text.message
+					: t(settings.successMessage ?? 'Your answers have been submitted.')
+		};
+		submitState = 'succeeded';
+		formState.reset?.();
+		focusStepStart();
+	}
+
+	/** Navigate away after success; the persisted state goes first so Back cannot resurrect it. */
+	function redirectTo(url: string) {
+		formState.reset?.();
+		window.location.assign(url);
+	}
+
 	async function submitForm() {
 		if (submitState !== 'idle') return;
 
-		if (!completed) {
-			completed = true;
-			callbacks?.onFormComplete?.(collectResponses(config, getResponse));
-		}
-
-		if (!config.submit) return;
+		submitState = 'submitting';
+		submitError = null;
 
 		const payload = buildSubmitPayload(config, getResponse, t, honeypotValue);
+
+		// onFormComplete runs once per set of answers (a retry after a failed
+		// POST skips it) and is awaited inside the busy state: without a submit
+		// endpoint it *is* the transport, and a rejection aborts the submission
+		// so the next Submit calls it again.
+		let callbackResult: unknown = null;
+		if (!completed) {
+			try {
+				callbackResult = (await callbacks?.onFormComplete?.(collectResponses(config, getResponse))) ?? null;
+			} catch (error) {
+				submitState = 'idle';
+				submitError = defaultSubmitError();
+				callbacks?.onSubmitError?.(error);
+				return;
+			}
+			completed = true;
+		}
+
+		if (!config.submit) {
+			succeed(payload, callbackResult);
+			return;
+		}
 
 		// A filled honeypot means a bot: mimic the normal success flow without
 		// POSTing and without firing the submit callbacks, so the bot can't
 		// tell it was dropped.
 		if (settings.honeypot && honeypotValue.trim() !== '') {
 			if (config.submit.successUrl) {
-				window.location.assign(config.submit.successUrl);
+				redirectTo(config.submit.successUrl);
 				return;
 			}
-			successPayload = payload;
-			successResponse = null;
-			successText = {
-				title: t(settings.successTitle ?? 'Thank you!'),
-				message: t(settings.successMessage ?? 'Your answers have been submitted.')
-			};
-			submitState = 'succeeded';
-			focusStepStart();
+			succeed(payload, null);
 			return;
 		}
-
-		submitState = 'submitting';
-		submitError = null;
 
 		try {
 			const res = await fetch(config.submit.url, {
@@ -204,11 +262,8 @@
 			if (!res.ok) {
 				// Show the server's error message when it sends one; otherwise the configured fallback
 				submitState = 'idle';
-				submitError =
-					typeof data?.message === 'string'
-						? data.message
-						: t(settings.submitErrorMessage ?? 'Something went wrong while submitting. Please try again.');
-				callbacks?.onSubmitError?.(new Error(`Request failed (${res.status})`));
+				submitError = typeof data?.message === 'string' ? data.message : defaultSubmitError();
+				callbacks?.onSubmitError?.(new SubmitError(res.status, data));
 				return;
 			}
 
@@ -219,25 +274,15 @@
 			const redirect =
 				(typeof data?.redirectUrl === 'string' && data.redirectUrl) || config.submit.successUrl;
 			if (redirect) {
-				window.location.assign(redirect);
+				redirectTo(redirect);
 				return;
 			}
 
-			successPayload = payload;
-			successResponse = data;
-			successText = {
-				title: typeof data?.title === 'string' ? data.title : t(settings.successTitle ?? 'Thank you!'),
-				message:
-					typeof data?.message === 'string'
-						? data.message
-						: t(settings.successMessage ?? 'Your answers have been submitted.')
-			};
-			submitState = 'succeeded';
-			focusStepStart();
+			succeed(payload, data, data);
 		} catch (error) {
 			// Network failure — don't surface browser-internal messages to the user
 			submitState = 'idle';
-			submitError = t(settings.submitErrorMessage ?? 'Something went wrong while submitting. Please try again.');
+			submitError = defaultSubmitError();
 			callbacks?.onSubmitError?.(error);
 		}
 	}
@@ -295,6 +340,7 @@
 			currentIndex={showingSummary ? visibleSteps.length : currentVisibleIndex}
 			onStepClick={handleStepClick}
 			clickable={canGoBack}
+			label={settings.progressLabel}
 		/>
 	{/if}
 

@@ -74,7 +74,7 @@ export interface Question {
 	label: string;
 	options?: QuestionOption[];
 	required?: boolean;
-	/** Extra help text shown as an info icon next to the label */
+	/** Help text behind an info button after the label — keyboard-reachable, it toggles a visible description; Escape closes it */
 	tooltip?: string;
 	min?: number;
 	max?: number;
@@ -97,13 +97,25 @@ export interface Question {
 
 // ── Group & Step Config ──
 
+/**
+ * @deprecated `'inline'` is an alias of `'individual'` — both render each
+ * question on its own; use `layout.columns` for side-by-side fields.
+ */
+export type InlineRenderMode = 'inline';
+
 export interface QuestionGroup {
 	id: string;
 	label: string;
 	intro?: string;
 	questions: Question[];
 	condition?: Condition;
-	renderMode?: 'individual' | 'likert-batch' | 'inline';
+	/**
+	 * How the questions are rendered. `'individual'` (default): each question
+	 * on its own, in a `layout.columns` grid when set; `'likert-batch'`: every
+	 * question as one row of a single likert table. `'inline'` is deprecated:
+	 * an alias of `'individual'` (see `InlineRenderMode`).
+	 */
+	renderMode?: 'individual' | 'likert-batch' | InlineRenderMode;
 	layout?: LayoutHint;
 	/** Extra classes merged onto the group wrapper */
 	class?: string;
@@ -128,6 +140,8 @@ export interface StepConfig {
 export interface FormSettings {
 	/** Show the step progress header. Default: true (hidden automatically when only one step is visible). */
 	showProgress?: boolean;
+	/** Accessible name of the progress header's `<nav>` landmark (or i18n key). Default: 'Progress'. */
+	progressLabel?: string;
 	/**
 	 * Allow navigating back to earlier steps. When false, both the Back button
 	 * and clicking completed steps in the progress header are disabled.
@@ -154,7 +168,7 @@ export interface FormSettings {
 	successTitle?: string;
 	/** Body of the built-in success screen (or i18n key). Default: 'Your answers have been submitted.'. A `message` in the server response takes precedence. */
 	successMessage?: string;
-	/** Message shown when the POST fails (or i18n key). Server-provided error messages take precedence. */
+	/** Message shown when the submission fails — the POST, or a rejected `onFormComplete` (or i18n key). Server-provided error messages take precedence. */
 	submitErrorMessage?: string;
 	/**
 	 * Render a visually-hidden anti-spam text field. When a bot fills it, the
@@ -226,7 +240,12 @@ export interface SubmitPayload {
 
 // ── Translation ──
 
-export type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
+/**
+ * Translate a config string (a label, option, tooltip, intro, settings text
+ * or one of the built-in defaults). Called with the key only; a function with
+ * an extra optional parameter is still assignable.
+ */
+export type TranslateFn = (key: string) => string;
 
 // ── State Adapter ──
 
@@ -242,17 +261,46 @@ export interface FormStateController extends FormStateAdapter {
 	nextStep(): void;
 	prevStep(): void;
 	goToStep(index: number): void;
+	/**
+	 * Apply persisted state. `MultiStepForm` calls it once from an effect
+	 * after mount, so a controller that restores answers from storage must do
+	 * it here rather than while it is constructed: the server has no storage
+	 * and renders the first step, and the first client render has to match it
+	 * for hydration to be clean. Must be idempotent. Optional so existing
+	 * controllers keep compiling; `createFormState` always implements it.
+	 */
+	hydrate?(): void;
+	/**
+	 * Clear every answer, return to the first step and drop the persisted
+	 * entry. `MultiStepForm` calls it after a successful submission so a reload
+	 * cannot resubmit the same answers. Optional so existing controllers keep
+	 * compiling; `createFormState` always implements it.
+	 */
+	reset?(): void;
 }
 
 // ── Callbacks ──
 
 export interface FormCallbacks {
 	onStepComplete?: (stepId: string, stepIndex: number) => void;
-	onFormComplete?: (allResponses: Record<string, Record<string, unknown>>) => void;
+	/**
+	 * Fired once per set of answers when the user submits, before the POST.
+	 * May return a promise: the form stays busy (Submit disabled, `aria-busy`)
+	 * until it settles. Without `config.submit` the callback is the transport:
+	 * the success screen shows once it resolves (the resolved value is the
+	 * `response` of the `success` snippet); a rejection shows
+	 * `settings.submitErrorMessage`, fires `onSubmitError` and lets the user
+	 * retry, which calls it again.
+	 */
+	onFormComplete?: (allResponses: Record<string, Record<string, unknown>>) => void | Promise<unknown>;
 	onStepChange?: (fromIndex: number, toIndex: number) => void;
-	/** Fired after the configured POST succeeds (2xx). `response` is the parsed JSON body, or null. */
+	/** Fired after the configured POST succeeds (2xx). `response` is the parsed JSON body, or null. Not fired for the callback transport. */
 	onSubmitSuccess?: (payload: SubmitPayload, response: unknown) => void;
-	/** Fired when the configured POST fails (network error or non-2xx). */
+	/**
+	 * Fired when the submission fails: a non-2xx POST (as a `SubmitError` with
+	 * `status` and `data`), a network error (passed through as received), or a
+	 * rejected `onFormComplete` promise (its rejection reason).
+	 */
 	onSubmitError?: (error: unknown) => void;
 }
 
@@ -261,3 +309,10 @@ export interface FormCallbacks {
 export const FORM_STATE_KEY = Symbol('form-state');
 export const TRANSLATE_KEY = Symbol('form-translate');
 export const STEP_ID_KEY = Symbol('form-step-id');
+/**
+ * Per-instance id prefix of the enclosing `MultiStepForm` (its `$props.id()`),
+ * a string. Every DOM id and radio `name` inside the form is
+ * `<formId>-<question or group id>`, so two forms on one page do not collide.
+ * Absent outside a form: components fall back to the raw id.
+ */
+export const FORM_ID_KEY = Symbol('form-id');

@@ -56,7 +56,9 @@ describe('email validation (text-input + inputType email)', () => {
 
 	it('does not apply to plain text or url inputs', () => {
 		expect(questionStatus(q({ id: 't', type: 'text-input' }), 'not-an-email')).toBe('ok');
-		expect(questionStatus(q({ id: 'u', type: 'text-input', inputType: 'url' }), 'not-an-email')).toBe('ok');
+		// A url input has its own rule (isValidUrl); a well-formed url is not an
+		// email and must not be rejected by the email pattern.
+		expect(questionStatus(q({ id: 'u', type: 'text-input', inputType: 'url' }), 'https://example.com')).toBe('ok');
 	});
 
 	it('validateStep reports reason invalid so the red-ring UX engages', () => {

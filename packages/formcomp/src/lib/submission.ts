@@ -9,6 +9,24 @@ type Translate = (key: string) => string;
 export const HONEYPOT_FIELD = 'website';
 
 /**
+ * Passed to `onSubmitError` when the configured POST returns a non-2xx
+ * response: `status` is the HTTP status and `data` the parsed JSON body
+ * (`null` when the body was not JSON). Network failures and rejected
+ * `onFormComplete` promises reach `onSubmitError` as received, not wrapped.
+ */
+export class SubmitError extends Error {
+	status: number;
+	data: unknown;
+
+	constructor(status: number, data: unknown = null) {
+		super(`Request failed (${status})`);
+		this.name = 'SubmitError';
+		this.status = status;
+		this.data = data;
+	}
+}
+
+/**
  * Build the JSON payload for the configured submit endpoint. Only currently
  * visible answers are included (same visibility fixpoint as
  * `collectResponses`). Each answer carries the question's stable `uuid`

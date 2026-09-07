@@ -15,11 +15,15 @@
 		minLabel?: string;
 		maxLabel?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 		optionClass?: string;
 	}
 
-	let { min = 1, max = 10, value = $bindable(), onchange, name = 'scale', label, tooltip, minLabel, maxLabel, warning = false, class: className, optionClass }: Props = $props();
+	let { min = 1, max = 10, value = $bindable(), onchange, name = 'scale', label, tooltip, minLabel, maxLabel, warning = false, required = false, describedBy, class: className, optionClass }: Props = $props();
 
 	const translate = useTranslate();
 
@@ -31,9 +35,18 @@
 	const numbers = $derived(Array.from({ length: max - min + 1 }, (_, i) => min + i));
 </script>
 
-<fieldset aria-label={label ? undefined : name} class={className}>
+<!-- The fieldset is the radiogroup: ARIA puts required/invalid state on the
+     group, not on individual radios (the radio role supports neither). -->
+<fieldset
+	role="radiogroup"
+	aria-label={label ? undefined : name}
+	aria-required={required || undefined}
+	aria-invalid={warning || undefined}
+	aria-describedby={describedBy}
+	class={className}
+>
 	{#if label}
-		<FieldLabel tag="legend" text={label} {tooltip} />
+		<FieldLabel tag="legend" text={label} {tooltip} {required} />
 	{/if}
 	<div
 		class={cn(

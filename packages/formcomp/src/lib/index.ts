@@ -32,11 +32,11 @@ export { createFormState, type FormStateOptions } from './state/form-state.svelt
 
 // Condition & Validation
 export { evaluateCondition, isAnswered } from './conditions/evaluator.js';
-export { validateStep, questionStatus, isStepVisible, collectResponses, isValidEmail } from './validation/validator.js';
+export { validateStep, questionStatus, isStepVisible, collectResponses, isValidEmail, isValidUrl } from './validation/validator.js';
 export { validateConfig } from './validation/config-check.js';
 
 // Submission
-export { buildSubmitPayload, HONEYPOT_FIELD } from './submission.js';
+export { buildSubmitPayload, HONEYPOT_FIELD, SubmitError } from './submission.js';
 export { formatAnswer } from './format.js';
 
 // i18n
@@ -54,6 +54,7 @@ export type {
 	RangeValue,
 	LayoutHint,
 	Question,
+	InlineRenderMode,
 	QuestionGroup,
 	StepConfig,
 	FormConfig,
@@ -67,4 +68,4 @@ export type {
 	FormCallbacks
 } from './types.js';
 
-export { FORM_STATE_KEY, TRANSLATE_KEY, STEP_ID_KEY } from './types.js';
+export { FORM_STATE_KEY, TRANSLATE_KEY, STEP_ID_KEY, FORM_ID_KEY } from './types.js';

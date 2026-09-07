@@ -13,11 +13,15 @@
 		label?: string;
 		tooltip?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 		optionClass?: string;
 	}
 
-	let { options, value = $bindable([]), onchange, name = 'checkbox', label, tooltip, warning = false, class: className, optionClass }: Props = $props();
+	let { options, value = $bindable([]), onchange, name = 'checkbox', label, tooltip, warning = false, required = false, describedBy, class: className, optionClass }: Props = $props();
 
 	const translate = useTranslate();
 
@@ -44,7 +48,7 @@
 
 <fieldset class={className}>
 	{#if label}
-		<FieldLabel tag="legend" text={label} {tooltip} />
+		<FieldLabel tag="legend" text={label} {tooltip} {required} />
 	{/if}
 	<div class={cn('space-y-4 rounded-(--form-radius) p-1', warning && cn(warningRing, 'p-4'))}>
 		{#each options as option (option.value)}
@@ -57,6 +61,9 @@
 					{name}
 					value={option.value}
 					{checked}
+					aria-required={required || undefined}
+					aria-invalid={warning || undefined}
+					aria-describedby={describedBy}
 					onchange={() => handleToggle(option.value, option.exclusive)}
 					class={cn(controlBase, 'mt-0.5')}
 				/>

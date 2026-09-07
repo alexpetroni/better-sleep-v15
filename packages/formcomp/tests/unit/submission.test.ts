@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubmitPayload } from '../../src/lib/submission.js';
+import { buildSubmitPayload, SubmitError } from '../../src/lib/submission.js';
+import { SubmitError as SubmitErrorFromBarrel } from '../../src/lib/index.js';
 import { formatAnswer } from '../../src/lib/format.js';
 import type { FormConfig, Question } from '../../src/lib/types.js';
 
@@ -104,5 +105,31 @@ describe('formatAnswer', () => {
 		expect(formatAnswer(q({ type: 'number-input', unit: 'kg' }), 70)).toBe('70 kg');
 		expect(formatAnswer(q({ type: 'scale' }), 0)).toBe('0');
 		expect(formatAnswer(q({ type: 'range' }), { from: 1 })).toBe('1 – —');
+	});
+});
+
+describe('SubmitError', () => {
+	it('is an Error carrying the HTTP status and the parsed response body', () => {
+		const error = new SubmitError(500, { message: 'Server exploded' });
+
+		expect(error).toBeInstanceOf(Error);
+		expect(error).toBeInstanceOf(SubmitError);
+		expect(error.name).toBe('SubmitError');
+		expect(error.status).toBe(500);
+		expect(error.data).toEqual({ message: 'Server exploded' });
+		expect(error.message).toBe('Request failed (500)');
+	});
+
+	it('keeps data as null for a non-JSON body', () => {
+		const error = new SubmitError(502, null);
+
+		expect(error.status).toBe(502);
+		expect(error.data).toBeNull();
+		expect(error.message).toBe('Request failed (502)');
+	});
+
+	it('is exported from the package barrel', () => {
+		expect(typeof SubmitErrorFromBarrel).toBe('function');
+		expect(SubmitErrorFromBarrel).toBe(SubmitError);
 	});
 });

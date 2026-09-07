@@ -31,11 +31,12 @@ const QUIZ_SLUG = 'evaluare-somn';
 const stripeSigner = new Stripe('sk_test_offline_signing_only');
 
 async function pick(page: Page, questionId: string, value: string) {
-	await page.locator(`input[name="${questionId}"][value="${value}"]`).check();
+	// formComp 0.4.0 prefixes radio names with the form instance id: match the suffix.
+	await page.locator(`input[name$="-${questionId}"][value="${value}"]`).check();
 }
 
 async function pickLikert(page: Page, questionId: string, value: string) {
-	await page.locator(`label:has(input[name="${questionId}"][value="${value}"])`).click();
+	await page.locator(`label:has(input[name$="-${questionId}"][value="${value}"])`).click();
 }
 
 export function defineFunnelSpec(siteId: keyof typeof SITE_DB_NAMES) {

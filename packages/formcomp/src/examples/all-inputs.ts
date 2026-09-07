@@ -120,6 +120,25 @@ export const allInputsConfig: FormConfig = {
 							]
 						}
 					]
+				},
+				{
+					id: 'likert-single',
+					label: 'Likert — single statement',
+					intro: 'A likert question outside a likert-batch group renders as a one-row scale.',
+					questions: [
+						{
+							id: 'remote',
+							type: 'likert',
+							label: 'I would like to work remotely more often.',
+							options: [
+								{ value: '1', label: 'Strongly disagree' },
+								{ value: '2', label: 'Disagree' },
+								{ value: '3', label: 'Neutral' },
+								{ value: '4', label: 'Agree' },
+								{ value: '5', label: 'Strongly agree' }
+							]
+						}
+					]
 				}
 			]
 		},
@@ -130,7 +149,6 @@ export const allInputsConfig: FormConfig = {
 				{
 					id: 'metrics',
 					label: 'Body metrics',
-					renderMode: 'inline',
 					layout: { columns: 2 },
 					questions: [
 						{
@@ -190,7 +208,6 @@ export const allInputsConfig: FormConfig = {
 				{
 					id: 'times',
 					label: 'Time & date',
-					renderMode: 'inline',
 					layout: { columns: 2 },
 					questions: [
 						{

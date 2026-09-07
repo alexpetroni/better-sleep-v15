@@ -19,6 +19,21 @@ export function isValidEmail(value: string): boolean {
 	return EMAIL_PATTERN.test(value.trim());
 }
 
+/**
+ * URL check used for `text-input` questions with `inputType: 'url'`: the
+ * trimmed value must parse as an absolute URL with an `http:` or `https:`
+ * scheme. Other schemes (`ftp:`, `javascript:`, `mailto:`…) and scheme-less
+ * values such as `example.com` are rejected.
+ */
+export function isValidUrl(value: string): boolean {
+	try {
+		const { protocol } = new URL(value.trim());
+		return protocol === 'http:' || protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
 function isQuestionVisible(
 	question: Question,
 	getResponse: GetResponse,
@@ -64,6 +79,15 @@ export function questionStatus(question: Question, value: unknown): 'ok' | 'miss
 		question.inputType === 'email' &&
 		typeof value === 'string' &&
 		!isValidEmail(value)
+	) {
+		return 'invalid';
+	}
+
+	if (
+		question.type === 'text-input' &&
+		question.inputType === 'url' &&
+		typeof value === 'string' &&
+		!isValidUrl(value)
 	) {
 		return 'invalid';
 	}

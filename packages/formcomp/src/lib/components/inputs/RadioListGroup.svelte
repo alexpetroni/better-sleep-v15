@@ -13,11 +13,15 @@
 		label?: string;
 		tooltip?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 		optionClass?: string;
 	}
 
-	let { options, value = $bindable(), onchange, name = 'radio', label, tooltip, warning = false, class: className, optionClass }: Props = $props();
+	let { options, value = $bindable(), onchange, name = 'radio', label, tooltip, warning = false, required = false, describedBy, class: className, optionClass }: Props = $props();
 
 	const translate = useTranslate();
 
@@ -27,11 +31,19 @@
 	}
 </script>
 
-<fieldset class={className}>
+<!-- The fieldset is the radiogroup: ARIA puts required/invalid state on the
+     group, not on individual radios (the radio role supports neither). -->
+<fieldset
+	role="radiogroup"
+	aria-required={required || undefined}
+	aria-invalid={warning || undefined}
+	aria-describedby={describedBy}
+	class={className}
+>
 	{#if label}
-		<FieldLabel tag="legend" text={label} {tooltip} />
+		<FieldLabel tag="legend" text={label} {tooltip} {required} />
 	{/if}
-	<div class={cn('rounded-(--form-radius) p-1', warning && cn(warningRing, 'p-4'))} role="radiogroup">
+	<div class={cn('rounded-(--form-radius) p-1', warning && cn(warningRing, 'p-4'))}>
 		{#each options as option (option.value)}
 			{@const id = `${name}-${option.value}`}
 			<div class={cn('flex items-start gap-3 py-1', optionClass)}>

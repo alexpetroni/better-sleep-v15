@@ -983,9 +983,9 @@ describe('webhook: async payments (M-4)', () => {
 			})
 		);
 		expect(outcome).toEqual({ kind: 'empty-cart', sessionId: 'cs_async_ghost' });
-		expect(await db.select().from(orders).where(eq(orders.stripeSessionId, 'cs_async_ghost'))).toEqual(
-			[]
-		);
+		expect(
+			await db.select().from(orders).where(eq(orders.stripeSessionId, 'cs_async_ghost'))
+		).toEqual([]);
 	});
 });
 

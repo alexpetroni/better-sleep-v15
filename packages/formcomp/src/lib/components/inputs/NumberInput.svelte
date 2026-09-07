@@ -16,33 +16,32 @@
 		placeholder?: string;
 		unit?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 	}
 
-	let { value = $bindable(), onchange, name = 'number', label, tooltip, min, max, step, placeholder, unit, warning = false, class: className }: Props = $props();
+	let { value = $bindable(), onchange, name = 'number', label, tooltip, min, max, step, placeholder, unit, warning = false, required = false, describedBy, class: className }: Props = $props();
 
 	const translate = useTranslate();
 
 	function handleInput(e: Event) {
 		const input = e.target as HTMLInputElement;
-		const raw = input.value;
-		if (raw === '') {
-			value = undefined;
-			onchange?.(undefined);
-			return;
-		}
-		let num = parseFloat(raw);
-		if (isNaN(num)) return;
-		if (min !== undefined && num < min) num = min;
-		if (max !== undefined && num > max) num = max;
-		value = num;
-		onchange?.(num);
+		// Store what was typed (undefined for empty or not a number). Nothing is
+		// clamped to min/max: an out-of-range value must reach validation so it
+		// is reported with invalidMessage instead of being silently rewritten.
+		// min/max/step stay on the element as hints for the native spinner.
+		const num = parseFloat(input.value);
+		value = Number.isNaN(num) ? undefined : num;
+		onchange?.(value);
 	}
 </script>
 
 <div class={cn('space-y-2', className)}>
 	{#if label}
-		<FieldLabel forId={name} text={label} {tooltip} />
+		<FieldLabel forId={name} text={label} {tooltip} {required} />
 	{/if}
 	<div class="relative">
 		<input
@@ -54,6 +53,9 @@
 			{step}
 			value={value ?? ''}
 			{placeholder}
+			aria-required={required || undefined}
+			aria-invalid={warning || undefined}
+			aria-describedby={describedBy}
 			onchange={handleInput}
 			class={cn(inputBase, unit && 'pr-12', warning && warningField)}
 		/>

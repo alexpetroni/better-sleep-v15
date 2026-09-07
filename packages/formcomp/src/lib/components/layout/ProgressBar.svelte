@@ -8,14 +8,16 @@
 		onStepClick?: (index: number) => void;
 		/** When false, completed steps are not clickable. Default: true. */
 		clickable?: boolean;
+		/** Accessible name of the <nav> landmark (or i18n key). Default: 'Progress'. */
+		label?: string;
 	}
 
-	let { steps, currentIndex, onStepClick, clickable = true }: Props = $props();
+	let { steps, currentIndex, onStepClick, clickable = true, label = 'Progress' }: Props = $props();
 
 	const translate = useTranslate();
 </script>
 
-<nav aria-label="Progress" class="mb-8">
+<nav aria-label={translate(label)} class="mb-8">
 	<!-- On small screens the step labels collapse to numbers, so spell out where we are -->
 	{#if steps[currentIndex]}
 		<p class="sm:hidden mb-2 text-sm text-(--form-muted)">

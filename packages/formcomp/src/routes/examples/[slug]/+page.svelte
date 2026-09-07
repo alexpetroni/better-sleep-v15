@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { MultiStepForm, createFormState } from '$lib/index.js';
+	import { MultiStepForm, createFormState, SubmitError } from '$lib/index.js';
 	import type { FormCallbacks } from '$lib/types.js';
 	import { getExample } from '$examples';
 
@@ -15,6 +15,11 @@
 			: undefined
 	);
 
+	// `?fail=once` makes the first onFormComplete call reject (the browser
+	// tests use it to exercise the error + retry path of the callback
+	// transport); every later call resolves.
+	let failedOnce = false;
+
 	const callbacks: FormCallbacks = {
 		onStepComplete(stepId, stepIndex) {
 			console.log(`Step completed: ${stepId} (index: ${stepIndex})`);
@@ -25,6 +30,26 @@
 		onFormComplete(allResponses) {
 			console.log('Form completed!', allResponses);
 			alert('Form submitted — check the console for the response payload.');
+			// Stand-in for the consumer's own transport (an API call, a store
+			// write…): the form stays busy until this settles.
+			const shouldFail = page.url.searchParams.get('fail') === 'once' && !failedOnce;
+			return new Promise<void>((ok, fail) => {
+				setTimeout(() => {
+					if (shouldFail) {
+						failedOnce = true;
+						fail(new Error('demo failure'));
+					} else {
+						ok();
+					}
+				}, 300);
+			});
+		},
+		onSubmitError(error) {
+			if (error instanceof SubmitError) {
+				console.log('Submit failed', error.status, error.data);
+			} else {
+				console.log('Submit failed', error);
+			}
 		}
 	};
 </script>

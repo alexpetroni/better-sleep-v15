@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateStep, questionStatus, collectResponses, isStepVisible } from '../../src/lib/validation/validator.js';
+import { validateStep, questionStatus, collectResponses, isStepVisible, isValidUrl } from '../../src/lib/validation/validator.js';
 import type { FormConfig, Question, StepConfig } from '../../src/lib/types.js';
 
 const q = (partial: Partial<Question> & { id: string; type: Question['type'] }): Question => ({
@@ -29,6 +29,81 @@ describe('questionStatus', () => {
 		expect(questionStatus(question, { from: -5, to: 10 })).toBe('invalid');
 		expect(questionStatus(question, { from: 10, to: 200 })).toBe('invalid');
 		expect(questionStatus(question, { from: 10, to: 50 })).toBe('ok');
+	});
+});
+
+describe('isValidUrl', () => {
+	it.each([
+		'https://example.com',
+		'http://example.com',
+		'HTTPS://EXAMPLE.COM',
+		'https://sub.example.com/path/to?q=1&r=2#frag',
+		'https://example.com:8443/',
+		'http://localhost:5173',
+		'  https://example.com  ' // surrounding whitespace is trimmed
+	])('accepts %j', (value) => {
+		expect(isValidUrl(value)).toBe(true);
+	});
+
+	it.each([
+		'ftp://example.com', // parses, but only http(s) counts
+		'javascript:alert(1)',
+		'mailto:jane@example.com',
+		'data:text/plain,hi',
+		'example.com', // no scheme
+		'www.example.com',
+		'not a url',
+		'https://', // no host
+		'https://exa mple.com',
+		'https:// example.com',
+		'',
+		'   '
+	])('rejects %j', (value) => {
+		expect(isValidUrl(value)).toBe(false);
+	});
+});
+
+describe('url validation (text-input + inputType url)', () => {
+	const url = (required: boolean) => q({ id: 'site', type: 'text-input', inputType: 'url', required });
+
+	it('accepts http(s) urls, required or optional', () => {
+		for (const value of ['https://example.com', 'http://example.com/path?x=1', ' https://example.com ']) {
+			expect(questionStatus(url(true), value)).toBe('ok');
+			expect(questionStatus(url(false), value)).toBe('ok');
+		}
+	});
+
+	it('rejects malformed urls as invalid, required or optional', () => {
+		for (const value of ['example.com', 'ftp://example.com', 'javascript:alert(1)', 'not a url', 'https://']) {
+			expect(questionStatus(url(true), value)).toBe('invalid');
+			expect(questionStatus(url(false), value)).toBe('invalid');
+		}
+	});
+
+	it('empty: missing when required, ok when optional', () => {
+		for (const value of [undefined, '', '   ']) {
+			expect(questionStatus(url(true), value)).toBe('missing');
+			expect(questionStatus(url(false), value)).toBe('ok');
+		}
+	});
+
+	it('does not apply to plain text inputs', () => {
+		expect(questionStatus(q({ id: 't', type: 'text-input' }), 'example.com')).toBe('ok');
+		expect(questionStatus(q({ id: 't', type: 'text-input', inputType: 'text' }), 'not a url')).toBe('ok');
+	});
+
+	it('validateStep reports reason invalid for a malformed url', () => {
+		const step: StepConfig = {
+			id: 's',
+			label: 'S',
+			groups: [{ id: 'g', label: 'G', questions: [url(true)] }]
+		};
+		expect(validateStep(step, () => 'example.com', 's')).toEqual({
+			isValid: false,
+			firstIncompleteGroupId: 'g',
+			reason: 'invalid'
+		});
+		expect(validateStep(step, () => 'https://example.com', 's').isValid).toBe(true);
 	});
 });
 

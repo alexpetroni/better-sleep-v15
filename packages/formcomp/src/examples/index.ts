@@ -38,7 +38,7 @@ export const examples: Example[] = [
 	{
 		slug: 'all-inputs',
 		title: 'All input types',
-		description: 'Every built-in input — text, email, textarea, selects, scale, range, time, date — plus tooltips and the summary screen.',
+		description: 'Every built-in input — text, email, textarea, selects, a standalone likert, scale, range, time, date — plus tooltips and the summary screen.',
 		config: allInputsConfig
 	},
 	{

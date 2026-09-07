@@ -13,10 +13,14 @@
 		placeholder?: string;
 		rows?: number;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 	}
 
-	let { value = $bindable(), onchange, name = 'textarea', label, tooltip, placeholder, rows = 4, warning = false, class: className }: Props = $props();
+	let { value = $bindable(), onchange, name = 'textarea', label, tooltip, placeholder, rows = 4, warning = false, required = false, describedBy, class: className }: Props = $props();
 
 	const translate = useTranslate();
 
@@ -29,7 +33,7 @@
 
 <div class={cn('space-y-2', className)}>
 	{#if label}
-		<FieldLabel forId={name} text={label} {tooltip} />
+		<FieldLabel forId={name} text={label} {tooltip} {required} />
 	{/if}
 	<textarea
 		{name}
@@ -37,6 +41,9 @@
 		{rows}
 		{placeholder}
 		value={value ?? ''}
+		aria-required={required || undefined}
+		aria-invalid={warning || undefined}
+		aria-describedby={describedBy}
 		oninput={handleInput}
 		class={cn(inputBase, 'min-h-16 resize-y', warning && warningField)}
 	></textarea>

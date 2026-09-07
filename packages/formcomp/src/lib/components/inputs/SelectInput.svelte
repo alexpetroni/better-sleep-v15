@@ -14,10 +14,14 @@
 		tooltip?: string;
 		placeholder?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 	}
 
-	let { options, value = $bindable(), onchange, name = 'select', label, tooltip, placeholder, warning = false, class: className }: Props = $props();
+	let { options, value = $bindable(), onchange, name = 'select', label, tooltip, placeholder, warning = false, required = false, describedBy, class: className }: Props = $props();
 
 	const translate = useTranslate();
 
@@ -30,12 +34,15 @@
 
 <div class={cn('space-y-2', className)}>
 	{#if label}
-		<FieldLabel forId={name} text={label} {tooltip} />
+		<FieldLabel forId={name} text={label} {tooltip} {required} />
 	{/if}
 	<select
 		{name}
 		id={name}
 		value={value ?? ''}
+		aria-required={required || undefined}
+		aria-invalid={warning || undefined}
+		aria-describedby={describedBy}
 		onchange={handleChange}
 		class={cn(inputBase, 'cursor-pointer', !value && 'text-(--form-muted)', warning && warningField)}
 	>

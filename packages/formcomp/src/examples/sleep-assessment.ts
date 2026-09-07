@@ -10,7 +10,6 @@ export const sleepAssessmentConfig: FormConfig = {
 				{
 					id: 'schedule',
 					label: 'Sleep Schedule',
-					renderMode: 'inline',
 					layout: { columns: 2 },
 					questions: [
 						{ id: 'bedtime', type: 'time-input', label: 'Usual bedtime', required: true, step: 900 },
@@ -198,7 +197,6 @@ export const sleepAssessmentConfig: FormConfig = {
 				{
 					id: 'demographics',
 					label: 'Basic Information',
-					renderMode: 'inline',
 					layout: { columns: 2 },
 					questions: [
 						{ id: 'age', type: 'number-input', label: 'Age', required: true, min: 13, max: 120, placeholder: '35' },
@@ -217,7 +215,6 @@ export const sleepAssessmentConfig: FormConfig = {
 				{
 					id: 'body-metrics',
 					label: 'Body Metrics',
-					renderMode: 'inline',
 					layout: { columns: 2 },
 					questions: [
 						{ id: 'height', type: 'number-input', label: 'Height', required: true, min: 50, max: 250, unit: 'cm' },

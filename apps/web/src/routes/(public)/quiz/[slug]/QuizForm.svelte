@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { createFormState, MultiStepForm, type FormConfig } from 'formcomp';
 	import 'formcomp/theme.css';
 	import { m } from '$lib/paraglide/messages';
@@ -38,6 +39,16 @@
 	const state = createFormState(config, { storageKey: `quiz-${quiz.slug}`, version: quiz.version });
 </script>
 
+<!--
+	Client-only (formComp 0.4.0): persisted answers are applied after mount, so
+	a server render would paint step 1 and then swap to the resumed step. The
+	intro copy above is SSR; the form mounts after hydration into a placeholder
+	that reserves its height (no layout shift, announced as busy).
+-->
 <div class="formcomp">
-	<MultiStepForm {config} {state} />
+	{#if browser}
+		<MultiStepForm {config} {state} />
+	{:else}
+		<div class="min-h-[28rem]" aria-busy="true" data-testid="quiz-form-placeholder"></div>
+	{/if}
 </div>

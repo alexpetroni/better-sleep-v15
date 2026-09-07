@@ -20,6 +20,10 @@
 		/** Label above the upper field. Default: 'To'. */
 		maxLabel?: string;
 		warning?: boolean;
+		/** Mark the control(s) as required (aria-required) and show the label marker. */
+		required?: boolean;
+		/** Id of the element describing the control(s), e.g. the group's error message (aria-describedby). */
+		describedBy?: string;
 		class?: string;
 	}
 
@@ -36,18 +40,17 @@
 		minLabel = 'From',
 		maxLabel = 'To',
 		warning = false,
+		required = false,
+		describedBy,
 		class: className
 	}: Props = $props();
 
 	const translate = useTranslate();
 
+	/** The typed number, undefined for empty or not a number. Not clamped: validation reports out-of-range ends. */
 	function parseField(raw: string): number | undefined {
-		if (raw === '') return undefined;
-		let num = parseFloat(raw);
-		if (isNaN(num)) return undefined;
-		if (min !== undefined && num < min) num = min;
-		if (max !== undefined && num > max) num = max;
-		return num;
+		const num = parseFloat(raw);
+		return Number.isNaN(num) ? undefined : num;
 	}
 
 	function handleChange(field: 'from' | 'to', e: Event) {
@@ -64,7 +67,7 @@
 
 <fieldset class={className} aria-label={label ? undefined : name}>
 	{#if label}
-		<FieldLabel tag="legend" text={label} {tooltip} />
+		<FieldLabel tag="legend" text={label} {tooltip} {required} />
 	{/if}
 	<div class="grid grid-cols-2 gap-4">
 		{#each [['from', minLabel], ['to', maxLabel]] as const as [field, fieldLabel] (field)}
@@ -80,6 +83,9 @@
 						{max}
 						{step}
 						value={value?.[field] ?? ''}
+						aria-required={required || undefined}
+						aria-invalid={warning || undefined}
+						aria-describedby={describedBy}
 						onchange={(e) => handleChange(field, e)}
 						class={cn(inputBase, unit && 'pr-12', warning && warningField)}
 					/>

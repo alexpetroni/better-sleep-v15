@@ -1,4 +1,7 @@
 import type { FormConfig, QuestionType } from 'formcomp';
+// The pure subpath: `validate.ts` runs inside `node scripts/seed.ts`, where the
+// main barrel's Svelte components cannot load.
+import { validateConfig } from 'formcomp/config-check';
 import { validateScoringConfig, type ScoringConfig } from './scoring.ts';
 import { isRecord } from '../../util/object.ts';
 
@@ -106,6 +109,10 @@ export function countQuestions(form: FormConfig): number {
 /** Everything that must hold before a quiz may go live. */
 export function validateForPublish(form: FormConfig, scoring: ScoringConfig): string[] {
 	const errors = [...validateFormSchema(form), ...validateScoringConfig(form, scoring)];
+	// formComp's own config sanity checks (0.4.0: conditions, option values,
+	// empty steps/groups, likert batches…) — ONE rule for the seeds, the
+	// publish/save gate and the editor's live check, not three.
+	if (errors.length === 0) errors.push(...validateConfig(form));
 	if (errors.length === 0 && countQuestions(form) === 0) {
 		errors.push('Un chestionar publicat are nevoie de cel puțin o întrebare.');
 	}
