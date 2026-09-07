@@ -7,7 +7,7 @@ import path from 'node:path';
 // deleted on purpose — `ro.json` is the single catalog and paraglide compiles
 // exactly one locale. A second catalog (or a second locale in the inlang
 // project) would start a crawlable duplicate tree with silent fallbacks.
-const messagesDir = path.resolve(import.meta.dirname, '../messages');
+const messagesDir = path.resolve(import.meta.dirname, '../../messages');
 
 function keysOf(locale: string): string[] {
 	const file = path.join(messagesDir, `${locale}.json`);
@@ -27,7 +27,7 @@ describe('messages/*.json', () => {
 
 	it('the inlang project lists exactly the ro locale', () => {
 		const settings = JSON.parse(
-			readFileSync(path.resolve(import.meta.dirname, '../project.inlang/settings.json'), 'utf8')
+			readFileSync(path.resolve(import.meta.dirname, '../../project.inlang/settings.json'), 'utf8')
 		) as { baseLocale: string; locales: string[] };
 		expect(settings.baseLocale).toBe('ro');
 		expect(settings.locales).toEqual(['ro']);

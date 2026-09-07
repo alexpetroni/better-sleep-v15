@@ -800,10 +800,11 @@ describe('webhook: checkout.session.completed', () => {
 	});
 });
 
-// M-4: delayed payment methods complete the session with payment_status
-// 'unpaid'; the order must wait as `pending` (no email, no invoice) until
-// `async_payment_succeeded` — or be failed AND restocked on
-// `async_payment_failed`. Nothing else ever writes status 'paid'.
+// M-4 (BS-9), kept on top of FIX-10's four-event implementation for the
+// assertions async-payments.spec.ts does not make: the exact trail, the
+// confirmation-email count across redeliveries, and that a second settle /
+// second failure under a NEW event id changes nothing (FIX-10 answers those
+// `payment-already-settled`, where BS-9 said `async-unmatched`).
 describe('webhook: async payments (M-4)', () => {
 	async function deliver(payload: string) {
 		const event = await verifyStripeEvent(payload, signedHeader(payload), WEBHOOK_SECRET);
@@ -912,7 +913,7 @@ describe('webhook: async payments (M-4)', () => {
 				eventId: 'evt_cs_async_ok_paid_2'
 			})
 		);
-		expect(again.kind).toBe('async-unmatched');
+		expect(again.kind).toBe('payment-already-settled');
 		expect(await emailCount(order.id)).toBe(1);
 		const [still] = await db.select().from(orders).where(eq(orders.id, order.id));
 		expect(still.status).toBe('paid');
@@ -949,8 +950,14 @@ describe('webhook: async payments (M-4)', () => {
 		const [restocked] = await db.select().from(products).where(eq(products.id, product.id));
 		expect(restocked.stock).toBe(10);
 		expect(await emailCount(order.id)).toBe(0);
+		// FIX-10 also cancels fulfillment on the failure path.
+		expect(order.fulfillmentStatus).toBe('cancelled');
 		const trail = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
-		expect(trail.map((e) => e.kind).sort()).toEqual(['created', 'payment-failed']);
+		expect(trail.map((e) => e.kind).sort()).toEqual([
+			'created',
+			'fulfillment-transition',
+			'payment-failed'
+		]);
 
 		// A redelivery under a new event id cannot double-restock.
 		const again = await deliver(
@@ -962,12 +969,12 @@ describe('webhook: async payments (M-4)', () => {
 				eventId: 'evt_cs_async_fail_failed_2'
 			})
 		);
-		expect(again.kind).toBe('async-unmatched');
+		expect(again.kind).toBe('payment-already-settled');
 		const [after] = await db.select().from(products).where(eq(products.id, product.id));
 		expect(after.stock).toBe(10);
 	});
 
-	it('async events for an unknown session are acknowledged without effect', async () => {
+	it('an async event for an unknown, empty session is acknowledged without effect (FIX-10: it would otherwise CREATE the order)', async () => {
 		const outcome = await deliver(
 			sessionEvent('checkout.session.async_payment_succeeded', {
 				id: 'cs_async_ghost',
@@ -975,7 +982,10 @@ describe('webhook: async payments (M-4)', () => {
 				amountTotal: 0
 			})
 		);
-		expect(outcome).toEqual({ kind: 'async-unmatched', sessionId: 'cs_async_ghost' });
+		expect(outcome).toEqual({ kind: 'empty-cart', sessionId: 'cs_async_ghost' });
+		expect(await db.select().from(orders).where(eq(orders.stripeSessionId, 'cs_async_ghost'))).toEqual(
+			[]
+		);
 	});
 });
 

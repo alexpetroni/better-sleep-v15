@@ -210,8 +210,10 @@ describe('the committed content/sleep article bundles', () => {
 	});
 });
 
-// Review M-7/M-8: the import upsert keys on the stable importKey (slug
-// renames update in place) and skips no-op UPDATEs (updated_at survives
+// Review M-7/M-8, reconciled with FIX-15 in BS-11 — ONE mechanism: the
+// importKey is the identity (slug renames update in place), `overwrite` is
+// the policy (without it an existing item is skipped untouched; with it a
+// byte-identical re-import still skips the UPDATE so updated_at survives
 // re-seeds). Runs after the corpus tests above, against the same seeded DB.
 describe('import identity and updated_at stability (M-7, M-8)', () => {
 	async function loadBundle(file: string): Promise<ContentBundle> {
@@ -227,8 +229,16 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 		const beforeProducts = new Map(
 			(await db.select().from(products)).map((r) => [r.id, r.updatedAt.getTime()])
 		);
+		// Default policy: every existing item is skipped, nothing written.
 		const summary = await importContentDirs(deps, [SLEEP_DIR]);
 		expect(summary.failed).toBe(0);
+		expect(summary.results.every((r) => r.ok && r.summary.action === 'skipped')).toBe(true);
+		// With --overwrite the rows are matched and compared: byte-identical
+		// bundles write nothing, so updated_at (sitemap lastmod, JSON-LD
+		// dateModified) still stays put (M-8).
+		const overwrite = await importContentDirs(deps, [SLEEP_DIR], { overwrite: true });
+		expect(overwrite.failed).toBe(0);
+		expect(overwrite.results.every((r) => r.ok && r.summary.action === 'updated')).toBe(true);
 		for (const row of await db.select().from(articles)) {
 			expect(row.updatedAt.getTime(), row.slug).toBe(before.get(row.id));
 		}
@@ -243,13 +253,16 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 		const [before] = await db.select().from(articles).where(eq(articles.slug, bundle.article.slug));
 
 		const edited = { ...bundle, article: { ...bundle.article, excerpt: 'Rezumat editat.' } };
-		expect((await importContent(deps, edited)).ok).toBe(true);
+		// Without the policy flag the change is NOT applied (FIX-15 create-only).
+		const skipped = await importContent(deps, edited);
+		expect(skipped.ok && skipped.value.action).toBe('skipped');
+		expect((await importContent(deps, edited, { overwrite: true })).ok).toBe(true);
 		const [after] = await db.select().from(articles).where(eq(articles.id, before.id));
 		expect(after.excerpt).toBe('Rezumat editat.');
 		expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
 
 		// Restore the corpus (and prove the restore write happens too).
-		expect((await importContent(deps, bundle)).ok).toBe(true);
+		expect((await importContent(deps, bundle, { overwrite: true })).ok).toBe(true);
 		const [restored] = await db.select().from(articles).where(eq(articles.id, before.id));
 		expect(restored.excerpt).toBe(bundle.article.excerpt);
 	});
@@ -265,7 +278,11 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 			...bundle,
 			article: { ...bundle.article, slug: 'sistemul-glimfatic-redenumit' }
 		};
-		const outcome = await importContent(deps, renamed);
+		// The key finds the row under its OLD slug: skipped by default (no
+		// second row either way), updated in place under --overwrite.
+		const untouched = await importContent(deps, renamed);
+		expect(untouched.ok && untouched.value.action).toBe('skipped');
+		const outcome = await importContent(deps, renamed, { overwrite: true });
 		expect(outcome.ok && outcome.value.action).toBe('updated');
 
 		// Same row, new slug; the old slug is GONE (pre-fix: two published rows).
@@ -279,7 +296,7 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 		expect(count40.n).toBe(40);
 
 		// Rename back for the rest of the suite.
-		expect((await importContent(deps, bundle)).ok).toBe(true);
+		expect((await importContent(deps, bundle, { overwrite: true })).ok).toBe(true);
 	});
 
 	it('a product slug rename updates the SAME row (M-7)', async () => {
@@ -288,7 +305,7 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 		const [before] = await db.select().from(products).where(eq(products.slug, bundle.product.slug));
 
 		const renamed = { ...bundle, product: { ...bundle.product, slug: 'stress-help-redenumit' } };
-		expect((await importContent(deps, renamed)).ok).toBe(true);
+		expect((await importContent(deps, renamed, { overwrite: true })).ok).toBe(true);
 		const [after] = await db
 			.select()
 			.from(products)
@@ -297,7 +314,7 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 		const [still33] = await db.select({ n: count() }).from(products);
 		expect(still33.n).toBe(33);
 
-		expect((await importContent(deps, bundle)).ok).toBe(true);
+		expect((await importContent(deps, bundle, { overwrite: true })).ok).toBe(true);
 	});
 
 	it('a legacy keyless row is adopted by slug and stamped with the key (M-7 fallback)', async () => {
@@ -314,7 +331,7 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 			...bundle,
 			article: { ...bundle.article, slug: 'articol-legacy', importKey: 'topic-999' }
 		};
-		expect((await importContent(deps, legacy)).ok).toBe(true);
+		expect((await importContent(deps, legacy, { overwrite: true })).ok).toBe(true);
 		const [adopted] = await db.select().from(articles).where(eq(articles.id, 'legacy-article-row'));
 		expect(adopted.importKey).toBe('topic-999');
 		expect(adopted.title).toBe(bundle.article.title);
@@ -324,7 +341,7 @@ describe('import identity and updated_at stability (M-7, M-8)', () => {
 			...bundle,
 			article: { ...bundle.article, slug: 'articol-legacy', importKey: null }
 		};
-		expect((await importContent(deps, keyless)).ok).toBe(true);
+		expect((await importContent(deps, keyless, { overwrite: true })).ok).toBe(true);
 		const [kept] = await db.select().from(articles).where(eq(articles.id, 'legacy-article-row'));
 		expect(kept.importKey).toBe('topic-999');
 

@@ -18,7 +18,7 @@ import {
 	type BuyerCompanyAddress,
 	type ProductRow
 } from './schema.ts';
-import { isOutOfStock } from './service.ts';
+import { isPurchasable } from './service.ts';
 import {
 	buildShippingMetadata,
 	findShippingOption,
@@ -282,12 +282,14 @@ export async function loadCartDetails(
 			(t) => t.productId === product.id && sitePillarSlugs.includes(t.slug)
 		);
 		const maxQty = product.stock;
-		const inStock = !isOutOfStock(product) && (maxQty === null || item.qty <= maxQty);
+		// The single purchase gate (L-7: a zero-priced product is unpriced, never
+		// free) plus FIX-10's cap: no more units than the tracked stock.
+		const purchasable = isPurchasable(product) && (maxQty === null || item.qty <= maxQty);
 		lines.push({
 			product,
 			qty: item.qty,
 			lineTotalCents: product.priceCents * item.qty,
-			available: product.status === 'active' && tagged && inStock,
+			available: product.status === 'active' && tagged && purchasable,
 			maxQty
 		});
 	}

@@ -20,12 +20,12 @@ export const load: PageServerLoad = async ({ params }) => {
 	// unpublishing a quiz gates TAKING it (../+page.server.ts), never results
 	// already delivered. The `?/email` action below keeps its stricter gates.
 	const found = await getResultWithQuiz({ db: getDb() }, params.resultId);
-	// Same gate as the quiz page: published AND tagged to a pillar this site
-	// activates (FIX-15) — a result is not a back door to a hidden quiz.
+	// The pillar half of the quiz page's gate (FIX-15): a result of a quiz
+	// tagged to a pillar this site does not activate is not a back door to it.
+	// The PUBLISHED half is deliberately not applied here (L-4, see above).
 	if (
 		!found ||
 		found.quiz.slug !== params.slug ||
-		found.quiz.status !== 'published' ||
 		!found.pillarSlug ||
 		!getSite().pillars.includes(found.pillarSlug)
 	) {

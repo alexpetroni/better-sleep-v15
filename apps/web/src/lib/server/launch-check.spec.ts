@@ -330,6 +330,9 @@ function makeLive(env: Record<string, string | undefined>): void {
 	env.SAMEDAY_USERNAME = 'user';
 	env.SAMEDAY_PASSWORD = 'pass';
 	env.SAMEDAY_PICKUP_POINT = '1';
+	// BS-8 (review H-4): a live NODE deploy must name the trusted client-address
+	// header — a fully live fixture carries it (a Cloudflare-set one needs no depth).
+	env.ADDRESS_HEADER = 'cf-connecting-ip';
 }
 
 describe('launch:check mock-provider rule (FIX-14)', () => {

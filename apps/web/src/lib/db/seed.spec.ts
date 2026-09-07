@@ -287,6 +287,10 @@ describe('re-running the demo seed after admin edits', () => {
 		await seedDemoQuiz(db);
 		const [row] = await db.select().from(quizzes).where(eq(quizzes.slug, 'evaluare-somn'));
 		expect(row.status).toBe('draft');
-		expect(await db.select().from(quizzes)).toHaveLength(1);
+		// No duplicate row (the archetype quiz seeded by the suite above is a
+		// different slug and stays).
+		expect(await db.select().from(quizzes).where(eq(quizzes.slug, 'evaluare-somn'))).toHaveLength(
+			1
+		);
 	});
 });
