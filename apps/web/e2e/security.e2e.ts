@@ -212,6 +212,10 @@ test('blurhash placeholder renders as a data: background under img-src', async (
 		await page.goto('/magazin');
 		const card = page.locator(`[data-testid="product-card"][data-slug="${product.slug}"]`);
 		const img = card.locator('img');
+		// The demo card sits below the fold in the 36-product grid (33 catalogue
+		// products, BS-6); the lazy-loaded cover only fetches once scrolled into
+		// view — same fix as shop.e2e.ts.
+		await card.scrollIntoViewIfNeeded();
 		await expect
 			.poll(async () => img.evaluate((el: HTMLImageElement) => el.naturalWidth))
 			.toBe(width);
