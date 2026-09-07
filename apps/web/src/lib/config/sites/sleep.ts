@@ -6,7 +6,7 @@ import type { SiteConfig } from '../types.ts';
 export const sleepSite: SiteConfig = {
 	id: 'sleep',
 	name: 'Better Sleep',
-	domain: 'bettersleep.ro',
+	domain: 'better-sleep-v15.vercel.app',
 	// `ro` only until content is localized (FIX-15): drives the subscriber
 	// locale and hreflang alternates (none for a single locale).
 	locales: ['ro'],
