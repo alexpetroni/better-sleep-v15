@@ -49,6 +49,22 @@ phases — is `docs/CHANGELOG.md`; the map is `docs/ARCHITECTURE.md`
   `NotImplemented`; public read is the custom-domain binding). The vendored
   bundles carry no images, so every article/product cover is `null` until
   media is uploaded in `/admin/media`.
+- **Redesign 2026-09-09 — "paper & ink".** The blue header bar and the
+  indigo night hero are gone. Ground: warm cream with a fixed SVG grain
+  (`body::before`, multiply, 7%); type and primary actions in warm near-black
+  ink; ONE coral accent (`--color-accent`) for eyebrow dots, prices, the
+  serif counterpoint; dark sections are warm charcoal with an apricot
+  "moon". Typography adds **Fraunces** (variable, self-hosted via
+  fontsource, latin-ext) as the display serif — the second headline line,
+  pull quotes, section leads — next to Plus Jakarta Sans. Shell: sticky
+  floating pill header (wordmark pill + nav pill, the quiz as the single
+  dark pill), a two-column footer. Landing: hero collage of three tilted
+  paper cards built from existing copy (patterns, one night-map segment,
+  step 01; `lg:` only so the 360px gate never sees them), `BezelCard`
+  became the paper card (`shadow-paper` / `shadow-paper-lg` tokens in
+  `layout.css`), `CtaButton` the ink / apricot pill. Content pages, article
+  cards, product cards, newsletter, cookie banner and chat launcher follow
+  the same recipe. Colors live only in `sites/sleep.ts`; no copy changed.
 
 ## Next (human launch items)
 

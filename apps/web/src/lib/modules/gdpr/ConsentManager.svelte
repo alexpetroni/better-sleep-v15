@@ -53,7 +53,7 @@
 
 <section
 	data-testid="consent-manager"
-	class="mt-8 rounded border border-(--color-brand-soft) bg-(--color-brand-soft)/20 p-4"
+	class="mt-8 rounded-xl border border-(--color-ink)/10 bg-white bg-(--color-brand-soft)/20 p-4"
 >
 	<h2 class="text-lg font-semibold">{m.consent_manager_title()}</h2>
 	<p data-testid="consent-manager-status" class="mt-1 text-sm text-(--color-ink)/70">
@@ -65,7 +65,7 @@
 			data-testid="consent-manager-accept"
 			disabled={decision === 'granted'}
 			onclick={() => change('granted')}
-			class="rounded bg-(--color-brand) px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+			class="rounded-full bg-(--color-brand) px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
 		>
 			{m.consent_manager_accept()}
 		</button>

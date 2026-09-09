@@ -35,7 +35,7 @@
 >
 	{#if open}
 		<div
-			class="mb-2 flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-(--color-brand-soft) bg-(--color-surface) shadow-xl"
+			class="mb-2 flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.25rem] bg-(--color-surface) shadow-paper-lg"
 			data-testid="chat-panel"
 			role="dialog"
 			aria-label={m.chat_title()}
@@ -57,7 +57,7 @@
 		data-testid="chat-toggle"
 		aria-expanded={open}
 		onclick={toggle}
-		class="rounded-full bg-(--color-brand) px-4 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-90"
+		class="rounded-full bg-(--color-brand) px-5 py-3 text-sm font-semibold text-(--color-night-ink) shadow-paper-lg transition-transform duration-500 ease-glide hover:scale-[1.03] active:scale-[0.98]"
 	>
 		{open ? m.chat_close() : m.chat_open()}
 	</button>

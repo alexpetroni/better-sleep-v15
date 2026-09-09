@@ -23,7 +23,7 @@
 			<button
 				type="submit"
 				data-testid="confirm-button"
-				class="mb-6 rounded bg-(--color-brand) px-5 py-2 font-medium text-white hover:opacity-90"
+				class="mb-6 rounded-full bg-(--color-brand) px-5 py-2 font-medium text-white hover:opacity-90"
 			>
 				{m.newsletter_confirm_button()}
 			</button>

@@ -141,7 +141,7 @@
 				type="submit"
 				disabled={submitting}
 				data-testid="result-email-submit"
-				class="rounded bg-(--color-brand) px-4 py-2 font-semibold text-white hover:opacity-90 disabled:opacity-60"
+				class="rounded-full bg-(--color-brand) px-4 py-2 font-semibold text-white hover:opacity-90 disabled:opacity-60"
 			>
 				{m.quiz_capture_submit()}
 			</button>

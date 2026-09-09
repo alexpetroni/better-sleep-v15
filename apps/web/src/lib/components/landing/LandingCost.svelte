@@ -17,7 +17,7 @@
 {#snippet icon(name: string)}
 	<svg
 		viewBox="0 0 24 24"
-		class="h-6 w-6 text-(--color-brand)"
+		class="h-6 w-6 text-(--color-accent)"
 		fill="none"
 		stroke="currentColor"
 		stroke-width="1.25"
@@ -60,7 +60,7 @@
 				<div use:reveal={{ delay: i * 90 }}>
 					<BezelCard class="h-full" innerClass="h-full bg-white p-7">
 						<span
-							class="flex h-11 w-11 items-center justify-center rounded-full bg-(--color-brand-soft)/60"
+							class="flex h-11 w-11 items-center justify-center rounded-full bg-(--color-brand-soft)/70"
 						>
 							{@render icon(card.icon)}
 						</span>

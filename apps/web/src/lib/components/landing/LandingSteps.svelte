@@ -30,10 +30,7 @@
 			{#each steps as step, i (step.number)}
 				<li use:reveal={{ delay: i * 110 }}>
 					<BezelCard class="h-full" innerClass="h-full bg-white p-7 sm:p-8">
-						<span
-							aria-hidden="true"
-							class="text-sm font-bold tracking-[0.2em] text-(--color-brand) tabular-nums"
-						>
+						<span aria-hidden="true" class="font-serif text-3xl text-(--color-accent) italic">
 							{step.number}
 						</span>
 						<h3 class="mt-3 text-xl font-bold">{step.title}</h3>

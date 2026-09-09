@@ -23,7 +23,7 @@
 			<button
 				type="submit"
 				data-testid="unsubscribe-button"
-				class="mb-6 rounded bg-(--color-brand) px-5 py-2 font-medium text-white hover:opacity-90"
+				class="mb-6 rounded-full bg-(--color-brand) px-5 py-2 font-medium text-white hover:opacity-90"
 			>
 				{m.unsubscribe_confirm_button()}
 			</button>

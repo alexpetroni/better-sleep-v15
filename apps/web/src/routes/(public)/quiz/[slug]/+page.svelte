@@ -15,7 +15,11 @@
 />
 
 <article data-testid="quiz-page">
-	<h1 class="mb-4 text-3xl font-bold">{data.quiz.title}</h1>
+	<h1
+		class="mb-5 max-w-3xl text-4xl leading-[1.02] font-extrabold tracking-[-0.03em] text-balance sm:text-5xl"
+	>
+		{data.quiz.title}
+	</h1>
 	{#if data.quiz.introHtml}
 		<div class="prose mb-8 max-w-none" data-testid="quiz-intro">
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized by renderMarkdown -->

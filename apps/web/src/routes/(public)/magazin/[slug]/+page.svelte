@@ -24,11 +24,13 @@
 			<Img
 				image={data.cover}
 				sizes="(min-width: 48rem) 26rem, calc(100vw - 2rem)"
-				class="w-full rounded-lg bg-(--color-brand-soft)/20"
+				class="w-full rounded-[1.5rem] bg-(--color-brand-soft)/20 shadow-paper"
 				loading="eager"
 			/>
 		{:else}
-			<div class="aspect-[4/3] w-full rounded-lg bg-(--color-brand-soft)/40"></div>
+			<div
+				class="aspect-[4/3] w-full rounded-[1.5rem] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-brand-soft)_80%,white),color-mix(in_oklab,var(--color-moon)_45%,white))] shadow-paper"
+			></div>
 		{/if}
 		{#if data.gallery.length > 0}
 			<ul data-testid="product-gallery" class="mt-4 grid grid-cols-3 gap-3">
@@ -47,8 +49,16 @@
 	</div>
 
 	<div>
-		<h1 class="mb-2 text-3xl font-bold" data-testid="product-title">{data.product.name}</h1>
-		<p data-testid="product-price" class="mb-6 text-2xl font-semibold text-(--color-brand)">
+		<h1
+			class="mb-3 text-3xl leading-tight font-extrabold tracking-[-0.03em] sm:text-4xl"
+			data-testid="product-title"
+		>
+			{data.product.name}
+		</h1>
+		<p
+			data-testid="product-price"
+			class="mb-8 font-serif text-3xl text-(--color-accent) tabular-nums"
+		>
 			{formatCents(data.product.priceCents, data.product.currency)}
 		</p>
 
@@ -63,15 +73,15 @@
 					max="99"
 					data-testid="product-qty"
 					disabled={data.product.outOfStock}
-					class="w-20 rounded border border-(--color-brand-soft) px-3 py-2"
+					class="w-20 rounded-full bg-white px-4 py-2.5 shadow-pill"
 				/>
 			</label>
 			<button
 				type="submit"
 				data-testid="product-add-to-cart"
 				disabled={data.product.outOfStock}
-				class="rounded bg-(--color-brand) px-5 py-2 font-semibold text-white hover:opacity-90
-					disabled:cursor-not-allowed disabled:opacity-40"
+				class="rounded-full bg-(--color-brand) px-6 py-2.5 font-semibold text-(--color-night-ink) transition-transform duration-500 ease-glide hover:scale-[1.02] active:scale-[0.98]
+					disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 			>
 				{data.product.outOfStock ? m.shop_out_of_stock() : m.shop_add_to_cart()}
 			</button>

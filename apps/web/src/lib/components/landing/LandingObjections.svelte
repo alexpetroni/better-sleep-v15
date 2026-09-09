@@ -33,15 +33,15 @@
 					<div use:reveal={{ delay: i * 80 }}>
 						<details
 							data-testid="objection-item"
-							class="group rounded-[1.75rem] bg-black/5 p-1.5 ring-1 ring-black/5"
+							class="group overflow-hidden rounded-[1.5rem] bg-white shadow-paper transition-shadow duration-500 ease-glide open:shadow-paper-lg"
 						>
 							<summary
-								class="flex cursor-pointer list-none items-center justify-between gap-4 rounded-[calc(1.75rem-0.375rem)] bg-white px-6 py-5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)] [&::-webkit-details-marker]:hidden"
+								class="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-5 [&::-webkit-details-marker]:hidden"
 							>
-								<span class="text-base font-bold">„{objection.question}”</span>
+								<span class="font-serif text-lg leading-snug">„{objection.question}”</span>
 								<span
 									aria-hidden="true"
-									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 transition-transform duration-500 ease-glide group-open:rotate-45"
+									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--color-brand-soft)/70 transition-transform duration-500 ease-glide group-open:rotate-45"
 								>
 									<svg
 										viewBox="0 0 24 24"
@@ -55,7 +55,9 @@
 									</svg>
 								</span>
 							</summary>
-							<p class="px-6 pt-4 pb-5 text-sm leading-relaxed text-(--color-ink)/75">
+							<p
+								class="border-t border-(--color-ink)/8 px-6 pt-4 pb-5 text-sm leading-relaxed text-(--color-ink)/75"
+							>
 								{objection.answer}
 							</p>
 						</details>

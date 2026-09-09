@@ -25,7 +25,7 @@
 		<li
 			data-testid={testid}
 			data-slug={card.slug}
-			class="overflow-hidden rounded-lg border border-(--color-brand-soft) bg-white"
+			class="overflow-hidden rounded-[1.25rem] bg-white shadow-paper transition-[transform,box-shadow] duration-500 ease-glide hover:-translate-y-1 hover:shadow-paper-lg"
 		>
 			<a href={resolve('/(public)/blog/[slug]', { slug: card.slug })} class="group block">
 				{#if card.cover}
@@ -35,10 +35,14 @@
 						class="aspect-[8/5] w-full bg-(--color-brand-soft)/20 object-cover"
 					/>
 				{:else}
-					<div class="aspect-[8/5] w-full bg-(--color-brand-soft)/40"></div>
+					<div
+						class="aspect-[8/5] w-full bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-brand-soft)_80%,white),color-mix(in_oklab,var(--color-moon)_45%,white))]"
+					></div>
 				{/if}
-				<div class="p-4">
-					<h2 class="mb-1 font-semibold group-hover:underline">{card.title}</h2>
+				<div class="p-5">
+					<h2 class="mb-1 text-[17px] leading-snug font-bold tracking-tight group-hover:underline">
+						{card.title}
+					</h2>
 					{#if card.publishedAt}
 						<p class="mb-2 text-xs text-(--color-ink)/70">
 							{m.blog_published_on({ date: formatDate(card.publishedAt, 'long') })}

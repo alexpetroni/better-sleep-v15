@@ -53,7 +53,7 @@
 >
 	<div aria-hidden="true" class="pointer-events-none absolute inset-0">
 		<div
-			class="absolute top-[-30%] left-1/2 h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-brand)_40%,transparent),transparent_72%)]"
+			class="absolute top-[-30%] left-1/2 h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-moon)_22%,transparent),transparent_72%)]"
 		></div>
 	</div>
 

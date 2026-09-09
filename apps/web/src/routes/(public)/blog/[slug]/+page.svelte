@@ -19,8 +19,13 @@
 />
 
 <article data-testid="article-page">
-	<header class="mb-8">
-		<h1 class="mb-2 text-3xl font-bold" data-testid="article-title">{data.article.title}</h1>
+	<header class="mb-10">
+		<h1
+			class="mb-4 max-w-3xl text-4xl leading-[1.02] font-extrabold tracking-[-0.03em] text-balance sm:text-5xl"
+			data-testid="article-title"
+		>
+			{data.article.title}
+		</h1>
 		{#if data.article.publishedAt}
 			<p class="text-sm text-(--color-ink)/70">
 				{m.blog_published_on({ date: formatDate(data.article.publishedAt, 'long') })}
@@ -30,13 +35,16 @@
 			<Img
 				image={data.cover}
 				sizes="(min-width: 56rem) 54rem, calc(100vw - 2rem)"
-				class="mt-6 w-full rounded-lg bg-(--color-brand-soft)/20"
+				class="mt-8 w-full rounded-[1.5rem] bg-(--color-brand-soft)/20 shadow-paper"
 				loading="eager"
 			/>
 		{/if}
 	</header>
 
-	<div class="prose max-w-none" data-testid="article-body">
+	<div
+		class="prose prose-lg max-w-none prose-headings:tracking-tight prose-a:text-(--color-accent) prose-blockquote:font-serif prose-blockquote:text-2xl prose-blockquote:font-normal prose-blockquote:not-italic prose-blockquote:border-(--color-accent)"
+		data-testid="article-body"
+	>
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized server-side by the markdown pipeline -->
 		{@html data.html}
 	</div>

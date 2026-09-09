@@ -26,8 +26,8 @@
 
 			<div class="mt-12 space-y-10">
 				{#each paragraphs as paragraph, i (paragraph.lead)}
-					<div use:reveal={{ delay: i * 90 }} class="border-l-2 border-(--color-brand-soft) pl-6">
-						<p class="text-lg font-bold sm:text-xl">{paragraph.lead}</p>
+					<div use:reveal={{ delay: i * 90 }} class="border-l-2 border-(--color-accent) pl-6">
+						<p class="font-serif text-2xl leading-snug sm:text-[1.7rem]">{paragraph.lead}</p>
 						<p class="mt-2 leading-relaxed text-(--color-ink)/70">{paragraph.body}</p>
 					</div>
 				{/each}

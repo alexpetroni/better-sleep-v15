@@ -15,7 +15,7 @@
 	class="max-w-md"
 	data-testid="newsletter-form"
 >
-	<h2 class="mb-2 text-lg font-semibold">{m.newsletter_heading()}</h2>
+	<h2 class="mb-2 text-xl font-bold tracking-tight">{m.newsletter_heading()}</h2>
 	<p class="mb-3 text-sm opacity-80">{m.newsletter_blurb()}</p>
 	<input type="hidden" name="source" value={source} />
 	<div class="flex gap-2">
@@ -25,12 +25,12 @@
 			required
 			data-testid="newsletter-email"
 			placeholder={m.newsletter_email_placeholder()}
-			class="grow rounded border border-(--color-brand-soft) bg-white px-3 py-2 text-(--color-ink)"
+			class="min-w-0 grow rounded-full bg-white px-4 py-2.5 text-(--color-ink) shadow-pill placeholder:text-(--color-ink)/40"
 		/>
 		<button
 			type="submit"
 			data-testid="newsletter-submit"
-			class="rounded bg-(--color-accent) px-4 py-2 font-semibold text-(--color-ink) hover:opacity-90"
+			class="rounded-full bg-(--color-brand) px-5 py-2.5 font-semibold text-(--color-night-ink) transition-transform duration-500 ease-glide hover:scale-[1.02] active:scale-[0.98]"
 		>
 			{m.newsletter_submit()}
 		</button>

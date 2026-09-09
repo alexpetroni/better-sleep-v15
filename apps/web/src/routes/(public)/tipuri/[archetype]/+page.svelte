@@ -17,12 +17,21 @@
 />
 
 <div class="max-w-2xl">
-	<p class="text-sm font-semibold tracking-wide text-(--color-brand) uppercase">
+	<p class="text-[11px] font-semibold tracking-[0.18em] text-(--color-accent) uppercase">
 		{m.tipuri_kicker()}
 	</p>
-	<h1 class="mt-1 mb-2 text-3xl font-bold" data-testid="archetype-name">{archetype.name}</h1>
-	<p class="mb-4 text-lg text-(--color-ink)/80">{archetype.essence}</p>
-	<blockquote class="mb-8 border-l-4 border-(--color-brand-soft) pl-4 text-lg italic">
+	<h1
+		class="mt-2 mb-3 text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl"
+		data-testid="archetype-name"
+	>
+		{archetype.name}
+	</h1>
+	<p class="mb-6 font-serif text-xl leading-snug text-(--color-ink)/80 sm:text-2xl">
+		{archetype.essence}
+	</p>
+	<blockquote
+		class="mb-8 border-l-2 border-(--color-accent) pl-5 font-serif text-2xl leading-snug italic"
+	>
 		„{archetype.keyPhrase}”
 	</blockquote>
 
@@ -32,16 +41,16 @@
 </div>
 
 <section class="mt-10 grid gap-6 md:grid-cols-2">
-	<div class="rounded-xl border border-(--color-brand-soft) bg-white p-6">
-		<h2 class="mb-3 text-xl font-semibold">{m.tipuri_avoid_heading()}</h2>
+	<div class="rounded-[1.5rem] bg-white p-7 shadow-paper">
+		<h2 class="mb-3 text-xl font-bold tracking-tight">{m.tipuri_avoid_heading()}</h2>
 		<ul class="list-disc space-y-3 pl-5 text-sm text-(--color-ink)/80">
 			{#each archetype.avoid as item (item)}
 				<li>{item}</li>
 			{/each}
 		</ul>
 	</div>
-	<div class="rounded-xl border border-(--color-brand-soft) bg-white p-6">
-		<h2 class="mb-3 text-xl font-semibold">{m.tipuri_start_heading()}</h2>
+	<div class="rounded-[1.5rem] bg-white p-7 shadow-paper">
+		<h2 class="mb-3 text-xl font-bold tracking-tight">{m.tipuri_start_heading()}</h2>
 		<ul class="list-disc space-y-3 pl-5 text-sm text-(--color-ink)/80">
 			{#each archetype.start as item (item)}
 				<li>{item}</li>
@@ -54,7 +63,10 @@
 	<section class="mt-12">
 		<div class="mb-4 flex items-baseline justify-between">
 			<h2 class="text-xl font-semibold">{m.tipuri_articles_heading()}</h2>
-			<a href={resolve('/(public)/blog')} class="text-sm text-(--color-brand) hover:underline">
+			<a
+				href={resolve('/(public)/blog')}
+				class="text-sm font-semibold text-(--color-accent) hover:underline"
+			>
 				{m.pillar_articles_all()} →
 			</a>
 		</div>
@@ -64,13 +76,13 @@
 
 <div
 	data-testid="archetype-quiz-cta"
-	class="mt-12 rounded-xl border border-(--color-brand-soft) bg-(--color-brand-soft)/20 p-6 text-center"
+	class="mt-14 rounded-[2rem] bg-(--color-night) p-9 text-center text-(--color-night-ink) shadow-paper-lg"
 >
-	<h2 class="mb-2 text-xl font-semibold">{m.tipuri_cta_heading()}</h2>
-	<p class="mx-auto mb-4 max-w-xl text-(--color-ink)/80">{m.tipuri_cta_blurb()}</p>
+	<h2 class="mb-3 font-serif text-3xl leading-tight">{m.tipuri_cta_heading()}</h2>
+	<p class="mx-auto mb-6 max-w-xl text-(--color-night-muted)">{m.tipuri_cta_blurb()}</p>
 	<a
 		href={resolve('/(public)/quiz/[slug]', { slug: ARCHETYPE_QUIZ_SLUG })}
-		class="inline-block rounded bg-(--color-brand) px-6 py-2 font-semibold text-white hover:opacity-90"
+		class="inline-block rounded-full bg-(--color-moon) px-7 py-3 font-semibold text-(--color-night) transition-transform duration-500 ease-glide hover:scale-[1.02] active:scale-[0.98]"
 	>
 		{m.tipuri_cta_button()}
 	</a>

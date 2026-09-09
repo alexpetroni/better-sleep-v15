@@ -12,18 +12,22 @@ export const sleepSite: SiteConfig = {
 	locales: ['ro'],
 	pillars: ['somn'],
 	theme: {
-		'color-brand': 'oklch(0.45 0.14 275)',
-		'color-brand-soft': 'oklch(0.93 0.03 275)',
-		'color-accent': 'oklch(0.72 0.15 60)',
-		'color-surface': 'oklch(0.99 0.005 275)',
-		'color-ink': 'oklch(0.22 0.03 275)',
-		// Nighttime palette for the landing's dark sections (hero, night map,
-		// final CTA): the brand indigo dropped to night lightness. "moon" is the
-		// warm highlight that carries CTAs and time marks on dark ground.
-		'color-night': 'oklch(0.16 0.04 278)',
-		'color-night-ink': 'oklch(0.94 0.015 278)',
-		'color-night-muted': 'oklch(0.78 0.03 278)',
-		'color-moon': 'oklch(0.87 0.09 85)'
+		// Paper & ink (2026-09-09 redesign): a warm cream ground with a fine
+		// grain, warm near-black ink for type and primary actions, and ONE
+		// coral accent for the pops (eyebrow dots, the serif line, prices).
+		// "soft" is the sand that fills placeholders and quiet panels.
+		'color-brand': 'oklch(0.22 0.014 55)',
+		'color-brand-soft': 'oklch(0.935 0.02 78)',
+		'color-accent': 'oklch(0.64 0.17 38)',
+		'color-surface': 'oklch(0.975 0.008 82)',
+		'color-ink': 'oklch(0.2 0.012 55)',
+		// The dark sections (night map, final CTA): warm charcoal, never blue.
+		// "moon" is the apricot highlight that carries CTAs and time marks on
+		// dark ground.
+		'color-night': 'oklch(0.2 0.012 55)',
+		'color-night-ink': 'oklch(0.965 0.01 82)',
+		'color-night-muted': 'oklch(0.74 0.018 72)',
+		'color-moon': 'oklch(0.88 0.08 72)'
 	},
 	nav: [
 		{ label: 'Acasă', href: '/' },

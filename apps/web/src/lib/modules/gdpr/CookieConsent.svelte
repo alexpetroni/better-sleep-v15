@@ -49,7 +49,7 @@
 		bind:this={bannerEl}
 		data-testid="cookie-consent"
 		aria-label={m.consent_aria_label()}
-		class="fixed inset-x-0 bottom-0 z-50 border-t border-(--color-brand-soft) bg-white p-4 shadow-lg"
+		class="fixed inset-x-0 bottom-0 z-50 border-t border-(--color-ink)/8 bg-(--color-surface)/95 p-4 shadow-[0_-12px_40px_-20px_rgba(0,0,0,0.25)] backdrop-blur-md"
 	>
 		<div class="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
 			<p class="text-sm text-(--color-ink)">
@@ -63,7 +63,7 @@
 					type="button"
 					data-testid="consent-deny"
 					onclick={() => decide('denied')}
-					class="rounded border border-(--color-brand) px-4 py-2 text-sm font-semibold text-(--color-brand) hover:bg-(--color-brand-soft)"
+					class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-(--color-ink) shadow-pill hover:bg-(--color-brand-soft)/60"
 				>
 					{m.consent_deny()}
 				</button>
@@ -71,7 +71,7 @@
 					type="button"
 					data-testid="consent-accept"
 					onclick={() => decide('granted')}
-					class="rounded bg-(--color-brand) px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+					class="rounded-full bg-(--color-brand) px-4 py-2 text-sm font-semibold text-(--color-night-ink) hover:opacity-90"
 				>
 					{m.consent_accept()}
 				</button>

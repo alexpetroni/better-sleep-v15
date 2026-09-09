@@ -81,7 +81,7 @@
 						max={line.maxQty !== null && line.maxQty > 0 ? Math.min(line.maxQty, 99) : 99}
 						aria-label={m.cart_qty_label({ name: line.name })}
 						data-testid="cart-qty"
-						class="w-18 rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-18 rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 					<button
 						type="submit"
@@ -110,7 +110,7 @@
 
 	<form method="POST" action="?/checkout" use:singleSubmit class="mt-6">
 		<fieldset
-			class="mb-4 rounded border border-(--color-brand-soft) bg-white p-3 text-sm"
+			class="mb-4 rounded-xl border border-(--color-ink)/10 bg-white bg-white p-3 text-sm"
 			data-testid="cart-shipping"
 		>
 			<legend class="px-1 font-medium">{m.cart_shipping_heading()}</legend>
@@ -148,7 +148,7 @@
 		</fieldset>
 		<details
 			open={!!form?.companyValues}
-			class="mb-4 rounded border border-(--color-brand-soft) bg-white p-3 text-sm"
+			class="mb-4 rounded-xl border border-(--color-ink)/10 bg-white bg-white p-3 text-sm"
 		>
 			<summary class="cursor-pointer font-medium">{m.cart_company_heading()}</summary>
 			<div class="mt-3 grid gap-3 sm:grid-cols-3">
@@ -159,7 +159,7 @@
 						name="companyName"
 						value={form?.companyValues?.name ?? ''}
 						data-testid="cart-company-name"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 				<label class="block">
@@ -169,7 +169,7 @@
 						name="companyCui"
 						value={form?.companyValues?.cui ?? ''}
 						data-testid="cart-company-cui"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 				<label class="block">
@@ -179,7 +179,7 @@
 						name="companyRegCom"
 						value={form?.companyValues?.regCom ?? ''}
 						data-testid="cart-company-regcom"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 			</div>
@@ -192,7 +192,7 @@
 						name="companyStreet"
 						value={form?.companyValues?.street ?? ''}
 						data-testid="cart-company-street"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 				<label class="block">
@@ -202,7 +202,7 @@
 						name="companyCity"
 						value={form?.companyValues?.city ?? ''}
 						data-testid="cart-company-city"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 				<label class="block">
@@ -214,7 +214,7 @@
 						name="companyPostalCode"
 						value={form?.companyValues?.postalCode ?? ''}
 						data-testid="cart-company-postal-code"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					/>
 				</label>
 				<label class="block sm:col-span-2">
@@ -223,7 +223,7 @@
 						name="companyCounty"
 						value={form?.companyValues?.county ?? ''}
 						data-testid="cart-company-county"
-						class="w-full rounded border border-(--color-brand-soft) px-2 py-1"
+						class="w-full rounded-xl border border-(--color-ink)/10 bg-white px-2 py-1"
 					>
 						<option value="">—</option>
 						{#each RO_COUNTIES as county (county.code)}
@@ -242,7 +242,7 @@
 				type="submit"
 				data-testid="cart-checkout"
 				disabled={hasUnavailable || data.checkoutBlocked}
-				class="rounded bg-(--color-brand) px-6 py-2 font-semibold text-white hover:opacity-90
+				class="rounded-full bg-(--color-brand) px-6 py-2 font-semibold text-white hover:opacity-90
 					disabled:cursor-not-allowed disabled:opacity-40"
 			>
 				{m.cart_checkout()}

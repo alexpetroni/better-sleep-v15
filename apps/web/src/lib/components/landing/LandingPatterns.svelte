@@ -72,10 +72,10 @@
 					data-pattern={pattern.slug}
 				>
 					<BezelCard class="h-full" innerClass="flex h-full flex-col bg-white p-7 sm:p-8">
-						<h3 class="text-lg font-extrabold tracking-[0.08em] text-(--color-brand) uppercase">
+						<h3 class="text-[13px] font-bold tracking-[0.14em] text-(--color-accent) uppercase">
 							{c.title()}
 						</h3>
-						<p class="mt-3 text-base leading-relaxed">{c.symptom()}</p>
+						<p class="mt-3 font-serif text-xl leading-snug">{c.symptom()}</p>
 						<p class="mt-4 flex gap-2 text-sm leading-relaxed font-medium text-(--color-ink)/70">
 							<span aria-hidden="true" class="text-(--color-accent)">→</span>
 							{c.mechanism()}
@@ -90,7 +90,7 @@
 										<a
 											href={resolve('/(public)/tipuri/[archetype]', { archetype: archetype.slug })}
 											data-testid="pattern-archetype-link"
-											class="inline-flex rounded-full bg-(--color-brand-soft)/50 px-3.5 py-1.5 text-sm font-semibold text-(--color-brand) ring-1 ring-black/5 transition-transform duration-500 ease-glide hover:scale-[1.04] active:scale-[0.97]"
+											class="inline-flex rounded-full bg-(--color-brand-soft)/60 px-3.5 py-1.5 text-sm font-semibold text-(--color-ink) transition-transform duration-500 ease-glide hover:scale-[1.04] active:scale-[0.97]"
 										>
 											{archetype.name}
 										</a>

@@ -3,10 +3,14 @@
 @plugin '@tailwindcss/typography';
 /* formcomp components ship Tailwind utility classes; scan its dist so they get generated. */
 @source '../../node_modules/formcomp/dist';
-/* Self-hosted variable font (bundled from node_modules, served same-origin —
-   the perf e2e gate forbids third-party font requests). Includes latin-ext,
-   which Romanian diacritics need. */
+/* Self-hosted variable fonts (bundled from node_modules, served same-origin —
+   the perf e2e gate forbids third-party font requests). Both include
+   latin-ext, which Romanian diacritics need. Fraunces (wght + italic axes) is
+   the display serif: the second headline line, pull quotes, the serif
+   counterpoint to Plus Jakarta Sans. */
 @import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/fraunces/wght-italic.css';
 
 /* Metric-tuned fallback (L-10): the variable font loads with
    `font-display: swap`, so text first paints in the fallback. Overriding the
@@ -27,9 +31,45 @@
 @theme {
 	--font-sans:
 		'Plus Jakarta Sans Variable', 'Plus Jakarta Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+	--font-serif: 'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
 	/* The landing's single motion curve (L-10) — use `ease-glide`, never an
 	   inline cubic-bezier literal. */
 	--ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
+	/* Paper cards: a hairline plus one soft, deep, warm shadow — the same
+	   recipe everywhere (`shadow-paper`), lifted a notch on hover. */
+	--shadow-paper:
+		0 0 0 1px oklch(0.2 0.012 55 / 0.06), 0 1px 2px oklch(0.2 0.012 55 / 0.04),
+		0 24px 48px -24px oklch(0.3 0.03 60 / 0.28);
+	--shadow-paper-lg:
+		0 0 0 1px oklch(0.2 0.012 55 / 0.06), 0 2px 4px oklch(0.2 0.012 55 / 0.05),
+		0 40px 80px -32px oklch(0.3 0.03 60 / 0.4);
+	--shadow-pill:
+		0 0 0 1px oklch(0.2 0.012 55 / 0.06), 0 1px 2px oklch(0.2 0.012 55 / 0.05),
+		0 10px 24px -12px oklch(0.3 0.03 60 / 0.3);
+}
+
+/* The paper grain: one fixed SVG noise layer over everything, multiplied
+   onto the cream. Pure CSS, no image request, invisible to layout (the
+   pseudo-element is fixed and pointer-transparent). Not printed. */
+@media screen {
+	body::before {
+		content: '';
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		pointer-events: none;
+		opacity: 0.07;
+		mix-blend-mode: multiply;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+		background-size: 160px 160px;
+	}
+}
+
+/* Serif display lines: Fraunces reads best slightly tight and with its
+   optical-size axis left to the browser (`font-optical-sizing: auto`). */
+.font-serif {
+	font-optical-sizing: auto;
+	letter-spacing: -0.01em;
 }
 
 /* Scroll-driven entry reveals (landing): the `reveal` action adds
@@ -53,5 +93,30 @@
 	.reveal-hidden.reveal-shown {
 		opacity: 1;
 		transform: translateY(0);
+	}
+	/* The hero collage drifts in once, staggered per card. */
+	@keyframes float-in {
+		from {
+			opacity: 0;
+			transform: translateY(2rem) rotate(var(--tilt, 0deg)) scale(0.97);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1);
+		}
+	}
+	.float-in {
+		animation: float-in 1100ms var(--ease-glide) both;
+		animation-delay: var(--float-delay, 0ms);
+	}
+}
+@media screen and (prefers-reduced-motion: reduce) {
+	.float-in {
+		transform: rotate(var(--tilt, 0deg));
+	}
+}
+@media print {
+	.float-in {
+		transform: rotate(var(--tilt, 0deg));
 	}
 }

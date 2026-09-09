@@ -2,20 +2,21 @@
 	import type { Snippet } from 'svelte';
 
 	/**
-	 * The landing's double-bezel card (L-10): a soft dark rim (outer) around an
-	 * inset-highlighted face (inner). Extracted from four copy-pasted blocks
-	 * (cost, patterns, steps, risk); the objections block keeps its own inline
-	 * variant because there the white face is the <summary> and the answer
-	 * paragraph sits on the rim itself.
+	 * The landing's paper card (2026-09-09 redesign, formerly the double
+	 * bezel): a white face on the cream ground, carried by a hairline and one
+	 * soft, deep, warm shadow (`shadow-paper`), lifting a notch on hover. The
+	 * outer/inner split survives so the four callers (cost, patterns, steps,
+	 * risk) keep their API; the objections block keeps its own inline variant
+	 * because there the face is the <summary>.
 	 *
 	 * Radii are a closed set — Tailwind only generates classes it can see
 	 * statically, so the two variants are spelled out rather than interpolated.
 	 */
 	interface Props {
 		radius?: '2rem' | '1.75rem';
-		/** Extra classes for the outer rim (sizing/positioning). */
+		/** Extra classes for the outer shell (sizing/positioning). */
 		class?: string;
-		/** Face classes (background, padding, layout); the inset highlight is built in. */
+		/** Face classes (background, padding, layout). */
 		innerClass?: string;
 		children: Snippet;
 	}
@@ -25,14 +26,14 @@
 <div
 	class={[
 		radius === '2rem' ? 'rounded-[2rem]' : 'rounded-[1.75rem]',
-		'bg-black/5 p-1.5 ring-1 ring-black/5',
+		'group/card shadow-paper transition-[transform,box-shadow] duration-500 ease-glide hover:-translate-y-1 hover:shadow-paper-lg',
 		outerClass
 	]}
 >
 	<div
 		class={[
-			radius === '2rem' ? 'rounded-[calc(2rem-0.375rem)]' : 'rounded-[calc(1.75rem-0.375rem)]',
-			'shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)]',
+			radius === '2rem' ? 'rounded-[2rem]' : 'rounded-[1.75rem]',
+			'overflow-hidden',
 			innerClass
 		]}
 	>

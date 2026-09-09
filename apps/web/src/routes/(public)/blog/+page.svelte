@@ -21,11 +21,13 @@
 	siteName={data.site.name}
 />
 
-<h1 class="mb-2 text-3xl font-bold">{m.blog_heading()}</h1>
-<p class="mb-8 text-lg text-(--color-ink)/80">{m.blog_tagline()}</p>
+<h1 class="mb-3 text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{m.blog_heading()}</h1>
+<p class="mb-12 max-w-2xl font-serif text-xl leading-snug text-(--color-ink)/80 sm:text-2xl">
+	{m.blog_tagline()}
+</p>
 
 {#if data.cards.length === 0}
-	<p data-testid="blog-empty" class="rounded-lg border border-(--color-brand-soft) bg-white p-4">
+	<p data-testid="blog-empty" class="rounded-2xl bg-white p-5 shadow-paper">
 		{m.blog_empty()}
 	</p>
 {:else}
@@ -34,7 +36,10 @@
 	{#if data.pageCount > 1}
 		<nav data-testid="blog-pagination" class="mt-8 flex items-center justify-center gap-4">
 			{#if data.page > 1}
-				<a href={pageHref(data.page - 1)} class="text-(--color-brand) hover:underline">
+				<a
+					href={pageHref(data.page - 1)}
+					class="font-semibold text-(--color-accent) hover:underline"
+				>
 					← {m.blog_page_prev()}
 				</a>
 			{/if}
@@ -42,7 +47,10 @@
 				{m.blog_page_of({ page: data.page, pageCount: data.pageCount })}
 			</span>
 			{#if data.page < data.pageCount}
-				<a href={pageHref(data.page + 1)} class="text-(--color-brand) hover:underline">
+				<a
+					href={pageHref(data.page + 1)}
+					class="font-semibold text-(--color-accent) hover:underline"
+				>
 					{m.blog_page_next()} →
 				</a>
 			{/if}
@@ -50,6 +58,6 @@
 	{/if}
 {/if}
 
-<div class="mt-12 rounded-xl border border-(--color-brand-soft) bg-(--color-brand-soft)/20 p-6">
+<div class="mt-16 rounded-[1.5rem] bg-white p-7 shadow-paper sm:p-9">
 	<NewsletterSignup source="blog" />
 </div>

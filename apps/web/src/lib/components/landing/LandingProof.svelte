@@ -23,10 +23,13 @@
 
 		<ul class="mt-14 grid gap-x-12 gap-y-10 md:grid-cols-2">
 			{#each items as item, i (item.title)}
-				<li use:reveal={{ delay: (i % 2) * 90 }} class="flex gap-5 border-t border-black/10 pt-6">
+				<li
+					use:reveal={{ delay: (i % 2) * 90 }}
+					class="flex gap-5 border-t border-(--color-ink)/10 pt-6"
+				>
 					<svg
 						viewBox="0 0 24 24"
-						class="mt-1 h-5 w-5 shrink-0 text-(--color-brand)"
+						class="mt-1 h-5 w-5 shrink-0 text-(--color-accent)"
 						fill="none"
 						stroke="currentColor"
 						stroke-width="1.25"

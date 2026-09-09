@@ -14,14 +14,14 @@
 >
 	<div aria-hidden="true" class="pointer-events-none absolute inset-0">
 		<div
-			class="absolute bottom-[-40%] left-1/2 h-[40rem] w-[40rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-brand)_45%,transparent),transparent_72%)]"
+			class="absolute bottom-[-40%] left-1/2 h-[40rem] w-[40rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-moon)_26%,transparent),transparent_72%)]"
 		></div>
 	</div>
 
 	<div class="relative mx-auto max-w-6xl px-5 text-center sm:px-8">
 		<h2
 			use:reveal
-			class="mx-auto max-w-3xl text-3xl font-extrabold tracking-tight text-balance sm:text-5xl"
+			class="mx-auto max-w-3xl font-serif text-4xl leading-[1.05] tracking-[-0.01em] text-balance sm:text-6xl"
 		>
 			{m.home_final_heading()}
 		</h2>

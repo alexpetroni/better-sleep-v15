@@ -220,12 +220,12 @@
 				placeholder={m.chat_placeholder()}
 				maxlength="2000"
 				autocomplete="off"
-				class="min-w-0 flex-1 rounded border border-(--color-brand-soft) px-3 py-2 text-sm"
+				class="min-w-0 flex-1 rounded-xl border border-(--color-ink)/10 bg-white px-3 py-2 text-sm"
 			/>
 			<button
 				type="submit"
 				disabled={busy}
-				class="rounded bg-(--color-brand) px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+				class="rounded-full bg-(--color-brand) px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
 			>
 				{m.chat_send()}
 			</button>

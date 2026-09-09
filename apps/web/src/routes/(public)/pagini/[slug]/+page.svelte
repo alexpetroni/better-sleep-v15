@@ -22,12 +22,9 @@
 />
 
 <article data-testid="simple-page">
-	<h1 class="mb-6 text-3xl font-bold">{data.page.title}</h1>
+	<h1 class="mb-8 text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{data.page.title}</h1>
 	{#if isLegalPage}
-		<div
-			data-testid="legal-page-identity"
-			class="mb-6 rounded border border-(--color-brand-soft) bg-(--color-brand-soft)/20 p-4"
-		>
+		<div data-testid="legal-page-identity" class="mb-8 rounded-2xl bg-white p-5 shadow-paper">
 			<LegalIdentity settings={data.publicSettings} />
 		</div>
 	{/if}
