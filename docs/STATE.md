@@ -39,6 +39,16 @@ phases — is `docs/CHANGELOG.md`; the map is `docs/ARCHITECTURE.md`
   `media/sanitize-html-cjs.spec.ts` fails on any bump that drags in an
   ESM-only htmlparser2 again. Lift the pin only once Vercel's runtime (or a
   sanitize-html release shipping ESM) makes the test pass.
+- **Production seeded 2026-09-09** with `pnpm seed:base` against Neon + R2:
+  pillar, 4 nurture sequences, the archetype quiz (`/quiz/arhetip-somn` was
+  404), the 40 articles and 33 products. Two MinIO-shaped bootstrap steps
+  had to be fixed first: `ensureBucket` now treats CreateBucket→AccessDenied
+  plus a reachable bucket as `exists` (a bucket-scoped R2 token cannot create
+  buckets; `storage-bootstrap.spec.ts`), and `scripts/seed.ts` warns instead
+  of dying when `allowPublicRead` is refused (R2 has no bucket policies —
+  `NotImplemented`; public read is the custom-domain binding). The vendored
+  bundles carry no images, so every article/product cover is `null` until
+  media is uploaded in `/admin/media`.
 
 ## Next (human launch items)
 

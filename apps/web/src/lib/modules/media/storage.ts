@@ -50,7 +50,15 @@ export function createStorage(cfg: StorageConfig) {
 	return {
 		bucket,
 
-		/** Create the bucket if it does not exist (idempotent bootstrap). */
+		/**
+		 * Create the bucket if it does not exist (idempotent bootstrap).
+		 *
+		 * A bucket-scoped Cloudflare R2 token cannot create buckets and answers
+		 * CreateBucket with AccessDenied even when the bucket exists and is fully
+		 * usable (2026-09-09, `pnpm seed:base` against production). When creation
+		 * is refused, a bucket that HeadBucket can reach counts as `exists`; one
+		 * that is refused AND unreachable surfaces the original error.
+		 */
 		async ensureBucket(): Promise<'created' | 'exists'> {
 			try {
 				await client.send(new CreateBucketCommand({ Bucket: bucket }));
@@ -59,6 +67,14 @@ export function createStorage(cfg: StorageConfig) {
 				const name = (err as { name?: string }).name;
 				if (name === 'BucketAlreadyOwnedByYou' || name === 'BucketAlreadyExists') {
 					return 'exists';
+				}
+				if (name === 'AccessDenied') {
+					try {
+						await client.send(new HeadBucketCommand({ Bucket: bucket }));
+						return 'exists';
+					} catch {
+						throw err;
+					}
 				}
 				throw err;
 			}

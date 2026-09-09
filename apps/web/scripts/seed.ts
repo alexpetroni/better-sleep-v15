@@ -53,7 +53,17 @@ const db = createDb(databaseUrl);
 // bucket, and under the `direct` provider its public-read policy.
 const storage = createStorage(storageConfigFromEnv(process.env));
 await storage.ensureBucket();
-await storage.allowPublicRead();
+// Anonymous read is a MinIO-style bucket policy (dev bootstrap). Cloudflare R2
+// has no bucket policies — public access is the custom-domain binding
+// (DEPLOYMENT.md §5) — and refuses the call; that must not stop the seed.
+try {
+	await storage.allowPublicRead();
+} catch (err) {
+	console.warn(
+		`Bucket policy not applied on "${storage.bucket}" (${err instanceof Error ? err.name : String(err)}): ` +
+			'expected on Cloudflare R2, where public read is the custom-domain binding (DEPLOYMENT.md §5)'
+	);
+}
 
 let failed = 0;
 
