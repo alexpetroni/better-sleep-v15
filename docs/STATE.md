@@ -26,6 +26,19 @@ phases — is `docs/CHANGELOG.md`; the map is `docs/ARCHITECTURE.md`
 - Two deployment targets from one build: adapter-node and Vercel + Neon
   (`DEPLOY_TARGET=vercel DB_DRIVER=neon`), both green.
 - Single site, single locale: `SITE_ID=sleep`, `messages/ro.json` only.
+- **Hotfix 2026-09-09 — Vercel 500s on every media-importing route.**
+  `sanitize-html` 2.17.6+ depends on `htmlparser2` ^12, which is ESM-only;
+  sanitize-html itself is CommonJS, so loading it needs Node's `require(esm)`.
+  Vercel's `nodejs22.x` runtime has none, and every route whose server chunk
+  imports the media module (`/blog`, `/magazin`, `/quiz/*`, `/pagini/*`,
+  `/tipuri/*`, `/sanatate/*`, `/cos`, `sitemap.xml`, `/api/health/ready`)
+  answered 500 `ERR_REQUIRE_ESM` before its `load` ran; `/`, `/asistent` and
+  `/api/health` were fine. Local Node 22.12+/24 masks it (reproduce with
+  `node --no-experimental-require-module`). Pinned `sanitize-html` to exactly
+  **2.17.5** (htmlparser2 ^10, dual CJS/ESM);
+  `media/sanitize-html-cjs.spec.ts` fails on any bump that drags in an
+  ESM-only htmlparser2 again. Lift the pin only once Vercel's runtime (or a
+  sanitize-html release shipping ESM) makes the test pass.
 
 ## Next (human launch items)
 

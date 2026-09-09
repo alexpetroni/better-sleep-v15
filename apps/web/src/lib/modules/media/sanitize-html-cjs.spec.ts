@@ -22,19 +22,29 @@ describe('sanitize-html packaging', () => {
 		const sanitizeHtmlPkg = require.resolve('sanitize-html/package.json');
 		const fromSanitizeHtml = createRequire(sanitizeHtmlPkg);
 		// An ESM-only package does not export its package.json, so resolve the
-		// entry point and walk up to the manifest instead of requiring it.
-		let dir = path.dirname(fromSanitizeHtml.resolve('htmlparser2'));
-		while (!existsSync(path.join(dir, 'package.json'))) dir = path.dirname(dir);
-		const htmlparser2Pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as {
-			name: string;
+		// entry point and walk up to the named manifest instead of requiring it
+		// (dual packages keep a nameless `{ "type": ... }` marker next to each
+		// build, which is not the one wanted).
+		type Manifest = {
+			name?: string;
 			version: string;
 			type?: string;
 			exports?: Record<string, unknown>;
 		};
-		expect(htmlparser2Pkg.name).toBe('htmlparser2');
+		const readManifest = (dir: string): Manifest | null => {
+			const file = path.join(dir, 'package.json');
+			return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Manifest) : null;
+		};
+		let dir = path.dirname(fromSanitizeHtml.resolve('htmlparser2'));
+		let htmlparser2Pkg = readManifest(dir);
+		while (htmlparser2Pkg?.name !== 'htmlparser2') {
+			const parent = path.dirname(dir);
+			if (parent === dir) throw new Error('htmlparser2 manifest not found');
+			dir = parent;
+			htmlparser2Pkg = readManifest(dir);
+		}
 		const root = htmlparser2Pkg.exports?.['.'];
-		const hasRequireCondition =
-			typeof root === 'object' && root !== null && 'require' in root;
+		const hasRequireCondition = typeof root === 'object' && root !== null && 'require' in root;
 		expect(
 			hasRequireCondition || htmlparser2Pkg.type !== 'module',
 			`sanitize-html resolved htmlparser2@${htmlparser2Pkg.version}, which is ESM-only; ` +
