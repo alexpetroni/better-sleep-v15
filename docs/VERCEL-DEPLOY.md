@@ -6,7 +6,7 @@ Where this file and `DEPLOYMENT.md` disagree, `DEPLOYMENT.md` wins.
 
 Shape: Vercel functions (Node 22) → Neon Postgres (pooled endpoint) → R2 for
 media, Cloudflare Image Transformations for resizing. Nothing always-on of our
-own. The adapter switches itself: Vercel sets `VERCEL=1` and `vite.config.ts`
+own. The adapter switches itself: Vercel sets `VERCEL=1` and `svelte.config.js`
 picks `adapter-vercel`.
 
 **Domain.** `bettersleep.ro` is not hardcoded in runtime code. Every URL the app

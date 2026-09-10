@@ -805,7 +805,7 @@ Vercel dashboard → New Project → import the repo:
   refuses to build instead of shipping code that 500s until the migration
   lands (`scripts/migrate-status.ts` exits non-zero while anything is
   pending). The adapter switches itself: Vercel sets `VERCEL=1`;
-  `vite.config.ts` picks `adapter-vercel`, otherwise `adapter-node`.
+  `svelte.config.js` picks `adapter-vercel`, otherwise `adapter-node`.
 - **Output**: `.vercel/output` (detected automatically)
 - **Node version**: 22.x — the same `.node-version` CI uses and the `runtime`
   the adapter requests (the Neon driver needs a global `WebSocket`; root
