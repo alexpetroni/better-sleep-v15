@@ -11,6 +11,12 @@
 	const quizHref = resolve('/(public)/quiz/[slug]', { slug: ARCHETYPE_QUIZ_SLUG });
 	const trust = [m.home_hero_trust_1(), m.home_hero_trust_2(), m.home_hero_trust_3()];
 
+	// The subtitle is one catalog string; the "3 minute" promise inside it is
+	// set in bold by splitting on its own (pinned) message rather than
+	// shipping markup through Paraglide.
+	const subEmphasis = m.home_hero_sub_emphasis();
+	const [subBefore, subAfter = ''] = m.home_hero_sub().split(subEmphasis);
+
 	// The collage (2026-09-09 redesign): three tilted paper cards that preview
 	// what the site holds — the four sleep patterns, one night-map segment and
 	// a step — all from existing copy, decorative (aria-hidden) and static.
@@ -59,7 +65,7 @@
 				use:reveal={{ delay: 180 }}
 				class="mt-8 max-w-xl text-lg leading-relaxed text-(--color-ink)/70 sm:text-xl"
 			>
-				{m.home_hero_sub()}
+				{subBefore}<strong class="font-semibold text-(--color-ink)">{subEmphasis}</strong>{subAfter}
 			</p>
 			<div use:reveal={{ delay: 270 }} class="mt-10 flex flex-wrap items-center gap-4">
 				<CtaButton href={quizHref} label={m.home_hero_cta()} testid="hero-cta-primary" />
