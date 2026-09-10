@@ -36,7 +36,10 @@ describe('each landing block renders its own deck copy (M-15)', () => {
 		const body = html(LandingHero, { siteName: 'betterSleep' });
 		expect(body).toContain(messages.home_hero_h1_a);
 		expect(body).toContain(messages.home_hero_h1_b);
-		expect(body).toContain(messages.home_hero_sub);
+		// The subtitle ships verbatim, with the "3 minute" promise set in bold.
+		expect(body.replace(/<\/?strong[^>]*>/g, '')).toContain(messages.home_hero_sub);
+		expect(body).toMatch(new RegExp(`<strong[^>]*>${messages.home_hero_sub_emphasis}</strong>`));
+		expect(messages.home_hero_sub).toContain(messages.home_hero_sub_emphasis);
 		expect(body).toContain(messages.home_hero_cta);
 		expect(body).toContain(messages.home_hero_trust_1);
 		expect(body).toContain(messages.home_hero_trust_3);
