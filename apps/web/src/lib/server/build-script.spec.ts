@@ -21,7 +21,9 @@ describe('formcomp is packaged exactly once per install', () => {
 	// Earlier deploys won that race by luck. formcomp packages itself on
 	// install; the root must not do it a second time in parallel.
 	it('the root package.json has no prepare script packaging formcomp', () => {
-		const pkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../../../package.json'), 'utf8')) as {
+		const pkg = JSON.parse(
+			readFileSync(path.resolve(import.meta.dirname, '../../../../../package.json'), 'utf8')
+		) as {
 			scripts: Record<string, string>;
 		};
 		expect(pkg.scripts.prepare ?? '').not.toMatch(/formcomp/);
@@ -29,7 +31,10 @@ describe('formcomp is packaged exactly once per install', () => {
 
 	it("formcomp's own prepare packages it", () => {
 		const pkg = JSON.parse(
-			readFileSync(path.resolve(import.meta.dirname, '../../../../../packages/formcomp/package.json'), 'utf8')
+			readFileSync(
+				path.resolve(import.meta.dirname, '../../../../../packages/formcomp/package.json'),
+				'utf8'
+			)
 		) as { scripts: Record<string, string> };
 		expect(pkg.scripts.prepare).toMatch(/package/);
 	});

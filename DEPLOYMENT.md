@@ -783,7 +783,7 @@ one host, which is exactly the coupling this seam removed.
 | `DB_POOL_CONNECTION_TIMEOUT_MS` | `15000` | A suspended Neon compute takes seconds to wake; the 5 s default sheds the first request after an idle period as a pool timeout. |
 | `ERROR_REPORT_URL` | optional | Sink for the structured error lines (posted via `waitUntil` after the response). `launch:check` warns when unset; a Vercel log drain is the alternative. |
 | `ADDRESS_HEADER`, `XFF_DEPTH` | **leave unset** | Vercel resolves the client IP itself. Setting them here would let a caller spoof `getClientAddress()` and defeat every rate limit. |
-| `NODE_ENV` | **leave unset** | Vercel sets it for the build and the runtime. Setting `production` in the project env breaks the root `prepare` (formcomp's devDependencies are skipped and the build cannot resolve `formcomp`). |
+| `NODE_ENV` | **leave unset** | Vercel sets it for the build and the runtime. Setting `production` in the project env breaks formcomp's `prepare` (its devDependencies are skipped and the build cannot resolve `formcomp`). |
 | `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Makes Vercel honor `packageManager` (pnpm 11.10.0) instead of a pnpm derived from the lockfile version. |
 
 Everything else — `SITE_ID`, `PUBLIC_SITE_URL`, the S3/R2 block, the image

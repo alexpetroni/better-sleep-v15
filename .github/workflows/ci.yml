@@ -87,7 +87,7 @@ jobs:
           done
           curl --retry 20 --retry-delay 1 --retry-all-errors -sf http://localhost:9000/minio/health/live
 
-      - name: Install (root — builds packages/formcomp via prepare)
+      - name: Install (root — packages/formcomp builds itself via its own prepare)
         run: pnpm install --frozen-lockfile
 
       - run: pnpm lint
