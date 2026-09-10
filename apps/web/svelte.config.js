@@ -13,13 +13,15 @@ import vercelAdapter from '@sveltejs/adapter-vercel';
  * container, and `DEPLOY_TARGET` forces either one so both outputs can be
  * produced locally. See DEPLOYMENT.md.
  *
- * The Vercel functions run on Node 22 — required by the Neon driver
- * (`DB_DRIVER=neon`), which needs a global `WebSocket`. Everything server-side
- * here is Node-only anyway (node:crypto, pg), so the edge runtime is never an
- * option.
+ * The Vercel functions run on Node 24 (2026-09-10; one major everywhere,
+ * `node-version.spec.ts`): the Neon driver (`DB_DRIVER=neon`) needs a global
+ * `WebSocket`, and CommonJS deps that require() ESM packages need
+ * `require(esm)` — stable in 24, missing from Vercel's nodejs22.x runtime
+ * (the sanitize-html outage). Everything server-side here is Node-only anyway
+ * (node:crypto, pg), so the edge runtime is never an option.
  */
 const target = process.env.DEPLOY_TARGET ?? (process.env.VERCEL ? 'vercel' : 'node');
-const adapter = target === 'vercel' ? vercelAdapter({ runtime: 'nodejs22.x' }) : nodeAdapter();
+const adapter = target === 'vercel' ? vercelAdapter({ runtime: 'nodejs24.x' }) : nodeAdapter();
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {

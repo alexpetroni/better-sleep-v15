@@ -84,7 +84,7 @@ site's `DIRECT_DATABASE_URL_<SITE>` secret) → `deploy` (`vercel build` +
 `vercel deploy --prebuilt --prod` with `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
 `VERCEL_PROJECT_ID_<SITE>`). `e2e` runs on PRs, non-blocking. Adding a site
 = one entry in `deploy/sites.json` + its secrets. Renovate pins the action
-SHAs and images. Node comes from `.node-version` (22).
+SHAs and images. Node comes from `.node-version` (24).
 
 ## Observability
 

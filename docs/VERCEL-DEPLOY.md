@@ -4,7 +4,7 @@ Ordered operator checklist, condensed from `DEPLOYMENT.md` (§2, §5, §6, §12)
 `LAUNCH-CHECKLIST.md`, `.github/workflows/ci.yml` and `deploy/sites.json`.
 Where this file and `DEPLOYMENT.md` disagree, `DEPLOYMENT.md` wins.
 
-Shape: Vercel functions (Node 22) → Neon Postgres (pooled endpoint) → R2 for
+Shape: Vercel functions (Node 24) → Neon Postgres (pooled endpoint) → R2 for
 media, Cloudflare Image Transformations for resizing. Nothing always-on of our
 own. The adapter switches itself: Vercel sets `VERCEL=1` and `svelte.config.js`
 picks `adapter-vercel`.
@@ -70,7 +70,7 @@ Vercel → New Project → import the repo.
 | Install Command | `cd ../.. && pnpm install --frozen-lockfile` |
 | Build Command | `pnpm db:status && pnpm build` |
 | Output Directory | auto (`.vercel/output`) |
-| Node.js version | 22.x |
+| Node.js version | 24.x |
 | Git → Production Branch | `main` |
 | Git → automatic production deploys | **OFF** (previews stay ON) |
 

@@ -14,7 +14,7 @@ section for a module before touching it. The betterSleep phase plans are
 
 ## Key commands (from the repo root)
 
-Prerequisites: Node 22 (`.node-version`; 24 also works), pnpm 11 (`corepack
+Prerequisites: Node 24 (`.node-version`), pnpm 11 (`corepack
 enable`), Docker with compose.
 
 ```sh
@@ -88,7 +88,7 @@ Vercel → New Project → import this repo:
 | Root Directory | `apps/web` |
 | Install Command | `cd ../.. && pnpm install --frozen-lockfile` |
 | Build Command | `pnpm build` |
-| Node version | **22.x** |
+| Node version | **24.x** |
 
 The install MUST run at the repo root: `packages/formcomp`'s `dist/` is
 gitignored and is built by its `prepare` script — an install scoped to

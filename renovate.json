@@ -16,7 +16,7 @@
 		},
 		{
 			"matchDatasources": ["node-version"],
-			"allowedVersions": "22"
+			"allowedVersions": "24"
 		}
 	]
 }

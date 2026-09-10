@@ -741,7 +741,7 @@ the target is chosen by environment variables, and with them unset the app
 builds and runs exactly as §1–§11 describe.
 
 ```
-   bettersleep.ro ─▶ Vercel functions (nodejs22.x, SITE_ID=sleep) ─▶ Neon (pooled endpoint)
+   bettersleep.ro ─▶ Vercel functions (nodejs24.x, SITE_ID=sleep) ─▶ Neon (pooled endpoint)
                               │ presigned PUTs
                               ▼
                      R2 bucket: bettersleep-media
@@ -807,9 +807,9 @@ Vercel dashboard → New Project → import the repo:
   pending). The adapter switches itself: Vercel sets `VERCEL=1`;
   `svelte.config.js` picks `adapter-vercel`, otherwise `adapter-node`.
 - **Output**: `.vercel/output` (detected automatically)
-- **Node version**: 22.x — the same `.node-version` CI uses and the `runtime`
+- **Node version**: 24.x — the same `.node-version` CI uses and the `runtime`
   the adapter requests (the Neon driver needs a global `WebSocket`; root
-  `package.json` `engines` allows `>=22.18 <23 || >=24`).
+  `package.json` `engines` requires `>=24`).
 - **Git → Production Branch**: `main`, and **Automatic deployments for the
   production branch: OFF** — production is promoted by the `deploy` job in
   `.github/workflows/ci.yml` AFTER the migration job (below). Keep preview
@@ -862,7 +862,7 @@ Wire it once (a human):
 3. **Branch protection** on `main`: require the `ci / gate` status check and
    a linear history; pushes to `main` that skip the gate cannot deploy.
 4. **Vercel project**: automatic production deploys OFF (Settings → Git);
-   Build Command `pnpm db:status && pnpm build` (above); Node 22.x;
+   Build Command `pnpm db:status && pnpm build` (above); Node 24.x;
    `ENABLE_EXPERIMENTAL_COREPACK=1`; no `NODE_ENV` in the env.
 5. **Watch the first run** end to end (Actions → ci → the push to `main`):
    gate green → migrate prints the applied list → deploy prints the

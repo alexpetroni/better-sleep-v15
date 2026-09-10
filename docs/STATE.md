@@ -76,9 +76,9 @@ phases — is `docs/CHANGELOG.md`; the map is `docs/ARCHITECTURE.md`
    gate → migrate → deploy → `/api/health` showing the new commit
    (`DEPLOYMENT.md` §12 "Ordered deploy"). Until that run is green the
    pipeline is asserted by `migrate-workflow.spec.ts`, not proven. Node: the
-   runners read `.node-version` (22); 24 also works locally.
+   runners read `.node-version` (24, since 2026-09-10).
 2. **Vercel project settings** (§12): automatic production deploys OFF, Build
-   Command `pnpm db:status && pnpm build`, Node 22,
+   Command `pnpm db:status && pnpm build`, Node 24,
    `ENABLE_EXPERIMENTAL_COREPACK=1`, previews on a Neon branch; the real-Neon
    check and `pnpm db:role-timeout` before the first deploy.
 3. **Env the platform now requires**: `S3_INVOICE_BUCKET` (the PRIVATE
