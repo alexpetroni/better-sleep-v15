@@ -37,8 +37,10 @@ phases — is `docs/CHANGELOG.md`; the map is `docs/ARCHITECTURE.md`
   `node --no-experimental-require-module`). Pinned `sanitize-html` to exactly
   **2.17.5** (htmlparser2 ^10, dual CJS/ESM);
   `media/sanitize-html-cjs.spec.ts` fails on any bump that drags in an
-  ESM-only htmlparser2 again. Lift the pin only once Vercel's runtime (or a
-  sanitize-html release shipping ESM) makes the test pass.
+  ESM-only htmlparser2 again. **Lifted 2026-09-10** with the move to Node 24
+  everywhere (`node-version.spec.ts`): sanitize-html is back on `^2.17.7`, and
+  the spec now proves a real CommonJS `require('sanitize-html')` loads and
+  sanitizes on the Node the suite runs on (24+).
 - **Production seeded 2026-09-09** with `pnpm seed:base` against Neon + R2:
   pillar, 4 nurture sequences, the archetype quiz (`/quiz/arhetip-somn` was
   404), the 40 articles and 33 products. Two MinIO-shaped bootstrap steps
