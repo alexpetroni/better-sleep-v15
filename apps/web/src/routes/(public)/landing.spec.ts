@@ -106,9 +106,11 @@ describe('landing copy is deck-verbatim', () => {
 		);
 		expect(messages.home_hero_cta).toBe('Află-ți tipul de somn');
 		expect(messages.home_hero_cta_secondary).toBe('Vezi cum funcționează');
-		expect(messages.home_hero_trust_1).toBe('Fără abonament forțat');
-		expect(messages.home_hero_trust_2).toBe('Livrare în 48h');
-		expect(messages.home_hero_trust_3).toBe('Formulat de specialiști în medicină funcțională');
+		expect(messages.home_hero_trust_1).toBe('Gratuit, fără cont');
+		expect(messages.home_hero_trust_2).toBe('Fără nicio obligație');
+		expect(messages.home_hero_trust_3).toBe(
+			'Soluții dovedite, formulate de specialiști în medicină funcțională'
+		);
 	});
 
 	it('section headings', () => {
