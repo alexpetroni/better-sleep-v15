@@ -5,7 +5,8 @@
 	import { reveal } from './reveal.ts';
 </script>
 
-<!-- Deck block 11: sits immediately above the final CTA. -->
+<!-- Deck block 11 (2026-09-10: the 30-night experiment, not a refund — the
+     site sells no program): sits immediately above the final CTA. -->
 <section data-testid="landing-risk" class="relative overflow-hidden py-24 md:py-32">
 	<div class="mx-auto max-w-6xl px-5 sm:px-8">
 		<div use:reveal class="mx-auto max-w-3xl">
@@ -17,7 +18,9 @@
 				<p class="mt-6 font-serif text-3xl leading-tight text-balance sm:text-4xl">
 					{m.home_risk_line_a()}
 				</p>
-				<p class="mt-3 text-lg text-(--color-ink)/70">{m.home_risk_line_b()}</p>
+				<p class="mx-auto mt-4 max-w-xl text-base leading-relaxed text-(--color-ink)/70 sm:text-lg">
+					{m.home_risk_line_b()}
+				</p>
 				<p class="mt-6 text-sm font-semibold tracking-wide text-(--color-accent)">
 					{m.home_risk_subscription()}
 				</p>
