@@ -146,11 +146,19 @@ describe('landing copy is deck-verbatim', () => {
 		);
 	});
 
-	it('risk reversal and final CTA (blocks 11–12)', () => {
+	// 2026-09-10: the site sells no program, so the refund promise was not
+	// applicable. Block 11 is now the 30-night self-experiment — what to
+	// watch, and that the difference shows in a log, not in promises.
+	it('30-night experiment and final CTA (blocks 11–12)', () => {
 		expect(messages.home_risk_line_a).toBe(
-			'30 de nopți. Dacă nu simți diferența, îți returnăm banii.'
+			'30 de nopți. Atât îți ia să afli dacă ai nimerit cauza.'
 		);
-		expect(messages.home_risk_line_b).toBe('Fără formular, fără să trimiți produsul înapoi.');
+		expect(messages.home_risk_line_b).toBe(
+			'Fă testul, aplică protocolul tipului tău și urmărește trei lucruri: în cât timp adormi, de câte ori te trezești, cum te simți la ora 10 dimineața. După 30 de nopți diferența se vede în jurnal, nu în promisiuni.'
+		);
+		expect(messages.home_risk_subscription).toBe(
+			'Începe cu un singur obicei în seara asta. Consecvența bate perfecțiunea.'
+		);
 		expect(messages.home_final_cta).toBe('Fă testul · 3 minute');
 		expect(messages.home_final_note).toBe(
 			'Gratuit. Fără cont. Rezultatul e al tău indiferent dacă cumperi ceva.'
