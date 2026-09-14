@@ -29,19 +29,19 @@ never trade correctness for speed.
 - SvelteKit 2 + **Svelte 5 runes only** (no legacy `$:`/`export let` APIs), Tailwind CSS v4 via
   `@tailwindcss/vite`, TypeScript strict. Postgres 16 + Drizzle; migrations are additive and
   committed; `pnpm db:migrate` must run cleanly on a fresh database at any commit.
-- **Modules as folders** under `apps/web/src/lib/modules/` — each owns its Drizzle schema,
+- **Modules as folders** under `src/lib/modules/` — each owns its Drizzle schema,
   server services, and components. Cross-module imports go ONLY through the module's `index.ts`
   barrel. Routes stay thin and call module services.
 - **Nothing brand-specific hardcoded** in a route or component — brand derives from
-  `apps/web/src/lib/config/sites/sleep.ts`. All user-facing copy goes through Paraglide
-  (`apps/web/messages/ro.json`, `import { m } from '$lib/paraglide/messages'`).
+  `src/lib/config/sites/sleep.ts`. All user-facing copy goes through Paraglide
+  (`messages/ro.json`, `import { m } from '$lib/paraglide/messages'`).
 - `packages/formcomp` is an internal dependency vendored from formComp releases: you may extend
   it additively and fix bugs, but do not rewrite it. Replacing it wholesale with a newer vendored
   release under `.initialData/formcomp-<version>/` is allowed only when a phase plan says so
   (BS-11: 0.4.0).
 - Admin is part of the app at `/admin`. No external CMS.
 - No `any` escapes, no `@ts-ignore` without a one-line justification comment.
-- Money is integer bani (cents); `apps/web/src/lib/util/money.ts` is the only place amounts meet strings.
+- Money is integer bani (cents); `src/lib/util/money.ts` is the only place amounts meet strings.
 
 ## Content sources — vendored, never live
 
@@ -76,7 +76,7 @@ You are inside a Docker container with the repo mounted and access to the HOST d
 
 - Containers you start with `docker compose up` are SIBLINGS; reach their published ports at
   **`host.docker.internal:PORT`**, never `127.0.0.1`.
-- Load env through `loadRootEnv()` (`apps/web/scripts/env.ts`) — it rewrites hosts per
+- Load env through `loadRootEnv()` (`scripts/env.ts`) — it rewrites hosts per
   environment. Never hardcode a host.
 - The app's dev server / vitest run inside your container and reach Postgres at
   `host.docker.internal:5432` via `DATABASE_URL` from `.env`.

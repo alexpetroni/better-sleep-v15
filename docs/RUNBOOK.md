@@ -42,17 +42,17 @@ pnpm db:migrate && pnpm db:status     # second run is a no-op, status clean
 | Command | What / notes |
 | --- | --- |
 | `pnpm gate` (= `pnpm lint && pnpm check && pnpm test:unit && pnpm audit --prod --audit-level=high`) | The gate. Also CI's `gate` job. The audit step fails on any high/critical advisory in production dependencies; advisories with no upstream fix are accepted by id in `pnpm-workspace.yaml` (`auditConfig.ignoreGhsas`) with the reason in `docs/STATE.md` — never by lowering the level. |
-| `pnpm test:e2e` | Builds, runs the single preview server (4173, `sleep`), playwright. Needs `better_sleep` migrated; the global setup truncates and re-seeds it (demo rows + the `content/sleep` bundles). Chromium: `pnpm --filter web exec playwright install chromium`. |
+| `pnpm test:e2e` | Builds, runs the single preview server (4173, `sleep`), playwright. Needs `better_sleep` migrated; the global setup truncates and re-seeds it (demo rows + the `content/sleep` bundles). Chromium: `pnpm exec playwright install chromium`. |
 | `pnpm test:neon` | The unit/integration suite on `DB_DRIVER=neon` over the local proxy. |
-| `pnpm build` / `DEPLOY_TARGET=vercel pnpm build` | adapter-node (`apps/web/build/`) / adapter-vercel (`.vercel/output`). |
+| `pnpm build` / `DEPLOY_TARGET=vercel pnpm build` | adapter-node (`build/`) / adapter-vercel (`.vercel/output`). |
 | `pnpm db:migrate` | `scripts/migrate.ts`: advisory lock → `drizzle-kit migrate` → `CREATE INDEX CONCURRENTLY` runner. Prefers `DIRECT_DATABASE_URL`. `docs/MIGRATIONS.md`. |
 | `pnpm db:migrate:concurrent` | Only the concurrent indexes (retry after a failed build). |
 | `pnpm db:check` | `drizzle-kit check` — journal/snapshot consistency (in the gate). |
 | `pnpm db:status` | applied/PENDING per migration; exit 1 while pending (the Vercel Build Command gate). |
 | `pnpm db:role-timeout [--timeout=30s]` | `ALTER ROLE current_user SET statement_timeout` — Neon deploy order step; idempotent. |
-| `pnpm --filter web db:generate` | New migration from the schema barrel. Review the SQL; large-table indexes go to `concurrent-indexes.ts`. |
+| `pnpm db:generate` | New migration from the schema barrel. Review the SQL; large-table indexes go to `concurrent-indexes.ts`. |
 | `pnpm db:seed` / `seed:base` / `seed:demo` | Pillars + pages + settings + initial content (`content/common`, `content/<site>`) / the same without demo rows / demo articles, quiz, products (never on production). |
-| `pnpm --filter web articles:from-initialdata` / `products:from-initialdata` | Regenerate the committed `content/sleep/` bundles from `.initialData/` (40 articles, 33 products). Deterministic; the manifest spec owns the sweep. |
+| `pnpm articles:from-initialdata` / `products:from-initialdata` | Regenerate the committed `content/sleep/` bundles from `.initialData/` (40 articles, 33 products). Deterministic; the manifest spec owns the sweep. |
 | `pnpm subscriber:export -- --email …` | GDPR subject-access export (JSON to stdout). |
 | `pnpm content export|import|import-dir` | Cross-site content bundles (`content/README.md`). `content:init` = import-dir of the site's initial content. |
 | `pnpm media:blurhash` | Backfill placeholders; needs a TRANSFORMING provider (`cloudflare` or `imgproxy`) — not `direct`. |
@@ -69,7 +69,7 @@ pnpm db:migrate && pnpm db:status     # second run is a no-op, status clean
 Four routes, all `GET`, all behind `Authorization: Bearer $CRON_SECRET`
 (503 without the secret): `/api/cron/chat-prune` (daily), `shipment-sync`
 (hourly), `nurture-send` (every 15 min), `efactura-submit` (hourly).
-`apps/web/vercel.json` schedules them on Vercel (Pro plan for sub-daily
+`vercel.json` schedules them on Vercel (Pro plan for sub-daily
 schedules); on adapter-node a machine cron curls them (`DEPLOYMENT.md` §9).
 Each declares `maxDuration = 60`. `efactura-submit` parks a document after
 5 failed attempts; the order page button or `pnpm efactura:requeue` puts it
@@ -110,7 +110,8 @@ SHAs and images. Node comes from `.node-version` (24).
   container. Do not edit `.env` to move between the two.
 - **pnpm**: `node_modules` links to the repo-local store — installs need
   `pnpm --store-dir .pnpm-store …` or fail with `ERR_PNPM_UNEXPECTED_STORE`.
-- **Do not run prettier on `docs/*.md`** — repo lint runs from `apps/web`;
+- **Do not run prettier on `docs/*.md`** — `.prettierignore` keeps `docs/`,
+  the root `*.md`, `content/`, `.initialData/` and `packages/` out of `pnpm lint`;
   prettier reflows prose and has corrupted a list before.
 - **Block comments**: a `*/` inside a JSDoc path (`modules/*/token.ts`)
   closes the comment and fails the build.

@@ -8,7 +8,7 @@ is `docs/CHANGELOG.md`; how to run things is `docs/RUNBOOK.md`.
 
 ## Boundary policy
 
-- **Modules** live under `apps/web/src/lib/modules/<name>/` and own their
+- **Modules** live under `src/lib/modules/<name>/` and own their
   Drizzle schema (`schema.ts`), services and components. Cross-module code
   imports ONLY through the module barrel: `$lib/modules/<name>` (universal,
   safe in components) or `$lib/modules/<name>/server` (server-only: env,
@@ -47,7 +47,7 @@ is `docs/CHANGELOG.md`; how to run things is `docs/RUNBOOK.md`.
   optional `ERROR_REPORT_URL` sink; `/api/health` is liveness (no I/O),
   `/api/health/ready` is readiness (db + storage).
 
-## Request pipeline (`apps/web/src/hooks.server.ts`)
+## Request pipeline (`src/hooks.server.ts`)
 
 `handleRequestId` → `handleSecurityHeaders` (headers + the env-derived CSP
 half; the static half is `kit.csp` in `vite.config.ts`) → `handleCsrf` (kit's
@@ -58,13 +58,13 @@ origin check with the RFC 8058 one-click-unsubscribe exemption) →
 
 ## What exists
 
-- **pnpm workspace**: `apps/web` (SvelteKit 2, Svelte 5 runes, TS strict, Tailwind v4,
+- **pnpm workspace**: the SvelteKit app at the repo root (SvelteKit 2, Svelte 5 runes, TS strict, Tailwind v4,
   Paraglide with the single locale `ro`, adapter-node) and `packages/formcomp`
   (vendored from formComp releases — 0.4.0 since BS-11 — consumed as the `formcomp`
-  workspace dep; its `dist/` is built by the root `prepare` script on `pnpm install`;
+  workspace dep; its `dist/` is built by its own `prepare` on `pnpm install` and again by `pnpm build`;
   `formcomp/conditions` and `formcomp/config-check` are pure subpaths for server code
   and scripts, where the main barrel's Svelte components cannot load).
-- **Site config system** (`apps/web/src/lib/config/`):
+- **Site config system** (`src/lib/config/`):
   - `pillars.ts` — the 9 canonical pillars (ro slugs: `somn`, `nutritie`, `miscare`,
     `stres`, `relatii`, `scop`, `mediu`, `minte`, `finante`).
   - `sites/sleep.ts` (1 pillar) — the ONLY place a brand string may appear (this repo
@@ -85,9 +85,9 @@ chatPersonaKey, email }`.
   (originals served as-is); production is Cloudflare (`DEPLOYMENT.md` §6).
 - **Database**: Postgres 16 (service `db` above). A fresh volume auto-creates
   `better_sleep`, `better_test` and `better_test_b` (see `docker/postgres-init/`).
-  Drizzle: schema barrel `apps/web/src/lib/db/schema/index.ts` (composes future module
+  Drizzle: schema barrel `src/lib/db/schema/index.ts` (composes future module
   schemas; core has `pillars`), client factory in `db/client.ts`, lazy app client
-  `getDb()` in `db/index.ts`. Migrations committed under `apps/web/drizzle/`.
+  `getDb()` in `db/index.ts`. Migrations committed under `drizzle/`.
 - **Seed**: `pnpm db:seed` upserts the active site's pillars (idempotent);
   logic in `src/lib/db/seed.ts`, entry `scripts/seed.ts` (plain `node`, Node 24 type
   stripping — keep script imports relative with explicit `.ts` extensions).
@@ -113,7 +113,7 @@ the changelog is right and the code is righter.
 
 ## Auth & admin (Phase 1)
 
-- **modules/auth** (`apps/web/src/lib/modules/auth/`): better-auth 1.6 with the
+- **modules/auth** (`src/lib/modules/auth/`): better-auth 1.6 with the
   Drizzle adapter (`usePlural: true` — tables `users`, `sessions`, `accounts`,
   `verifications`). Email+password only, **public signup disabled**, password min
   length 12. `users.role` is a better-auth additionalField: `'admin' | 'editor'`
@@ -134,7 +134,7 @@ subscribers, settings` (editors are blocked there; everything else under
     on email (creates user + credential account, or updates role/password via
     better-auth's internal adapter, hashing included).
 - **Creating users**: `pnpm user:create -- --email a@b.ro --password 'min12chars…'
---role admin|editor [--name X]` (root script → `apps/web/scripts/user-create.ts`,
+--role admin|editor [--name X]` (root script → `scripts/user-create.ts`,
   plain node against `DATABASE_URL`; needs `BETTER_AUTH_SECRET`). Idempotent:
   rerunning with the same email updates role+password.
 - **Auth flow**: `/admin/login` form action calls `auth.api.signInEmail` (rate
@@ -159,7 +159,7 @@ subscribers, settings` (editors are blocked there; everything else under
 
 ## Media (Phase 2)
 
-- **modules/media** (`apps/web/src/lib/modules/media/`), with TWO barrels — this
+- **modules/media** (`src/lib/modules/media/`), with TWO barrels — this
   phase introduced the pattern (ESLint now allows both):
   - `$lib/modules/media` (universal): the `<Img>` component, upload validation
     (`ALLOWED_IMAGE_MIMES` jpeg/png/webp/avif/gif/svg, `MAX_UPLOAD_BYTES` 15 MB,
@@ -211,7 +211,7 @@ filename, mime, size}` (validates, returns `{key, uploadUrl}`) → browser PUTs
 
 ## Blog (Phase 3)
 
-- **modules/blog** (`apps/web/src/lib/modules/blog/`), split barrels like media:
+- **modules/blog** (`src/lib/modules/blog/`), split barrels like media:
   - `$lib/modules/blog` (universal): `slugify`/`nextUniqueSlug` (ro-diacritics
     transliteration incl. legacy cedilla ş/ţ; suffix `-2`, `-3`, … on collision),
     `extractMediaRefs`, `ArticleRow` types.
@@ -365,7 +365,7 @@ filename, mime, size}` (validates, returns `{key, uploadUrl}`) → browser PUTs
 
 ## Shop (Phase 5)
 
-- **modules/shop** (`apps/web/src/lib/modules/shop/`, split barrels; the server
+- **modules/shop** (`src/lib/modules/shop/`, split barrels; the server
   barrel is imported from `hooks.server.ts` so the products media-reference
   check registers at boot). `README.md` in the module documents the design.
 - **Money is integer cents (bani) everywhere** — DB, services, Stripe,
@@ -444,7 +444,7 @@ filename, mime, size}` (validates, returns `{key, uploadUrl}`) → browser PUTs
 
 ## Chat (Phase 6)
 
-- **modules/chat** (`apps/web/src/lib/modules/chat/`, split barrels):
+- **modules/chat** (`src/lib/modules/chat/`, split barrels):
   - `$lib/modules/chat` (universal): `ChatWidget`/`ChatPanel` components, the
     `ChatProvider`/`ChatMessage` types, pure helpers (`selectChatProvider`,
     `validateChatMessage` ≤2000 chars, `capHistory` last 20, `mockReplyFor`)
@@ -515,7 +515,7 @@ Not run in CI/agent runs — do this by hand when you have keys:
 ## Hardening & launch readiness (Phase 7)
 
 - **Content export/import CLI** (`modules/content/`, node-safe; script
-  `apps/web/scripts/content.ts`): `pnpm content export --type article|quiz|product
+  `scripts/content.ts`): `pnpm content export --type article|quiz|product
   --slug X [--out f.json]` produces a SELF-CONTAINED bundle (version 1):
   content fields, pillar SLUGS (ids differ per db), and every referenced media
   row incl. original bytes base64 (cover, gallery, `media:` body refs).

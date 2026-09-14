@@ -24,7 +24,7 @@ pnpm db:migrate && pnpm db:check       # Drizzle migrations (additive, committed
 pnpm storage:init                      # create the media + fiscal buckets (idempotent)
 pnpm seed:base                         # pillars, pages, settings, nurture, archetype quiz, content/ bundles
 pnpm seed:demo                         # fictional demo rows (draft) — pnpm db:seed = both
-pnpm dev                               # dev server (apps/web)
+pnpm dev                               # dev server
 
 pnpm lint && pnpm check && pnpm test:unit   # the phase gate
 pnpm gate                              # the gate + pnpm audit --prod --audit-level=high
@@ -50,7 +50,8 @@ See `docs/RUNBOOK.md` for the full command list and environment quirks.
 | `docs/CHANGELOG.md` | Dated history of every phase (FIX-* and BS-*). |
 | `PROMPT.md` | The engineering constitution every phase is bound by. |
 
-Layout: `apps/web` (the app), `packages/formcomp` (the quiz form library,
+Layout: the SvelteKit app at the repo root (`src/`, `static/`, `messages/`,
+`drizzle/`, `e2e/`, `tests/`), `packages/formcomp` (the quiz form library,
 vendored from formComp releases — 0.4.0), `content/` (initial content
 bundles), `deploy/` (site matrix + imgproxy config), `scripts/` (backup, host
 helpers), `.github/workflows/` (gate → migrate → deploy; nightly backup).
@@ -85,15 +86,16 @@ Vercel → New Project → import this repo:
 
 | Setting | Value |
 | --- | --- |
-| Root Directory | `apps/web` |
-| Install Command | `cd ../.. && pnpm install --frozen-lockfile` |
+| Root Directory | empty — the repo root (`svelte.config.js`, `vercel.json` and `package.json` live there) |
+| Install Command | default (`pnpm install`) |
 | Build Command | `pnpm build` |
 | Node version | **24.x** |
 
-The install MUST run at the repo root: `packages/formcomp`'s `dist/` is
-gitignored and is built by its `prepare` script — an install scoped to
-`apps/web` produces a build that cannot resolve `formcomp`.
-`apps/web/vercel.json` ships the cron schedule automatically.
+The app IS the repo root (since 2026-09-14; it used to be `apps/web`): Vercel
+finds `svelte.config.js` where its SvelteKit preset expects it, the install
+runs at the workspace root so `packages/formcomp` is packaged by its own
+`prepare`, and the build re-packages it anyway. `vercel.json` ships the cron
+schedule automatically.
 
 ### 3. Environment variables (Vercel → Settings → Environment Variables)
 
@@ -171,5 +173,5 @@ curl -sS -H "Authorization: Bearer $CRON_SECRET" https://bettersleep.ro/api/cron
 `launch:check` probes the live image pipeline (R2 custom domain + real webp out
 of `/cdn-cgi/image`) and reads the target database's settings — the failure
 modes that otherwise look healthy. Crons (`chat-prune` daily, `shipment-sync`
-hourly, `nurture-send` every 15 min) are scheduled by `apps/web/vercel.json`
+hourly, `nurture-send` every 15 min) are scheduled by `vercel.json`
 and answer 503 without the Bearer secret. Full post-deploy walk: DEPLOYMENT.md §11.

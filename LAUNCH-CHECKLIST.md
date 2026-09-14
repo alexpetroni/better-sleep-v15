@@ -64,7 +64,7 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
       with a PDF + e-Factura XML (stored in the bucket, PDF attached to the
       confirmation email, downloadable by the buyer from the order page), a
       refund issues the storno, and `/admin/orders` has a monthly zip export
-      for the accountant (see `apps/web/src/lib/modules/invoice/`). What
+      for the accountant (see `src/lib/modules/invoice/`). What
       remains human:
       - fill in `/admin/settings` → "Facturare": series prefix, first number
         (continue the accountant's interim numbering, or start a fresh
@@ -106,7 +106,7 @@ to bottom; `DEPLOYMENT.md` has the technical details for each step.
       the moment the adapter exists.
 - [ ] e-Factura XML validated against ANAF's public validator BEFORE the
       first live invoice: upload BOTH golden fixtures from
-      `apps/web/tests/fixtures/efactura/` (`factura-cluj.xml`,
+      `tests/fixtures/efactura/` (`factura-cluj.xml`,
       `factura-bucuresti-sector-b2b.xml`) to ANAF's e-Factura validator
       (anaf.ro → e-Factura → "Validare XML") and record the result here; the
       build only runs the offline validator and has NOT called ANAF. Then

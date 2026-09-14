@@ -15,7 +15,7 @@ phase (FIX-16, audit 2026-09-03 "Migration contract").
    the table under an exclusive lock and fails on any existing row.
 3. **Indexes on tables that may already be large go through the concurrent
    path**, never through a drizzle SQL file: declare them in
-   `apps/web/src/lib/db/concurrent-indexes.ts` (`CREATE INDEX CONCURRENTLY
+   `src/lib/db/concurrent-indexes.ts` (`CREATE INDEX CONCURRENTLY
    IF NOT EXISTS …`, name in the statement = `name`). drizzle-kit applies
    every pending file in ONE transaction, where `CONCURRENTLY` is illegal
    and a plain `CREATE INDEX` holds an exclusive lock for the whole build.
@@ -44,7 +44,7 @@ phase (FIX-16, audit 2026-09-03 "Migration contract").
 
 | Command | What |
 | --- | --- |
-| `pnpm --filter web db:generate` | Generate the next `apps/web/drizzle/NNNN_*.sql` from the schema barrel. Review the SQL by hand before committing — check rules 1–3. |
+| `pnpm db:generate` | Generate the next `drizzle/NNNN_*.sql` from the schema barrel. Review the SQL by hand before committing — check rules 1–3. |
 | `pnpm db:check` | `drizzle-kit check`: the journal and snapshots are consistent (the CI gate runs it). |
 | `pnpm db:migrate` | Lock → SQL files → concurrent indexes. Prefers `DIRECT_DATABASE_URL` (Neon: the unpooled host). |
 | `pnpm db:migrate:concurrent` | Only the concurrent indexes (retry after a failed build). |

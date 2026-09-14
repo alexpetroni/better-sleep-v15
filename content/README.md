@@ -43,8 +43,8 @@ travel as **slugs**, not numeric ids.
 ## Generated bundles & ownership (`sleep/`)
 
 Most of `sleep/` is **script-generated**: the 40 article bundles (`0010…0400`)
-come from `pnpm --filter web articles:from-initialdata` and the 33 product
-bundles (`1010…1330`) from `pnpm --filter web products:from-initialdata`, both
+come from `pnpm articles:from-initialdata` and the 33 product
+bundles (`1010…1330`) from `pnpm products:from-initialdata`, both
 reading the vendored sources in `.initialData/`. **Never edit a generated
 bundle by hand** — edit the source (article bodies, `article-meta.ro.json`,
 `product-descriptions.ro.json`) and regenerate; a regeneration run overwrites
@@ -58,7 +58,7 @@ may delete only files a *previous* run recorded that it no longer generates
 file outside their manifest. Keep the manifest committed alongside the bundles;
 without it, stale generated files are left behind rather than cleaned up.
 
-Shape (see `apps/web/src/lib/modules/content/bundle.ts` for the full contract):
+Shape (see `src/lib/modules/content/bundle.ts` for the full contract):
 
 ```json
 {

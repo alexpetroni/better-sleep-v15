@@ -3,7 +3,7 @@
 This repository deploys **one site**: betterSleep at `bettersleep.ro`, with
 `SITE_ID=sleep`, its own database (`better_sleep`) and its own media bucket.
 `SITE_ID` selects the site config at boot
-(`apps/web/src/lib/config/sites/sleep.ts` — the only config that exists; any
+(`src/lib/config/sites/sleep.ts` — the only config that exists; any
 other value refuses to boot). The platform underneath could host more sites —
 see §10, an appendix, if that day comes — but everything below describes the
 single betterSleep deployment.
@@ -120,8 +120,8 @@ Not used in prod: `TEST_DATABASE_URL`, `DB_PORT`, `MINIO_*`, `IMGPROXY_PORT`
 
 ```bash
 pnpm install               # also builds packages/formcomp (prepare script)
-pnpm build                 # SvelteKit adapter-node → apps/web/build/
-node apps/web/build        # serves HTTP on PORT (default 3000)
+pnpm build                 # SvelteKit adapter-node → build/
+node build        # serves HTTP on PORT (default 3000)
 ```
 
 - Set `PORT` (and optionally `ORIGIN=$PUBLIC_SITE_URL`, which adapter-node
@@ -182,7 +182,7 @@ On the Postgres 16 server:
 createdb better_sleep      # (or CREATE DATABASE in psql; owner = app user)
 
 # from the repo, with the site's env loaded:
-pnpm db:migrate            # applies apps/web/drizzle/*.sql (additive, committed)
+pnpm db:migrate            # applies drizzle/*.sql (additive, committed)
 pnpm seed:base             # pillars for SITE_ID, legal pages, placeholder settings,
                            #   nurture sequences, initial content from content/
 pnpm seed:demo             # demo article/quiz/products — dev and staging only
@@ -505,7 +505,7 @@ submission, a human must:
    (logincert.anaf.ro) to obtain client id/secret and a refresh token for
    the e-Factura API.
 4. Implement the `EFacturaSubmitter` adapter
-   (`apps/web/src/lib/modules/invoice/efactura-submitter.ts`) against those
+   (`src/lib/modules/invoice/efactura-submitter.ts`) against those
    credentials. The seam is in place; setting `ANAF_EFACTURA_ENABLED=true`
    before the adapter exists is a hard boot error by design — the app never
    fakes a submission.
@@ -528,7 +528,7 @@ option's price is launch-required — `launch:check` fails until it is
 consciously saved (0 is a valid, deliberate "we ship free"). The cart offers
 the configured options, Stripe charges the selected one, the invoice carries
 it as its own VAT line, and the admin order detail generates the AWB through
-the `CourierProvider` seam (`apps/web/src/lib/modules/shop/courier.ts`).
+the `CourierProvider` seam (`src/lib/modules/shop/courier.ts`).
 
 The real adapter is **Sameday** (`COURIER_PROVIDER=sameday` + the `SAMEDAY_*`
 credentials — §2). Sameday was chosen as Romania's largest e-commerce courier
@@ -560,13 +560,13 @@ live account from this codebase — human launch steps:
    TOKEN=$(curl -sS -X POST 'https://api.sameday.ro/api/authenticate?remember_me=1' \
      -H "X-Auth-Username: $SAMEDAY_USERNAME" -H "X-Auth-Password: $SAMEDAY_PASSWORD" | jq -r .token)
    curl -sS "https://api.sameday.ro/api/client/awb/<AWB>/status" -H "X-Auth-Token: $TOKEN" \
-     > apps/web/tests/fixtures/sameday/status-<state>.json
+     > tests/fixtures/sameday/status-<state>.json
    ```
 
    Save one file per state you observe (emis, ridicat / în tranzit, livrat,
    anulat, and any "nelivrat" attempt). Each `expeditionStatus.statusId` +
    text pair goes into `SAMEDAY_STATUS_BY_ID`
-   (`apps/web/src/lib/modules/shop/sameday-courier.ts`), which ships seeded
+   (`src/lib/modules/shop/sameday-courier.ts`), which ships seeded
    with id 1 = "AWB Emis" only: until the table is filled in, the anchored
    text rules (explicit negatives first — "nelivrat" is NOT "livrat") do the
    classifying, and any text they do not know is logged at warn level with
@@ -604,7 +604,7 @@ real customer parcel.
 1. Add and verify the sending domain in Resend (SPF + DKIM DNS records).
 2. Set `RESEND_API_KEY` and `EMAIL_DRYRUN=false`.
 3. The sender identity (`from`/`replyTo`) comes from the site config
-   (`apps/web/src/lib/config/sites/<site>.ts`) — `salut@bettersleep.ro` must
+   (`src/lib/config/sites/<site>.ts`) — `salut@bettersleep.ro` must
    be under the verified domain.
 
 4. **Bounce/complaint webhook.** In Resend → Webhooks add an endpoint for
@@ -649,7 +649,7 @@ Where no machine can run scripts (Vercel), the retention job is also
 available over HTTP at `GET /api/cron/chat-prune` — see §12. Both forms call
 `runRetentionSweep()` in `src/lib/server/retention.ts`, so they cannot drift
 apart (the sweep also expires closed nurture enrollments after 180 days). On
-Vercel all four routes are scheduled by `apps/web/vercel.json`.
+Vercel all four routes are scheduled by `vercel.json`.
 
 On-demand (not cron): `pnpm subscriber:delete -- --email x@y.ro` for GDPR
 erasure requests (deletes the subscriber, unlinks quiz results, anonymizes
@@ -675,8 +675,8 @@ throws "Unknown SITE_ID" at startup, by design. If a second brand is ever
 built:
 
 1. First, **create its site config** in code:
-   `apps/web/src/lib/config/sites/<id>.ts`, registered in
-   `apps/web/src/lib/config/site.ts` — without this file no env value can
+   `src/lib/config/sites/<id>.ts`, registered in
+   `src/lib/config/site.ts` — without this file no env value can
    make the site exist.
 2. Then repeat §3–§9 with `SITE_ID=<id>`, its own database, bucket, domain,
    Stripe account and Resend domain. The same build output can be reused —
@@ -795,11 +795,15 @@ them.
 
 Vercel dashboard → New Project → import the repo:
 
-- **Root Directory**: `apps/web`
-- **Install Command**: `cd ../.. && pnpm install --frozen-lockfile` — the
-  install must run at the repo root so pnpm builds `packages/formcomp` via its
-  `prepare` script. Its `dist/` is gitignored, so an install scoped to
-  `apps/web` produces a build that cannot resolve `formcomp`.
+- **Root Directory**: empty — the SvelteKit app lives at the repo root
+  (since 2026-09-14; before that `apps/web`, which needed a `cd ../..`
+  install hack and left `svelte.config.js` outside the directory Vercel's
+  SvelteKit preset inspects — environment-variable changes were not picked
+  up by the build). `svelte.config.js`, `vercel.json` and the workspace
+  `package.json` are all at the root now.
+- **Install Command**: the default (`pnpm install`). The install runs at the
+  workspace root, so `packages/formcomp` is packaged by its own `prepare`
+  (its `dist/` is gitignored) and `pnpm build` re-packages it regardless.
 - **Build Command**: `pnpm db:status && pnpm build` — belt and braces: a
   build ahead of the schema (a migration still pending on the target database)
   refuses to build instead of shipping code that 500s until the migration
@@ -819,7 +823,7 @@ Vercel dashboard → New Project → import the repo:
   integration's per-preview branches), never at the production database.
   Set `EMAIL_DRYRUN=true`, mock chat/courier and a test Stripe key there.
 
-`apps/web/vercel.json` ships the cron schedule. `/api/chat`, the four cron
+`vercel.json` ships the cron schedule. `/api/chat`, the four cron
 routes (`chat-prune`, `shipment-sync`, `nurture-send`, `efactura-submit`) and
 the Stripe webhook declare `maxDuration = 60` in their `+server.ts`: the
 assistant streams its reply, a cron batch makes one provider round trip per
@@ -844,7 +848,7 @@ the migration. `.github/workflows/ci.yml` does both, in order, per site:
 | --- | --- | --- |
 | `gate` | every PR and push | Postgres 16 + MinIO; lint → check → `db:migrate` on a fresh database → `db:check` → `test:unit` → both builds → `launch:check --target=vercel` against a prod-shaped env. |
 | `e2e` | PRs, non-blocking | `pnpm test:e2e` (report uploaded as an artifact). |
-| `migrate` | `main` only, `needs: gate`, environment `production` | One matrix entry per site in `deploy/sites.json`; `pnpm install --ignore-scripts --filter web`; `pnpm db:migrate` (advisory lock, SQL files, concurrent indexes); `pnpm db:role-timeout`; `pnpm db:status` printed. Fails closed without the site's secret. Never seeds. |
+| `migrate` | `main` only, `needs: gate`, environment `production` | One matrix entry per site in `deploy/sites.json`; `pnpm install --ignore-scripts`; `pnpm db:migrate` (advisory lock, SQL files, concurrent indexes); `pnpm db:role-timeout`; `pnpm db:status` printed. Fails closed without the site's secret. Never seeds. |
 | `deploy` | `needs: migrate`, per site | `vercel pull --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod`. |
 
 Wire it once (a human):

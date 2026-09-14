@@ -8,7 +8,7 @@
 | The same suite on the neon driver | `docker compose --profile neon up -d --build` then `pnpm test:neon` | The local Neon-protocol proxy; the setup file fails loudly (never skips) when it is down. |
 | E2E (playwright) | `pnpm test:e2e` | The compose stack; builds, then drives the single preview server (4173 = sleep) on the mock providers with `EMAIL_DRYRUN=true`. Both site databases must be migrated. In this container export `LD_LIBRARY_PATH` for chromium (`docs/RUNBOOK.md`). |
 | The gate | `pnpm lint && pnpm check && pnpm test:unit` | What CI's `gate` job runs on every PR/push (`.github/workflows/ci.yml`), plus `db:migrate` on a fresh database, `db:check`, both builds and `launch:check --target=vercel`. |
-| One spec while iterating | `cd apps/web && pnpm exec vitest run <path> --reporter=dot` | Keep the full run for the end. |
+| One spec while iterating | `pnpm exec vitest run <path> --reporter=dot` | Keep the full run for the end. |
 
 ## Policy (from `PROMPT.md`, binding)
 

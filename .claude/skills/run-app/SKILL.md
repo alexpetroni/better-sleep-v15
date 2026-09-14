@@ -41,7 +41,7 @@ of them, but if you run steps by hand, honor them:
 - **Host networking ≠ container networking.** The compose stack publishes on the
   docker host: `localhost` from the host, `host.docker.internal` from a sibling
   container. `pnpm` tooling handles this itself now (`loadRootEnv()` in
-  `apps/web/scripts/env.ts` rewrites `DATABASE_URL`/`TEST_DATABASE_URL`/
+  `scripts/env.ts` rewrites `DATABASE_URL`/`TEST_DATABASE_URL`/
   `S3_ENDPOINT`/`MEDIA_PUBLIC_BASE_URL` per environment), so vitest/seed/migrate run from
   either place with the committed `.env` untouched. The script still exports
   `localhost` explicitly because the **adapter-node build reads none of that** —

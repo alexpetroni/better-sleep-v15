@@ -11,7 +11,7 @@ picks `adapter-vercel`.
 
 **Domain.** `bettersleep.ro` is not hardcoded in runtime code. Every URL the app
 builds comes from `PUBLIC_SITE_URL`. The `domain` field in
-`apps/web/src/lib/config/sites/sleep.ts` is read only by `pnpm launch:check`,
+`src/lib/config/sites/sleep.ts` is read only by `pnpm launch:check`,
 which refuses a `PUBLIC_SITE_URL` host that differs from it. For another
 domain: set `PUBLIC_SITE_URL`, and either change `domain` in `sleep.ts` or
 accept that one preflight line. Also adjust `email.from` / `replyTo` in the
@@ -66,20 +66,22 @@ Vercel → New Project → import the repo.
 
 | Setting | Value |
 | --- | --- |
-| Root Directory | `apps/web` |
-| Install Command | `cd ../.. && pnpm install --frozen-lockfile` |
+| Root Directory | empty (the app is the repo root) |
+| Install Command | default (`pnpm install`) |
 | Build Command | `pnpm db:status && pnpm build` |
 | Output Directory | auto (`.vercel/output`) |
 | Node.js version | 24.x |
 | Git → Production Branch | `main` |
 | Git → automatic production deploys | **OFF** (previews stay ON) |
 
-Why: the install must run at the repo root so `packages/formcomp` is built by
-its `prepare` script (its `dist/` is gitignored). `pnpm db:status` refuses to
+Why: the SvelteKit app lives at the repo root (2026-09-14), so
+`svelte.config.js` sits where Vercel's preset looks for it and the install
+runs at the workspace root, where `packages/formcomp` is packaged by its own
+`prepare` (its `dist/` is gitignored). `pnpm db:status` refuses to
 build while a migration is pending on the target database. Production is
 promoted by GitHub Actions after the migration, never by Vercel's Git hook.
 
-`apps/web/vercel.json` ships the four cron schedules; nothing to configure.
+`vercel.json` ships the four cron schedules; nothing to configure.
 
 ## 4. Vercel environment variables (Production)
 
