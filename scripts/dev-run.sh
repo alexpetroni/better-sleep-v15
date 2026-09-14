@@ -84,7 +84,7 @@ fi
 
 # --- 4. build ---
 if [ "${SKIP_BUILD:-}" != "1" ]; then say "Building app"; pnpm build; fi
-[ -f apps/web/build/index.js ] || die "no build output — run without SKIP_BUILD=1 first"
+[ -f build/index.js ] || die "no build output — run without SKIP_BUILD=1 first"
 
 # --- 5. launch detached, record pid ---
 mkdir -p "$ROOT/.run"
@@ -93,7 +93,7 @@ if [ -f "$ROOT/.run/app.pid" ] && kill -0 "$(cat "$ROOT/.run/app.pid")" 2>/dev/n
   kill "$(cat "$ROOT/.run/app.pid")" 2>/dev/null || true; sleep 1
 fi
 say "Starting server on :${PORT}"
-( cd "$ROOT/apps/web" && exec setsid node build/index.js ) >"$ROOT/.run/app.log" 2>&1 < /dev/null &
+( cd "$ROOT" && exec setsid node build/index.js ) >"$ROOT/.run/app.log" 2>&1 < /dev/null &
 echo $! > "$ROOT/.run/app.pid"
 
 # --- 6. wait for ready + report ---

@@ -6,9 +6,7 @@ settings:
 
 importers:
 
-  .: {}
-
-  apps/web:
+  .:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.110.0
@@ -48,7 +46,7 @@ importers:
         version: 0.8.3
       formcomp:
         specifier: workspace:*
-        version: link:../../packages/formcomp
+        version: link:packages/formcomp
       image-size:
         specifier: ^2.0.2
         version: 2.0.2
