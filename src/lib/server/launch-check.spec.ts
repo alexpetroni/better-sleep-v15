@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sleepSite } from '../config/sites/sleep.ts';
 import { bootEnvProblems, REQUIRED_BOOT_ENV } from './boot.ts';
 import { devDefaultProblem, ENV_MATRIX, requiredEnvFor, type DeployTarget } from './env-matrix.ts';
 import {
@@ -10,12 +11,15 @@ import {
 	probeImages
 } from './launch-check.ts';
 
+/** The site's own domain: the host rule compares PUBLIC_SITE_URL against it. */
+const DOMAIN = sleepSite.domain;
+
 /** A prod-shaped env every rule passes on; cases knock single values out. */
 function prodEnv(): Record<string, string | undefined> {
 	return {
 		SITE_ID: 'sleep',
 		DATABASE_URL: 'postgres://app:s3cr3t@db.prod.example.com/better_sleep',
-		PUBLIC_SITE_URL: 'https://bettersleep.ro',
+		PUBLIC_SITE_URL: `https://${DOMAIN}`,
 		BETTER_AUTH_SECRET: 'a-real-generated-auth-secret-value',
 		TOKEN_SECRET: 'a-real-generated-token-secret-value',
 		S3_ENDPOINT: 'https://accountid.r2.cloudflarestorage.com',
@@ -150,17 +154,17 @@ const CASES: Array<{
 	},
 	{
 		name: 'an http PUBLIC_SITE_URL',
-		mutate: (env) => (env.PUBLIC_SITE_URL = 'http://bettersleep.ro'),
+		mutate: (env) => (env.PUBLIC_SITE_URL = `http://${DOMAIN}`),
 		message: /PUBLIC_SITE_URL must be https/
 	},
 	{
 		name: 'a PUBLIC_SITE_URL not matching the SITE_ID domain',
 		mutate: (env) => (env.PUBLIC_SITE_URL = 'https://betterlife.ro'),
-		message: /does not match the sleep site domain "bettersleep\.ro"/
+		message: new RegExp(`does not match the sleep site domain "${DOMAIN.replaceAll('.', '\\.')}"`)
 	},
 	{
 		name: 'an unparseable PUBLIC_SITE_URL',
-		mutate: (env) => (env.PUBLIC_SITE_URL = 'bettersleep.ro'),
+		mutate: (env) => (env.PUBLIC_SITE_URL = DOMAIN),
 		message: /PUBLIC_SITE_URL is not a valid URL/
 	},
 	{
@@ -530,7 +534,7 @@ describe('launch:check rules', () => {
 		const env = prodEnv();
 		delete env.S3_BUCKET;
 		env.BETTER_AUTH_SECRET = 'dev-only-secret-change-me-0123456789';
-		env.PUBLIC_SITE_URL = 'http://bettersleep.ro';
+		env.PUBLIC_SITE_URL = `http://${DOMAIN}`;
 		expect(launchCheckProblems(env, { target: 'node' }).length).toBeGreaterThanOrEqual(3);
 	});
 
