@@ -75,8 +75,8 @@ Twelve blocks, in order. Each has a job. If a block doesn't have a job, cut it.
 SOMNIUM
 
 [H1]
-Nu dormi prost.
-Dormi prost dintr-un motiv anume.
+Știi că dormi prost.
+Ești sigur că știi cu adevărat care este cauza?
 
 [sub]
 Insomnia de stres, cea hormonală și cea de ritm circadian
