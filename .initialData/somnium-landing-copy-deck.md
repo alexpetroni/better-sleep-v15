@@ -157,7 +157,7 @@ Fiecare cere altă abordare.
 
 ADORMITUL IMPOSIBIL
 Stai în pat 40 de minute și mintea continuă să râșnească.
-Corpul e obosit, capul nu se mai oprește.
+Corpul e obosit, dar gândurile sunt de neoprit și somnul nu mai vine.
 → Cortizol seara. Problema e activarea, nu lipsa de somn.
 
 TREZIREA DE LA 3
