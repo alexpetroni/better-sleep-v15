@@ -110,11 +110,11 @@ Nu e întâmplare. E un tipar.
 
 ```
 [H2]
-Ce ți-a luat noaptea trecută
+Ce pierzi cu fiecare noapte nedormită?
 
 [four cards, each: icon, stat-free headline, one line]
 
-Deciziile de dimineață
+Deciziile înțelepte
 După o noapte scurtă, creierul trece pe pilot automat.
 Alegi mai repede și mai prost, și nu simți diferența.
 
@@ -132,7 +132,7 @@ O noapte pierdută înseamnă o zi pe care nu o păstrezi.
 
 [closing line, full width, smaller]
 Nimic din toate astea nu se vede pe termen scurt.
-Se acumulează. Și apoi devine felul în care trăiești.
+Se acumulează și apoi devine felul în care trăiești.
 ```
 
 **Why no statistics here.** Every Romanian pharmacy site already lists "afectează concentrarea, imunitatea, metabolismul." It's wallpaper. Specific lived moments beat percentages, and they carry zero regulatory risk.
@@ -151,25 +151,25 @@ Recunoaște-te
 
 [H3 sub]
 Patru tipare acoperă majoritatea insomniilor.
-Fiecare cere altceva.
+Fiecare cere altă abordare.
 
 [cards, image + title + symptom + mechanism hint]
 
 ADORMITUL IMPOSIBIL
-Stai în pat 40 de minute cu mintea în viteza a cincea.
-Corpul e obosit, capul nu se oprește.
+Stai în pat 40 de minute și mintea continuă să râșnească.
+Corpul e obosit, capul nu se mai oprește.
 → Cortizol seara. Problema e activarea, nu lipsa de somn.
 
 TREZIREA DE LA 3
-Adormi ușor. Te trezești la 3 și rămâi treaz o oră.
+Adormi ușor dar te trezești pe la 3 și rămâi cu ochii pe pereți cel puțin o oră.
 → Glicemie sau cortizol matinal. Problema e menținerea.
 
 SOMNUL CARE NU ODIHNEȘTE
-Dormi 8 ore și te trezești ca după 4.
+Dormi 8 ore dar te trezești năuc și buimac ca după 4.
 → Somn fragmentat sau superficial. Problema e adâncimea.
 
 RITMUL DAT PESTE CAP
-Adormi la 2, te trezești la 10, și nu poți muta programul.
+Adormi la 2, te trezești la 10, și nu poți să-ți schimbi programul.
 → Ceas circadian deplasat. Problema e sincronizarea.
 
 [CTA sub grid]
@@ -186,21 +186,21 @@ Nu ești sigur? Testul îți spune în 3 minute.
 
 ```
 [H2]
-De ce nu au funcționat până acum
+De ce nu a funcționat nimic din ce ai încercat până acum?
 
 [three short paragraphs, no bullets]
 
 Ai luat melatonină și nu a mers.
 Melatonina mută ceasul biologic. Dacă problema ta e cortizolul crescut seara,
-melatonina nu are ce să rezolve. Nu era produsul greșit. Era diagnosticul greșit.
+melatonina nu are ce să rezolve. Diagnosticul era greșit, nu produsul.
 
 Ai încercat magneziu și tot te trezeai la 3.
 Magneziul susține sistemul nervos, dar nu stabilizează glicemia nocturnă.
-Dacă te trezești mereu la aceeași oră, cauza e metabolică, nu musculară.
+Dacă te trezești mereu la aceeași oră, cauza e metabolică, nu pe bază nervoasă.
 
 Ai citit că îți trebuie 8 ore.
-Necesarul individual variază. Mai important decât numărul de ore
-este consistența orei de culcare și adâncimea somnului.
+Necesarul orelor de somn variază de la om la om. Mai important decât numărul de ore
+este consistența orei de culcare și câte ore sunt de somn profund.
 ```
 
 **Why this works.** It's the most trust-generating block on the page because it explains their failure without selling. It also pre-frames the quiz as necessary rather than a marketing device.
@@ -217,14 +217,14 @@ Trei pași
 
 01 · Testul
 3 minute. 12 întrebări despre cum arată de fapt noaptea ta.
-Fără cont, fără email obligatoriu ca să vezi rezultatul.
+Fără cont, fără email obligatoriu, fără tertipuri ascunse ca să vezi rezultatul.
 
 02 · Protocolul
-Primești tipul tău, cauza probabilă, și protocolul potrivit:
-produs, doză, oră de administrare, și ce schimbi în rutină.
+Determinăm tipul tău de insomnie, cauza probabilă și ce ar fi potrivit pentru tine:
+ce să schimbi în rutină, eventual ce să iei, doză, oră de administrare etc.
 
 03 · Ajustarea
-După 3 săptămâni reevaluăm. Dacă tiparul s-a schimbat, se schimbă și protocolul.
+După 3 săptămâni reevaluăm. Dacă tiparul s-a schimbat, se schimbă și abordarea. Scopul este să-ți recapeți somnul pe termen lung folosind soluții simple, naturale, fără medicamente, fără cheltuieli inutile.
 ```
 
 **Critical decision: don't gate the quiz result behind email.** Gating kills the trust the whole page was built to establish, and the RO market is unusually allergic to it. Capture email on the follow-up ("îți trimitem protocolul complet") instead. This also keeps your GDPR consent story clean given the wellness-data sensitivity you already flagged in the architecture.

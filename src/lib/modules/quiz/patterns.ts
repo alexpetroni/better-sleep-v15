@@ -37,7 +37,7 @@ export interface SleepPattern {
  */
 export const SLEEP_PATTERNS = [
 	{
-		// "Corpul e obosit, capul nu se oprește" — evening activation:
+		// "Corpul e obosit, capul nu se mai oprește" — evening activation:
 		// guard up (ST), running lists (MN), replays (RU), self-evaluation (PE).
 		slug: 'adormitul-imposibil',
 		archetypeIds: ['ST', 'MN', 'RU', 'PE']
