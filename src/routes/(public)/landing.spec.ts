@@ -167,8 +167,6 @@ describe('landing copy is deck-verbatim', () => {
 			'Începe cu un singur obicei în seara asta. Consecvența bate perfecțiunea.'
 		);
 		expect(messages.home_final_cta).toBe('Fă testul · 3 minute');
-		expect(messages.home_final_note).toBe(
-			'Gratuit. Fără cont. Rezultatul e al tău indiferent dacă cumperi ceva.'
-		);
+		expect(messages.home_final_note).toBe('Gratuit. Fără cont. Transparent și fără tertipuri.');
 	});
 });
