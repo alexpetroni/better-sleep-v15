@@ -161,7 +161,7 @@ Corpul e obosit, dar gândurile sunt de neoprit și somnul nu mai vine.
 → Cortizol seara. Problema e activarea, nu lipsa de somn.
 
 TREZIREA DE LA 3
-Adormi ușor dar te trezești pe la 3 și rămâi cu ochii pe pereți cel puțin o oră.
+Adormi ușor dar te trezești pe la 3 și rămâi cu ochii pe pereți. Adormi iarăși spre 5 și dimineața ești mahmur.
 → Glicemie sau cortizol matinal. Problema e menținerea.
 
 SOMNUL CARE NU ODIHNEȘTE
