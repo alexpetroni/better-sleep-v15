@@ -369,14 +369,14 @@ Also state plainly: no forced subscription, cancel in one click. The RO market h
 [H2]
 Începe cu întrebarea corectă
 
-Nu "ce supliment să iau",
+Nu "ce să iau",
 ci "de ce nu dorm".
 
 [CTA]
 Fă testul · 3 minute
 
 [under]
-Gratuit. Fără cont. Rezultatul e al tău indiferent dacă cumperi ceva.
+Gratuit. Fără cont. Transparent și fără tertipuri.
 ```
 
 ---
