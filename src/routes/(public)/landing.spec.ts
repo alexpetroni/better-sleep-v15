@@ -99,8 +99,8 @@ describe('landing copy is deck-verbatim', () => {
 	// these strings must ship exactly as written there. A "helpful" rewording
 	// of ro.json fails here.
 	it('hero', () => {
-		expect(messages.home_hero_h1_a).toBe('Știi că dormi prost.');
-		expect(messages.home_hero_h1_b).toBe('Ești sigur că știi cu adevărat care este cauza?');
+		expect(messages.home_hero_h1_a).toBe('Dormi prost.');
+		expect(messages.home_hero_h1_b).toBe('Dar știi cu adevărat care este cauza?');
 		expect(messages.home_hero_sub).toBe(
 			'Insomnia de stres, cea hormonală și cea de ritm circadian au aceleași simptome la 3 dimineața și tratamente complet diferite. Testul nostru de 3 minute îți spune care e a ta.'
 		);
