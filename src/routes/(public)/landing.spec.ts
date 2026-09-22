@@ -114,12 +114,14 @@ describe('landing copy is deck-verbatim', () => {
 	});
 
 	it('section headings', () => {
-		expect(messages.home_cost_heading).toBe('Ce ți-a luat noaptea trecută');
+		expect(messages.home_cost_heading).toBe('Ce pierzi cu fiecare noapte nedormită?');
 		expect(messages.home_patterns_heading).toBe('Recunoaște-te');
 		expect(messages.home_patterns_sub).toBe(
-			'Patru tipare acoperă majoritatea insomniilor. Fiecare cere altceva.'
+			'Patru tipare acoperă majoritatea insomniilor. Fiecare cere altă abordare.'
 		);
-		expect(messages.home_reframe_heading).toBe('De ce nu au funcționat până acum');
+		expect(messages.home_reframe_heading).toBe(
+			'De ce nu a funcționat nimic din ce ai încercat până acum?'
+		);
 		expect(messages.home_steps_heading).toBe('Trei pași');
 		expect(messages.home_nightmap_heading).toBe('Ce se întâmplă între 23:00 și 07:00');
 		expect(messages.home_proof_heading).toBe('Ce poți verifica');
