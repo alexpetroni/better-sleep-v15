@@ -165,7 +165,7 @@ Adormi ușor dar te trezești pe la 3 și rămâi cu ochii pe pereți cel puțin
 → Glicemie sau cortizol matinal. Problema e menținerea.
 
 SOMNUL CARE NU ODIHNEȘTE
-Dormi 8 ore dar te trezești năuc și buimac ca după 4.
+Dormi proverbialele 8 ore dar te trezești năuc și buimac ca după 4.
 → Somn fragmentat sau superficial. Problema e adâncimea.
 
 RITMUL DAT PESTE CAP
