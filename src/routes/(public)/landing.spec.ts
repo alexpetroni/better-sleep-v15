@@ -124,7 +124,9 @@ describe('landing copy is deck-verbatim', () => {
 		);
 		expect(messages.home_steps_heading).toBe('Trei pași');
 		expect(messages.home_nightmap_heading).toBe('Ce se întâmplă între 23:00 și 07:00');
-		expect(messages.home_proof_heading).toBe('Ce poți verifica');
+		expect(messages.home_proof_heading).toBe(
+			'Când este vorba despre suplimente, la ce trebuie să fiu atent?'
+		);
 		expect(messages.home_final_heading).toBe('Începe cu întrebarea corectă');
 	});
 
@@ -153,12 +155,13 @@ describe('landing copy is deck-verbatim', () => {
 	// 2026-09-10: the site sells no program, so the refund promise was not
 	// applicable. Block 11 is now the 30-night self-experiment — what to
 	// watch, and that the difference shows in a log, not in promises.
-	it('30-night experiment and final CTA (blocks 11–12)', () => {
+	// 2026-09-22: the window is 21 nights.
+	it('21-night experiment and final CTA (blocks 11–12)', () => {
 		expect(messages.home_risk_line_a).toBe(
-			'30 de nopți. Atât îți ia să afli dacă ai nimerit cauza.'
+			'21 de nopți. Atât îți ia să afli dacă ai nimerit cauza.'
 		);
 		expect(messages.home_risk_line_b).toBe(
-			'Fă testul, aplică protocolul tipului tău și urmărește trei lucruri: în cât timp adormi, de câte ori te trezești, cum te simți la ora 10 dimineața. După 30 de nopți diferența se vede în jurnal, nu în promisiuni.'
+			'Fă testul, aplică protocolul tipului tău și ține un jurnal în care urmărești trei lucruri: în cât timp adormi, de câte ori te trezești, cum te simți la ora 10 dimineața. După 21 de nopți diferența se vede în jurnal, nu în promisiuni.'
 		);
 		expect(messages.home_risk_subscription).toBe(
 			'Începe cu un singur obicei în seara asta. Consecvența bate perfecțiunea.'

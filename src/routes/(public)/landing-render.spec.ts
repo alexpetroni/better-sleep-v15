@@ -126,6 +126,13 @@ describe('each landing block renders its own deck copy (M-15)', () => {
 			expect(title, `proof ${n}`).toBeGreaterThan(-1);
 			expect(proofBody, `proof ${n} body follows its title`).toBeGreaterThan(title);
 		}
+		// The asterisk on "Forme biodisponibile*" resolves to a footnote under
+		// the list, set smaller than the card bodies.
+		const footnote = body.indexOf(messages.home_proof_footnote);
+		expect(footnote, 'footnote follows the last card').toBeGreaterThan(
+			body.indexOf(messages.home_proof_4_body)
+		);
+		expect(body.slice(body.lastIndexOf('<', footnote), footnote)).toContain('text-xs');
 	});
 
 	it('objections (block 9): every answer sits under its own question', () => {
