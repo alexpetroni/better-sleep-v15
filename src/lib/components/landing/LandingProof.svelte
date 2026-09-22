@@ -46,5 +46,9 @@
 				</li>
 			{/each}
 		</ul>
+
+		<p use:reveal class="mt-10 max-w-3xl text-xs leading-relaxed text-(--color-ink)/55">
+			{m.home_proof_footnote()}
+		</p>
 	</div>
 </section>

@@ -268,21 +268,24 @@ Under each segment, name which of your SKUs supports that phase. That converts a
 
 ```
 [H2]
-Ce poți verifica
+Când este vorba despre suplimente, la ce trebuie să fiu atent?
 
 Doze afișate integral
 Nicio formulă proprietară. Vezi exact câte miligrame din fiecare ingredient,
 per porție, pe ambalaj și pe site.
 
-Forme biodisponibile
-Bisglicinat, nu oxid. Costă mai mult și se absoarbe mai bine.
-Diferența contează mai mult decât cantitatea de pe etichetă.
+Forme biodisponibile*
+Diferența tipului de substanță activă contează mai mult decât cantitatea de pe etichetă.
+De exemplu bisglicinat, nu oxid. De regulă costă mai mult și se absoarbe mai bine.
 
 Fără doze decorative
-Dacă un ingredient e sub pragul studiat, nu îl punem ca să arate bine pe listă.
+Unii producători pun un ingredient pe etichetă, dar cantitatea este sub pragul studiat, deci efectul tinde spre zero. Arată bine pe lista de ingrediente, produsul pare complet și cu un preț competitiv.
 
 Analize per lot
 Buletinul de analiză pentru lotul tău e accesibil după codul de pe cutie.
+
+[footnote, smaller]
+* Biodisponibilitatea reprezintă proporția (fracțiunea) și viteza cu care o substanță activă, fie ea dintr-un medicament sau un supliment, ajunge neschimbată în circulația sistemică (sânge) și devine disponibilă pentru a-și exercita efectul biologic.
 ```
 
 **This is your real differentiator against the pharmacy shelf**, where proprietary blends and magnesium oxide are the norm. It's checkable, which means it's credible, which is exactly what the Romanian supplement buyer is short of.
